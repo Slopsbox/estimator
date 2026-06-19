@@ -66,7 +66,15 @@ export function DeltagerJoinPage() {
       return;
     }
 
-    navigate('/vote');
+    // Bruker full page navigation i stedet for React Router navigate().
+    // Årsak: useSession er en hook med lokal state per komponent-instans.
+    // Med navigate('/vote') monteres Vote.tsx med EN NY useSession-instans som
+    // starter med session=null og må gjenopprette fra sessionStorage asynkront.
+    // I det korte vinduet før gjenoppretting er ferdig (initialized=false) vises
+    // ingenting og brukeren "henger" på join-siden.
+    // window.location.href tvinger full re-mount med fresh sessionStorage-lesing,
+    // slik at gjenopprettingen starter fra en ren tilstand og alltid finner dataene.
+    window.location.href = '/vote';
   };
 
   const canSubmit = name.trim().length > 0 && code.length === 4;

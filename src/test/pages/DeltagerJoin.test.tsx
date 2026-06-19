@@ -119,6 +119,22 @@ describe('DeltagerJoinPage', () => {
   });
 
   it('navigerer til /vote ved vellykket join, kaller joinSession med navn og kode', async () => {
+    // Etter fix: bruker window.location.href i stedet for React Router navigate()
+    // for å unngå race condition der en ny useSession-instans ikke har rukket å
+    // gjenopprette session fra sessionStorage før Vote.tsx redirecter til /join.
+    // jsdom støtter ikke full navigasjon, men vi kan mocke window.location.href.
+    const hrefSpy = vi.spyOn(window, 'location', 'get').mockReturnValue({
+      ...window.location,
+      href: '',
+    });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const setHrefSpy = vi.fn();
+    Object.defineProperty(window, 'location', {
+      value: { ...window.location, set href(val: string) { setHrefSpy(val); } },
+      writable: true,
+      configurable: true,
+    });
+
     const user = userEvent.setup();
     mockJoinSession.mockResolvedValueOnce(true);
     render(
@@ -131,7 +147,15 @@ describe('DeltagerJoinPage', () => {
     await user.click(screen.getByRole('button', { name: /bli med/i }));
     await waitFor(() => {
       expect(mockJoinSession).toHaveBeenCalledWith('ABCD', 'Ola');
-      expect(mockNavigate).toHaveBeenCalledWith('/vote');
+      expect(setHrefSpy).toHaveBeenCalledWith('/vote');
+    });
+
+    hrefSpy.mockRestore();
+    // Gjenopprett window.location etter test
+    Object.defineProperty(window, 'location', {
+      value: window.location,
+      writable: true,
+      configurable: true,
     });
   });
 
