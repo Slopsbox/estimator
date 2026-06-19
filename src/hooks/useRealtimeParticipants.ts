@@ -19,20 +19,22 @@ export function useRealtimeParticipants(sessionId: string | null) {
 
     setLoading(true);
 
-    // Hent eksisterende deltakere
-    void supabase
-      .from('participants')
-      .select('*')
-      .eq('session_id', sessionId)
-      .order('joined_at', { ascending: true })
-      .then(({ data, error }) => {
-        if (!error && data) {
-          setParticipants(data as Participant[]);
-        }
-        setLoading(false);
-      });
+    // Hjelper: hent eksisterende deltakere
+    const fetchInitialData = () => {
+      void supabase
+        .from('participants')
+        .select('*')
+        .eq('session_id', sessionId)
+        .order('joined_at', { ascending: true })
+        .then(({ data, error }) => {
+          if (!error && data) {
+            setParticipants(data as Participant[]);
+          }
+          setLoading(false);
+        });
+    };
 
-    // Subscribe til nye deltakere
+    // Subscribe først – hent initial data ETTER subscription er bekreftet
     const channel = supabase
       .channel(`participants:${sessionId}`)
       .on(
@@ -67,7 +69,12 @@ export function useRealtimeParticipants(sessionId: string | null) {
           );
         },
       )
-      .subscribe();
+      .subscribe((status) => {
+        if (status === 'SUBSCRIBED') {
+          // Hent initial data ETTER subscription er oppe – unngår race condition
+          fetchInitialData();
+        }
+      });
 
     return () => {
       void supabase.removeChannel(channel);

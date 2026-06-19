@@ -1,4 +1,4 @@
-import { useCallback, useRef } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 
 const CONFETTI_COLORS = [
   '#2d8a5e',
@@ -114,6 +114,19 @@ export function useConfetti() {
     }
 
     animFrameRef.current = requestAnimationFrame(draw);
+  }, []);
+
+  // Cleanup ved unmount: kanseller animasjon og fjern canvas
+  useEffect(() => {
+    return () => {
+      if (animFrameRef.current !== null) {
+        cancelAnimationFrame(animFrameRef.current);
+      }
+      if (canvasRef.current) {
+        canvasRef.current.remove();
+        canvasRef.current = null;
+      }
+    };
   }, []);
 
   return { triggerConfetti };

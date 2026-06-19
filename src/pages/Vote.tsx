@@ -181,8 +181,6 @@ export function VotePage() {
 
   // ── State W: Venter på fasilitator ─────────────────────────
   if (session && !session.started) {
-    const participantCount = undefined; // Ikke tilgjengelig her uten ekstra hook
-    void participantCount; // suppress unused warning
     return (
       <div
         className="min-h-screen flex flex-col items-center justify-center px-5 py-10"

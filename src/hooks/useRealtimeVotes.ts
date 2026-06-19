@@ -32,21 +32,23 @@ export function useRealtimeVotes(
     // Reset stemmer ved ny runde
     setVotes([]);
 
-    // Hent eksisterende stemmer for denne runden
-    void supabase
-      .from('votes')
-      .select('*')
-      .eq('session_id', sessionId)
-      .eq('round', currentRound)
-      .order('created_at', { ascending: true })
-      .then(({ data, error }) => {
-        if (!error && data) {
-          setVotes(data as Vote[]);
-        }
-        setLoading(false);
-      });
+    // Hjelper: hent eksisterende stemmer for denne runden
+    const fetchInitialData = () => {
+      void supabase
+        .from('votes')
+        .select('*')
+        .eq('session_id', sessionId)
+        .eq('round', currentRound)
+        .order('created_at', { ascending: true })
+        .then(({ data, error }) => {
+          if (!error && data) {
+            setVotes(data as Vote[]);
+          }
+          setLoading(false);
+        });
+    };
 
-    // Subscribe til nye stemmer for denne sesjonen
+    // Subscribe først – hent initial data ETTER subscription er bekreftet
     const channel = supabase
       .channel(`votes:${sessionId}:${currentRound}`)
       .on(
@@ -68,7 +70,12 @@ export function useRealtimeVotes(
           });
         },
       )
-      .subscribe();
+      .subscribe((status) => {
+        if (status === 'SUBSCRIBED') {
+          // Hent initial data ETTER subscription er oppe – unngår race condition
+          fetchInitialData();
+        }
+      });
 
     return () => {
       void supabase.removeChannel(channel);

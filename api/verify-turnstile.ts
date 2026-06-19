@@ -15,20 +15,34 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(500).json({ success: false, error: 'Server misconfigured' });
   }
 
-  const cfResponse = await fetch(
-    'https://challenges.cloudflare.com/turnstile/v0/siteverify',
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ secret, response: token }),
-    }
-  );
+  let cfResponse: Response;
+  try {
+    cfResponse = await fetch(
+      'https://challenges.cloudflare.com/turnstile/v0/siteverify',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ secret, response: token }),
+      }
+    );
+  } catch (err) {
+    console.error('[turnstile] Network error contacting Cloudflare:', err);
+    return res.status(502).json({ success: false, error: 'Could not reach Cloudflare' });
+  }
 
-  const result = await cfResponse.json() as { success: boolean };
+  const result = await cfResponse.json() as {
+    success: boolean;
+    'error-codes'?: string[];
+    hostname?: string;
+    challenge_ts?: string;
+  };
 
   if (result.success) {
     return res.status(200).json({ success: true });
   }
 
-  return res.status(403).json({ success: false, error: 'Verification failed' });
+  // Log feilkodene fra Cloudflare for debugging i Vercel-loggene
+  console.error('[turnstile] Verification failed. Error codes:', result['error-codes']);
+
+  return res.status(403).json({ success: false, error: 'Verification failed', codes: result['error-codes'] });
 }

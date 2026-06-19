@@ -30,8 +30,9 @@ export function LandingPage() {
         setVerified(false);
       }
     } catch {
-      // Nettverksfeil: graceful degradation – tillat videre
-      setVerified(true);
+      // Nettverksfeil: IKKE tillat videre – vis feilmelding
+      setVerifyError(true);
+      setVerified(false);
     }
   };
 

@@ -104,18 +104,11 @@ export function useSession() {
 
   /**
    * Opprett ny sesjon som fasilitator.
-   * Eksisterende aktive sesjoner settes til 'completed' først.
    * Genererer unik 4-tegns join_code.
    */
   const createSession = useCallback(async (facilitatorName: string): Promise<Session | null> => {
     setLoading(true);
     setError(null);
-
-    // Sett evt. eksisterende aktive sesjoner til 'completed'
-    await supabase
-      .from('sessions')
-      .update({ status: 'completed' })
-      .eq('status', 'active');
 
     // Generer unik join_code (prøv inntil 10 ganger ved kollisjon)
     let joinCode = '';

@@ -80,4 +80,17 @@ describe('useConfetti', () => {
     });
     expect(cancelRafSpy).toHaveBeenCalledWith(42);
   });
+
+  it('kansellerer animasjon og fjerner canvas ved unmount', () => {
+    const { result, unmount } = renderHook(() => useConfetti());
+
+    act(() => {
+      result.current.triggerConfetti();
+    });
+
+    // Animasjon er nå i gang (animFrameRef.current = 42)
+    unmount();
+
+    expect(cancelRafSpy).toHaveBeenCalledWith(42);
+  });
 });

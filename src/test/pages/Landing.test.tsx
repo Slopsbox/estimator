@@ -102,7 +102,7 @@ describe('LandingPage', () => {
     });
   });
 
-  it('graceful degradation: knappene aktiveres ved nettverksfeil', async () => {
+  it('nettverksfeil: knappene forblir disabled og vis feilmelding', async () => {
     const user = userEvent.setup();
     vi.spyOn(globalThis, 'fetch').mockRejectedValueOnce(new Error('Network error'));
 
@@ -115,8 +115,9 @@ describe('LandingPage', () => {
     await user.click(screen.getByTestId('mock-turnstile'));
 
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: /deltager/i })).not.toBeDisabled();
-      expect(screen.getByRole('button', { name: /fasilitator/i })).not.toBeDisabled();
+      expect(screen.getByText(/verifisering mislyktes/i)).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /deltager/i })).toBeDisabled();
+      expect(screen.getByRole('button', { name: /fasilitator/i })).toBeDisabled();
     });
   });
 });
