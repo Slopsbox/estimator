@@ -1,0 +1,62 @@
+import { useEffect, useState } from 'react';
+import { supabase } from '../lib/supabase';
+import type { Participant } from '../lib/types';
+
+/**
+ * Abonnerer på deltakerlisten for en sesjon i sanntid.
+ * Henter eksisterende deltakere ved mount og lytter på nye INSERT-events.
+ */
+export function useRealtimeParticipants(sessionId: string | null) {
+  const [participants, setParticipants] = useState<Participant[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!sessionId) {
+      setLoading(false);
+      return;
+    }
+
+    setLoading(true);
+
+    // Hent eksisterende deltakere
+    void supabase
+      .from('participants')
+      .select('*')
+      .eq('session_id', sessionId)
+      .order('joined_at', { ascending: true })
+      .then(({ data, error }) => {
+        if (!error && data) {
+          setParticipants(data as Participant[]);
+        }
+        setLoading(false);
+      });
+
+    // Subscribe til nye deltakere
+    const channel = supabase
+      .channel(`participants:${sessionId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'participants',
+          filter: `session_id=eq.${sessionId}`,
+        },
+        (payload) => {
+          setParticipants((prev) => {
+            const newParticipant = payload.new as Participant;
+            // Unngå duplikater (kan skje ved race conditions)
+            if (prev.some((p) => p.id === newParticipant.id)) return prev;
+            return [...prev, newParticipant];
+          });
+        },
+      )
+      .subscribe();
+
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+  }, [sessionId]);
+
+  return { participants, loading };
+}
