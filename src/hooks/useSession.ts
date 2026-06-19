@@ -4,6 +4,17 @@ import type { LocalParticipant, ParticipantRole, Session } from '../lib/types';
 
 const STORAGE_KEY = 'estimering_participant';
 
+// Tegn som er tillatt i join-kode: A-Z unntatt I og O, 2-9 unntatt 0 og 1
+const JOIN_CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+
+function generateJoinCode(): string {
+  let code = '';
+  for (let i = 0; i < 4; i++) {
+    code += JOIN_CODE_CHARS[Math.floor(Math.random() * JOIN_CODE_CHARS.length)];
+  }
+  return code;
+}
+
 function readFromStorage(): LocalParticipant | null {
   try {
     const raw = sessionStorage.getItem(STORAGE_KEY);
@@ -26,10 +37,10 @@ function clearStorage(): void {
 /**
  * Håndterer sesjonshåndtering for estimeringsappen.
  *
- * - Fasilitator: avslutter aktiv sesjon og oppretter ny
- * - Deltaker: finner aktiv sesjon og kobler til
+ * - Fasilitator: oppretter ny sesjon med join_code
+ * - Deltaker: finner sesjon via join_code og kobler til
  * - Lagrer participant_id i sessionStorage for å overleve refresh
- * - Abonnerer på realtime-oppdateringer på sessions-tabellen
+ * - Abonnerer på realtime-oppdateringer på sessions-tabellen (inkl. votes_revealed)
  */
 export function useSession() {
   const [session, setSession] = useState<Session | null>(null);
@@ -66,7 +77,7 @@ export function useSession() {
       });
   }, []);
 
-  /** Lytt på sesjonsendringer (ny runde, status) */
+  /** Lytt på sesjonsendringer (ny runde, status, votes_revealed) */
   useEffect(() => {
     if (!session) return;
 
@@ -93,7 +104,8 @@ export function useSession() {
 
   /**
    * Opprett ny sesjon som fasilitator.
-   * Eksisterende aktiv sesjon settes til 'completed' først.
+   * Eksisterende aktive sesjoner settes til 'completed' først.
+   * Genererer unik 4-tegns join_code.
    */
   const createSession = useCallback(async (facilitatorName: string): Promise<Session | null> => {
     setLoading(true);
@@ -105,15 +117,39 @@ export function useSession() {
       .update({ status: 'completed' })
       .eq('status', 'active');
 
-    // Opprett ny sesjon
-    const { data: sessionData, error: sessionError } = await supabase
-      .from('sessions')
-      .insert({ status: 'active', current_round: 1 })
-      .select()
-      .single();
+    // Generer unik join_code (prøv inntil 10 ganger ved kollisjon)
+    let joinCode = '';
+    let sessionData: Session | null = null;
 
-    if (sessionError || !sessionData) {
-      setError('Kunne ikke opprette sesjon. Prøv igjen.');
+    for (let attempt = 0; attempt < 10; attempt++) {
+      joinCode = generateJoinCode();
+
+      const { data, error: sessionError } = await supabase
+        .from('sessions')
+        .insert({
+          status: 'active',
+          current_round: 1,
+          join_code: joinCode,
+          votes_revealed: false,
+        })
+        .select()
+        .single();
+
+      if (!sessionError && data) {
+        sessionData = data as Session;
+        break;
+      }
+
+      // 23505 = unique constraint violation (join_code kolliderte)
+      if (sessionError?.code !== '23505') {
+        setError('Kunne ikke opprette sesjon. Prøv igjen.');
+        setLoading(false);
+        return null;
+      }
+    }
+
+    if (!sessionData) {
+      setError('Kunne ikke generere unik sesjonskode. Prøv igjen.');
       setLoading(false);
       return null;
     }
@@ -137,76 +173,63 @@ export function useSession() {
 
     const local: LocalParticipant = {
       participantId: participantData.id as string,
-      sessionId: sessionData.id as string,
+      sessionId: sessionData.id,
       name: facilitatorName,
       role: 'facilitator',
     };
 
     writeToStorage(local);
     setLocalParticipant(local);
-    setSession(sessionData as Session);
+    setSession(sessionData);
     setLoading(false);
-    return sessionData as Session;
+    return sessionData;
   }, []);
 
   /**
-   * Join aktiv sesjon som deltaker.
+   * Join sesjon via join_code som deltaker.
    */
-  const joinSession = useCallback(async (name: string): Promise<boolean> => {
+  const joinSession = useCallback(async (code: string): Promise<boolean> => {
     setLoading(true);
     setError(null);
 
-    // Finn aktiv sesjon (MVP: én aktiv sesjon)
+    const normalizedCode = code.trim().toUpperCase();
+
+    // Finn sesjon via join_code
     const { data: sessionData, error: sessionError } = await supabase
       .from('sessions')
       .select('*')
+      .eq('join_code', normalizedCode)
       .eq('status', 'active')
-      .order('created_at', { ascending: false })
-      .limit(1)
       .single();
 
     if (sessionError || !sessionData) {
-      setError('Ingen aktiv sesjon funnet. Vent til fasilitator starter en ny.');
+      setError('Feil kode — prøv igjen.');
       setLoading(false);
       return false;
     }
 
-    // Sjekk om deltaker allerede er med (ved navn-kollisjon)
-    const { data: existing } = await supabase
+    // Sjekk om deltaker allerede er med (ved navn-kollisjon, ikke aktuelt her)
+    // Registrer ny deltaker
+    const { data: participantData, error: participantError } = await supabase
       .from('participants')
-      .select('id')
-      .eq('session_id', sessionData.id)
-      .eq('name', name)
+      .insert({
+        session_id: sessionData.id,
+        name: 'Anonym',
+        role: 'participant' as ParticipantRole,
+      })
+      .select()
       .single();
 
-    let participantId: string;
-
-    if (existing) {
-      // Deltaker finnes allerede – gjenopprett
-      participantId = existing.id as string;
-    } else {
-      const { data: participantData, error: participantError } = await supabase
-        .from('participants')
-        .insert({
-          session_id: sessionData.id,
-          name,
-          role: 'participant' as ParticipantRole,
-        })
-        .select()
-        .single();
-
-      if (participantError || !participantData) {
-        setError('Kunne ikke bli med i sesjonen. Prøv igjen.');
-        setLoading(false);
-        return false;
-      }
-      participantId = participantData.id as string;
+    if (participantError || !participantData) {
+      setError('Kunne ikke bli med i sesjonen. Prøv igjen.');
+      setLoading(false);
+      return false;
     }
 
     const local: LocalParticipant = {
-      participantId,
+      participantId: participantData.id as string,
       sessionId: sessionData.id as string,
-      name,
+      name: 'Anonym',
       role: 'participant',
     };
 
@@ -217,13 +240,54 @@ export function useSession() {
     return true;
   }, []);
 
-  /** Inkrementér rundenummer (fasilitator) */
+  /**
+   * Oppdater deltaker-navn etter join (brukes i Vote-siden).
+   */
+  const updateParticipantName = useCallback(async (name: string): Promise<boolean> => {
+    const local = readFromStorage();
+    if (!local) return false;
+
+    const { error: err } = await supabase
+      .from('participants')
+      .update({ name })
+      .eq('id', local.participantId);
+
+    if (err) return false;
+
+    const updated: LocalParticipant = { ...local, name };
+    writeToStorage(updated);
+    setLocalParticipant(updated);
+    return true;
+  }, []);
+
+  /**
+   * Avslør stemmer (fasilitator).
+   */
+  const revealVotes = useCallback(async (): Promise<void> => {
+    if (!session) return;
+
+    const { error: err } = await supabase
+      .from('sessions')
+      .update({ votes_revealed: true })
+      .eq('id', session.id);
+
+    if (err) {
+      setError('Kunne ikke avsløre stemmer. Prøv igjen.');
+    }
+  }, [session]);
+
+  /**
+   * Inkrementér rundenummer og nullstill reveal (fasilitator).
+   */
   const nextRound = useCallback(async (): Promise<void> => {
     if (!session) return;
 
     const { error: err } = await supabase
       .from('sessions')
-      .update({ current_round: session.current_round + 1 })
+      .update({
+        current_round: session.current_round + 1,
+        votes_revealed: false,
+      })
       .eq('id', session.id);
 
     if (err) {
@@ -259,6 +323,8 @@ export function useSession() {
     error,
     createSession,
     joinSession,
+    updateParticipantName,
+    revealVotes,
     nextRound,
     endSession,
     logout,

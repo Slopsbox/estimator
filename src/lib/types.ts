@@ -24,6 +24,8 @@ export interface Session {
   status: SessionStatus;
   current_round: number;
   created_at: string;
+  join_code: string;
+  votes_revealed: boolean;
 }
 
 export interface Participant {

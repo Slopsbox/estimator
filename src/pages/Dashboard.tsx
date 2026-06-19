@@ -1,25 +1,48 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ParticipantList } from '../components/ParticipantList';
-import { VoteTable } from '../components/VoteTable';
 import { useRealtimeParticipants } from '../hooks/useRealtimeParticipants';
 import { useRealtimeVotes } from '../hooks/useRealtimeVotes';
 import { useSession } from '../hooks/useSession';
+import type { Participant, Size, Value, Vote } from '../lib/types';
 
 type DashboardTab = 'participants' | 'votes';
 
-/**
- * Fasilitator-dashboard.
- *
- * Flyt:
- * 1. Fasilitator skriver inn navn og starter sesjon
- * 2. Dashboard viser deltakere (Tab 1) og stemmer (Tab 2) i sanntid
- * 3. "Ny runde" inkrementerer current_round
- * 4. "Avslutt sesjon" setter status = completed
- */
+const VALUE_MEDAL: Record<Value, string> = {
+  gold: '🥇',
+  silver: '🥈',
+  bronze: '🥉',
+};
+
+/** Generer stabil initialbakgrunn basert på navn */
+function avatarColor(name: string): string {
+  const colors = [
+    'oklch(0.56 0.14 165)',
+    'oklch(0.56 0.17 35)',
+    'oklch(0.55 0.15 270)',
+    'oklch(0.55 0.16 50)',
+    'oklch(0.54 0.14 320)',
+  ];
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) {
+    hash = (hash * 31 + name.charCodeAt(i)) | 0;
+  }
+  return colors[Math.abs(hash) % colors.length];
+}
+
+function initials(name: string): string {
+  return name
+    .split(' ')
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((w) => w[0])
+    .join('')
+    .toUpperCase();
+}
+
+/** Fasilitator-dashboard (revisjon 2). */
 export function DashboardPage() {
   const navigate = useNavigate();
-  const { session, localParticipant, loading, error, createSession, nextRound, endSession, logout } =
+  const { session, localParticipant, loading, error, createSession, nextRound, endSession, revealVotes, logout } =
     useSession();
 
   const [nameInput, setNameInput] = useState('');
@@ -27,24 +50,23 @@ export function DashboardPage() {
   const [creating, setCreating] = useState(false);
   const [activeTab, setActiveTab] = useState<DashboardTab>('participants');
   const [actionLoading, setActionLoading] = useState(false);
+  const [codeCopied, setCodeCopied] = useState(false);
 
-  const { participants, loading: participantsLoading } = useRealtimeParticipants(
-    session?.id ?? null,
-  );
-  const { votes, loading: votesLoading } = useRealtimeVotes(
+  const { participants } = useRealtimeParticipants(session?.id ?? null);
+  const { votes } = useRealtimeVotes(
     session?.id ?? null,
     session?.current_round ?? 1,
+    session?.votes_revealed ?? false,
   );
 
-  // Om vi allerede er fasilitator (fra sessionStorage), vis dashboard direkte
   const isFacilitator = localParticipant?.role === 'facilitator';
 
-  // Sesjon avsluttet → logg ut og gå til landing
   useEffect(() => {
     if (session?.status === 'completed' && isFacilitator) {
-      // La fasilitator se "Sesjon avsluttet"-state før redirect
+      logout();
+      navigate('/');
     }
-  }, [session?.status, isFacilitator]);
+  }, [session?.status, isFacilitator, logout, navigate]);
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -55,14 +77,19 @@ export function DashboardPage() {
     }
     setNameError(null);
     setCreating(true);
-    const result = await createSession(name);
+    await createSession(name);
     setCreating(false);
-    if (!result) return; // error er satt i hook
   };
 
   const handleNextRound = async () => {
     setActionLoading(true);
     await nextRound();
+    setActionLoading(false);
+  };
+
+  const handleReveal = async () => {
+    setActionLoading(true);
+    await revealVotes();
     setActionLoading(false);
   };
 
@@ -76,154 +103,487 @@ export function DashboardPage() {
     navigate('/');
   };
 
+  const handleCopyCode = async () => {
+    if (!session?.join_code) return;
+    try {
+      await navigator.clipboard.writeText(session.join_code);
+      setCodeCopied(true);
+      setTimeout(() => setCodeCopied(false), 2000);
+    } catch {
+      // Fallback uten clipboard-tilgang
+    }
+  };
+
   // ── Opprett sesjon ─────────────────────────────────────────
   if (!isFacilitator || !session) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
-        <div className="w-full max-w-sm bg-white rounded-2xl shadow-sm border border-gray-100 p-8 space-y-6">
-          <div className="text-center">
-            <div className="text-4xl mb-3">🎯</div>
-            <h1 className="text-2xl font-bold text-gray-900">Start sesjon</h1>
-            <p className="mt-1 text-sm text-gray-500">
-              Opprett en ny estimeringssesjon som fasilitator
-            </p>
-          </div>
+      <div
+        className="min-h-screen flex flex-col"
+        style={{ background: 'oklch(0.965 0.012 165)' }}
+      >
+        {/* Header */}
+        <div className="flex items-center gap-3 px-4 py-4">
+          <button
+            type="button"
+            onClick={() => navigate('/')}
+            className="flex items-center justify-center w-9 h-9 rounded-xl transition-colors"
+            style={{ background: 'oklch(0.92 0.015 165)', color: 'oklch(0.30 0.08 165)' }}
+            aria-label="Tilbake"
+          >
+            <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true">
+              <path d="M11 4L6 9l5 5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </button>
+          <h1 className="text-lg font-semibold" style={{ fontFamily: 'Sora, sans-serif', color: 'oklch(0.20 0.06 165)' }}>
+            Fasilitator
+          </h1>
+        </div>
 
-          <form onSubmit={handleCreate} className="space-y-4">
-            <div>
-              <label htmlFor="facilitator-name" className="block text-sm font-medium text-gray-700 mb-1">
-                Ditt navn
-              </label>
-              <input
-                id="facilitator-name"
-                type="text"
-                value={nameInput}
-                onChange={(e) => setNameInput(e.target.value)}
-                placeholder="Fasilitators navn"
-                maxLength={60}
-                autoFocus
-                className="w-full px-4 py-3 rounded-lg border border-gray-300 text-gray-900
-                           focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              />
-              {nameError && <p className="mt-1 text-sm text-red-600">{nameError}</p>}
-              {error && <p className="mt-1 text-sm text-red-600">{error}</p>}
+        <div className="flex-1 flex flex-col items-center justify-center px-5 py-8">
+          <div
+            className="w-full max-w-sm bg-white rounded-3xl p-6 space-y-5 animate-fadeUp"
+            style={{ boxShadow: '0 2px 20px oklch(0.20 0.06 165 / 0.08)' }}
+          >
+            <div className="text-center">
+              <div className="text-4xl mb-3">🎯</div>
+              <h2 className="text-xl font-bold" style={{ fontFamily: 'Sora, sans-serif', color: 'oklch(0.20 0.06 165)' }}>
+                Start sesjon
+              </h2>
+              <p className="mt-1 text-sm" style={{ color: 'oklch(0.55 0.04 165)', fontFamily: 'DM Sans, sans-serif' }}>
+                Opprett en ny estimeringssesjon
+              </p>
             </div>
 
-            <button
-              type="submit"
-              disabled={creating || loading}
-              className={[
-                'w-full py-3 px-6 rounded-xl font-semibold text-white transition-all',
-                'focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500',
-                creating || loading
-                  ? 'bg-blue-300 cursor-not-allowed'
-                  : 'bg-blue-600 hover:bg-blue-700 active:scale-95',
-              ].join(' ')}
-            >
-              {creating || loading ? 'Starter…' : 'Start sesjon'}
-            </button>
-          </form>
+            <form onSubmit={handleCreate} className="space-y-4">
+              <div>
+                <label
+                  htmlFor="facilitator-name"
+                  className="block text-sm font-medium mb-1.5"
+                  style={{ fontFamily: 'DM Sans, sans-serif', color: 'oklch(0.35 0.05 165)' }}
+                >
+                  Ditt navn
+                </label>
+                <input
+                  id="facilitator-name"
+                  type="text"
+                  value={nameInput}
+                  onChange={(e) => setNameInput(e.target.value)}
+                  placeholder="Fasilitators navn"
+                  maxLength={60}
+                  autoFocus
+                  className="w-full px-4 py-3 rounded-xl border text-sm focus:outline-none transition-colors"
+                  style={{
+                    borderColor: 'oklch(0.88 0.02 165)',
+                    color: 'oklch(0.20 0.06 165)',
+                    fontFamily: 'DM Sans, sans-serif',
+                  }}
+                />
+                {nameError && (
+                  <p className="mt-1 text-sm" style={{ color: 'oklch(0.52 0.18 25)', fontFamily: 'DM Sans, sans-serif' }}>
+                    {nameError}
+                  </p>
+                )}
+                {error && (
+                  <p className="mt-1 text-sm" style={{ color: 'oklch(0.52 0.18 25)', fontFamily: 'DM Sans, sans-serif' }}>
+                    {error}
+                  </p>
+                )}
+              </div>
+
+              <button
+                type="submit"
+                disabled={creating || loading}
+                className="w-full py-4 rounded-2xl font-semibold text-white text-base transition-all focus:outline-none"
+                style={{
+                  fontFamily: 'Sora, sans-serif',
+                  background: creating || loading ? 'oklch(0.70 0.04 165)' : 'oklch(0.30 0.08 165)',
+                  cursor: creating || loading ? 'not-allowed' : 'pointer',
+                  opacity: creating || loading ? 0.6 : 1,
+                }}
+              >
+                {creating || loading ? 'Starter…' : 'Start sesjon'}
+              </button>
+            </form>
+          </div>
         </div>
       </div>
     );
   }
 
+  // Tell deltakere som har stemt (ikke fasilitator)
+  const voterParticipants = participants.filter((p) => p.role === 'participant');
+  const votedCount = votes.length;
+  const totalCount = voterParticipants.length;
+  const progressPct = totalCount > 0 ? (votedCount / totalCount) * 100 : 0;
+
+  const joinCodeDots = [
+    { color: 'oklch(0.56 0.14 165)' },
+    { color: 'oklch(0.56 0.17 35)' },
+    { color: 'oklch(0.55 0.15 270)' },
+    { color: 'oklch(0.55 0.16 50)' },
+  ];
+
   // ── Dashboard ──────────────────────────────────────────────
   return (
-    <div className="min-h-screen bg-gray-50 p-4">
-      <div className="max-w-2xl mx-auto space-y-6">
-        {/* Header */}
-        <div className="flex items-start justify-between pt-4">
-          <div>
-            <h1 className="text-xl font-bold text-gray-900">Fasilitator-dashboard</h1>
-            <p className="text-sm text-gray-500">
-              Runde {session.current_round} · {participants.length} deltaker
-              {participants.length !== 1 ? 'e' : ''}
+    <div className="min-h-screen flex flex-col" style={{ background: 'oklch(0.965 0.012 165)' }}>
+      {/* Mørk header */}
+      <div
+        className="px-4 py-3 flex items-center gap-3"
+        style={{ background: 'oklch(0.24 0.08 165)' }}
+      >
+        <button
+          type="button"
+          onClick={() => { logout(); navigate('/'); }}
+          className="flex items-center justify-center w-9 h-9 rounded-xl transition-colors"
+          style={{ background: 'oklch(0.32 0.08 165)', color: 'white' }}
+          aria-label="Tilbake"
+        >
+          <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true">
+            <path d="M11 4L6 9l5 5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        </button>
+
+        <span
+          className="text-base font-semibold text-white flex-1"
+          style={{ fontFamily: 'Sora, sans-serif' }}
+        >
+          Fasilitator
+        </span>
+
+        {/* Runde-badge */}
+        <span
+          className="text-xs px-2.5 py-1 rounded-full font-medium"
+          style={{
+            background: 'oklch(0.32 0.08 165)',
+            color: 'oklch(0.85 0.06 165)',
+            fontFamily: 'DM Sans, sans-serif',
+          }}
+        >
+          Runde {session.current_round}
+        </span>
+
+        {/* Avslutt-knapp */}
+        <button
+          type="button"
+          onClick={handleEndSession}
+          disabled={actionLoading}
+          className="text-xs px-3 py-1.5 rounded-lg font-semibold text-white transition-all focus:outline-none"
+          style={{
+            background: 'oklch(0.52 0.18 25)',
+            fontFamily: 'Sora, sans-serif',
+            opacity: actionLoading ? 0.6 : 1,
+          }}
+        >
+          Avslutt
+        </button>
+      </div>
+
+      {/* Progress bar */}
+      <div
+        className="h-1.5 w-full"
+        style={{ background: 'oklch(0.88 0.03 165)' }}
+      >
+        <div
+          className="h-full transition-all duration-500"
+          style={{
+            width: `${progressPct}%`,
+            background: 'oklch(0.62 0.17 35)',
+          }}
+        />
+      </div>
+
+      <div className="flex-1 px-4 py-4 space-y-4 overflow-y-auto">
+        {/* Sesjonskode-kort */}
+        <div
+          className="rounded-2xl px-5 py-4 space-y-1"
+          style={{ background: 'oklch(0.24 0.08 165)' }}
+        >
+          <div className="flex items-center justify-between mb-2">
+            <p
+              className="text-xs"
+              style={{ color: 'oklch(0.75 0.05 165)', fontFamily: 'DM Sans, sans-serif' }}
+            >
+              Del med deltakere
             </p>
+            {/* Fargede dots */}
+            <div className="flex gap-1.5">
+              {joinCodeDots.map((dot, i) => (
+                <div
+                  key={i}
+                  className="w-2.5 h-2.5 rounded-full"
+                  style={{ background: dot.color }}
+                />
+              ))}
+            </div>
           </div>
-          <span
-            className={[
-              'text-xs px-2 py-1 rounded-full font-medium',
-              session.status === 'active'
-                ? 'bg-green-100 text-green-700'
-                : 'bg-gray-100 text-gray-500',
-            ].join(' ')}
-          >
-            {session.status === 'active' ? '● Aktiv' : '● Avsluttet'}
-          </span>
-        </div>
-
-        {/* Handlingsknapper */}
-        <div className="flex gap-3">
-          <button
-            type="button"
-            onClick={handleNextRound}
-            disabled={actionLoading || session.status !== 'active'}
-            className={[
-              'flex-1 py-3 px-4 rounded-xl font-semibold transition-all text-sm',
-              'focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500',
-              !actionLoading && session.status === 'active'
-                ? 'bg-blue-600 text-white hover:bg-blue-700 active:scale-95'
-                : 'bg-gray-200 text-gray-400 cursor-not-allowed',
-            ].join(' ')}
-          >
-            🔄 Ny runde
-          </button>
 
           <button
             type="button"
-            onClick={handleEndSession}
-            disabled={actionLoading || session.status !== 'active'}
-            className={[
-              'flex-1 py-3 px-4 rounded-xl font-semibold transition-all text-sm',
-              'focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500',
-              !actionLoading && session.status === 'active'
-                ? 'bg-red-600 text-white hover:bg-red-700 active:scale-95'
-                : 'bg-gray-200 text-gray-400 cursor-not-allowed',
-            ].join(' ')}
+            onClick={handleCopyCode}
+            className="w-full text-center transition-all focus:outline-none"
           >
-            🛑 Avslutt sesjon
+            <span
+              className="text-5xl font-extrabold tracking-[0.25em] text-white block"
+              style={{ fontFamily: 'Sora, sans-serif' }}
+            >
+              {session.join_code}
+            </span>
+            <span
+              className="text-xs mt-1 block"
+              style={{ color: codeCopied ? 'oklch(0.75 0.15 165)' : 'oklch(0.60 0.05 165)', fontFamily: 'DM Sans, sans-serif' }}
+            >
+              {codeCopied ? '✓ Kopiert!' : 'Trykk for å kopiere'}
+            </span>
           </button>
         </div>
 
         {/* Tabs */}
-        <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
-          <div className="flex border-b border-gray-100">
+        <div
+          className="bg-white rounded-2xl overflow-hidden"
+          style={{ boxShadow: '0 2px 16px oklch(0.20 0.06 165 / 0.07)' }}
+        >
+          {/* Tab-header */}
+          <div
+            className="flex border-b"
+            style={{ borderColor: 'oklch(0.93 0.015 165)' }}
+          >
             <button
               type="button"
               onClick={() => setActiveTab('participants')}
-              className={[
-                'flex-1 py-3 text-sm font-semibold transition-colors',
-                activeTab === 'participants'
-                  ? 'border-b-2 border-blue-600 text-blue-600'
-                  : 'text-gray-500 hover:text-gray-700',
-              ].join(' ')}
+              className="flex-1 py-3 text-sm font-semibold transition-colors focus:outline-none"
+              style={{
+                fontFamily: 'Sora, sans-serif',
+                color: activeTab === 'participants' ? 'oklch(0.30 0.08 165)' : 'oklch(0.55 0.04 165)',
+                borderBottom: activeTab === 'participants' ? '2px solid oklch(0.30 0.08 165)' : '2px solid transparent',
+              }}
             >
-              👥 Deltakere ({participants.length})
+              👥 Deltakere
             </button>
             <button
               type="button"
               onClick={() => setActiveTab('votes')}
-              className={[
-                'flex-1 py-3 text-sm font-semibold transition-colors',
-                activeTab === 'votes'
-                  ? 'border-b-2 border-blue-600 text-blue-600'
-                  : 'text-gray-500 hover:text-gray-700',
-              ].join(' ')}
+              className="flex-1 py-3 text-sm font-semibold transition-colors focus:outline-none"
+              style={{
+                fontFamily: 'Sora, sans-serif',
+                color: activeTab === 'votes' ? 'oklch(0.30 0.08 165)' : 'oklch(0.55 0.04 165)',
+                borderBottom: activeTab === 'votes' ? '2px solid oklch(0.30 0.08 165)' : '2px solid transparent',
+              }}
             >
-              🗳️ Stemmer ({votes.length})
+              🗳️ Stemmer
             </button>
           </div>
 
+          {/* Tab-innhold */}
           <div className="p-4">
             {activeTab === 'participants' ? (
-              <ParticipantList participants={participants} loading={participantsLoading} />
+              <ParticipantsTab participants={participants} />
             ) : (
-              <VoteTable votes={votes} participants={participants} loading={votesLoading} />
+              <VotesTab
+                participants={voterParticipants}
+                votes={votes}
+                revealed={session.votes_revealed}
+                votedCount={votedCount}
+                totalCount={totalCount}
+                actionLoading={actionLoading}
+                onReveal={handleReveal}
+                onNextRound={handleNextRound}
+              />
             )}
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+// ── Sub-komponenter ─────────────────────────────────────────
+
+function ParticipantsTab({ participants }: { participants: Participant[] }) {
+  if (participants.length === 0) {
+    return (
+      <p
+        className="text-sm text-center py-4"
+        style={{ color: 'oklch(0.55 0.04 165)', fontFamily: 'DM Sans, sans-serif' }}
+      >
+        Ingen deltakere ennå.
+      </p>
+    );
+  }
+
+  return (
+    <ul className="space-y-2">
+      {participants.map((p) => (
+        <li key={p.id} className="flex items-center gap-3 py-1">
+          {/* Avatar med initialer */}
+          <div
+            className="w-9 h-9 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0"
+            style={{ background: avatarColor(p.name), fontFamily: 'Sora, sans-serif' }}
+          >
+            {initials(p.name)}
+          </div>
+          <span
+            className="flex-1 text-sm font-medium"
+            style={{ color: 'oklch(0.20 0.06 165)', fontFamily: 'DM Sans, sans-serif' }}
+          >
+            {p.name}
+          </span>
+          {/* Online-dot */}
+          <div
+            className="w-2 h-2 rounded-full"
+            style={{ background: 'oklch(0.55 0.16 165)' }}
+          />
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+interface VotesTabProps {
+  participants: Participant[];
+  votes: Vote[];
+  revealed: boolean;
+  votedCount: number;
+  totalCount: number;
+  actionLoading: boolean;
+  onReveal: () => void;
+  onNextRound: () => void;
+}
+
+function VotesTab({
+  participants,
+  votes,
+  revealed,
+  votedCount,
+  totalCount,
+  actionLoading,
+  onReveal,
+  onNextRound,
+}: VotesTabProps) {
+  // Bygg oppslag: participantId → vote
+  const voteMap = new Map(votes.map((v) => [v.participant_id, v]));
+
+  return (
+    <div className="space-y-4">
+      {/* Reveal-panel */}
+      <div
+        className="rounded-xl p-3 space-y-2"
+        style={{ background: 'oklch(0.97 0.010 165)' }}
+      >
+        <p
+          className="text-sm text-center"
+          style={{ fontFamily: 'DM Sans, sans-serif', color: 'oklch(0.40 0.05 165)' }}
+        >
+          {votedCount} av {totalCount} har stemt
+        </p>
+        {!revealed ? (
+          <button
+            type="button"
+            onClick={onReveal}
+            disabled={actionLoading || votedCount === 0}
+            className="w-full py-3 rounded-xl font-semibold text-white text-sm transition-all focus:outline-none"
+            style={{
+              fontFamily: 'Sora, sans-serif',
+              background:
+                actionLoading || votedCount === 0
+                  ? 'oklch(0.75 0.04 165)'
+                  : 'oklch(0.30 0.08 165)',
+              cursor: actionLoading || votedCount === 0 ? 'not-allowed' : 'pointer',
+              opacity: actionLoading || votedCount === 0 ? 0.6 : 1,
+            }}
+          >
+            Vis resultater 🃏
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={onNextRound}
+            disabled={actionLoading}
+            className="w-full py-3 rounded-xl font-semibold text-white text-sm transition-all focus:outline-none flex items-center justify-center gap-2"
+            style={{
+              fontFamily: 'Sora, sans-serif',
+              background: actionLoading ? 'oklch(0.75 0.04 165)' : 'oklch(0.56 0.17 35)',
+              cursor: actionLoading ? 'not-allowed' : 'pointer',
+              opacity: actionLoading ? 0.6 : 1,
+            }}
+          >
+            {/* Rotasjon-SVG */}
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 16 16"
+              fill="none"
+              aria-hidden="true"
+              style={actionLoading ? { animation: 'spin 1s linear infinite' } : undefined}
+            >
+              <path
+                d="M13.5 8A5.5 5.5 0 1 1 8 2.5M13.5 2.5v3h-3"
+                stroke="currentColor"
+                strokeWidth="1.7"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+            Ny runde
+          </button>
+        )}
+      </div>
+
+      {/* Stemmeliste */}
+      {participants.length === 0 ? (
+        <p
+          className="text-sm text-center py-2"
+          style={{ color: 'oklch(0.55 0.04 165)', fontFamily: 'DM Sans, sans-serif' }}
+        >
+          Ingen deltakere ennå.
+        </p>
+      ) : (
+        <ul className="space-y-2">
+          {participants.map((p) => {
+            const vote = voteMap.get(p.id);
+            return (
+              <li key={p.id} className="flex items-center gap-3">
+                <div
+                  className="w-9 h-9 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0"
+                  style={{ background: avatarColor(p.name), fontFamily: 'Sora, sans-serif' }}
+                >
+                  {initials(p.name)}
+                </div>
+                <span
+                  className="flex-1 text-sm font-medium"
+                  style={{ color: 'oklch(0.20 0.06 165)', fontFamily: 'DM Sans, sans-serif' }}
+                >
+                  {p.name}
+                </span>
+                {/* Stemme-status */}
+                {vote ? (
+                  revealed ? (
+                    <span
+                      className="text-sm font-bold"
+                      style={{ fontFamily: 'Sora, sans-serif', color: 'oklch(0.30 0.08 165)' }}
+                    >
+                      {(vote as unknown as { size: Size }).size.toUpperCase()} {VALUE_MEDAL[(vote as unknown as { value: Value }).value]}
+                    </span>
+                  ) : (
+                    <span
+                      className="text-xs font-medium"
+                      style={{ color: 'oklch(0.55 0.16 165)', fontFamily: 'DM Sans, sans-serif' }}
+                    >
+                      Klar ✓
+                    </span>
+                  )
+                ) : (
+                  <span
+                    className="text-xs"
+                    style={{ color: 'oklch(0.65 0.04 165)', fontFamily: 'DM Sans, sans-serif' }}
+                  >
+                    Venter…
+                  </span>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      )}
     </div>
   );
 }

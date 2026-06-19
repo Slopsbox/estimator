@@ -14,14 +14,22 @@ vi.mock('@marsidev/react-turnstile', () => ({
 }));
 
 describe('LandingPage', () => {
-  it('viser tittel og to knapper', () => {
+  it('viser tittel Estimat', () => {
     render(
       <MemoryRouter>
         <LandingPage />
       </MemoryRouter>,
     );
-    expect(screen.getByText('Estimering')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /deltaker/i })).toBeInTheDocument();
+    expect(screen.getByText('Estimat')).toBeInTheDocument();
+  });
+
+  it('viser Deltager- og Fasilitator-knapper', () => {
+    render(
+      <MemoryRouter>
+        <LandingPage />
+      </MemoryRouter>,
+    );
+    expect(screen.getByRole('button', { name: /deltager/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /fasilitator/i })).toBeInTheDocument();
   });
 
@@ -31,7 +39,7 @@ describe('LandingPage', () => {
         <LandingPage />
       </MemoryRouter>,
     );
-    expect(screen.getByRole('button', { name: /deltaker/i })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /deltager/i })).toBeDisabled();
     expect(screen.getByRole('button', { name: /fasilitator/i })).toBeDisabled();
   });
 
@@ -45,7 +53,16 @@ describe('LandingPage', () => {
 
     await user.click(screen.getByTestId('mock-turnstile'));
 
-    expect(screen.getByRole('button', { name: /deltaker/i })).not.toBeDisabled();
+    expect(screen.getByRole('button', { name: /deltager/i })).not.toBeDisabled();
     expect(screen.getByRole('button', { name: /fasilitator/i })).not.toBeDisabled();
+  });
+
+  it('viser veiledningstest om verifisering', () => {
+    render(
+      <MemoryRouter>
+        <LandingPage />
+      </MemoryRouter>,
+    );
+    expect(screen.getByText(/bekreft at du er et menneske/i)).toBeInTheDocument();
   });
 });

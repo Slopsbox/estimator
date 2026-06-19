@@ -1,47 +1,81 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { SizeSelector } from '../components/SizeSelector';
-import { ValueSelector } from '../components/ValueSelector';
+import { useConfetti } from '../hooks/useConfetti';
 import { useSession } from '../hooks/useSession';
 import { supabase } from '../lib/supabase';
 import type { Size, Value } from '../lib/types';
 
-type VoteStep = 'name' | 'voting' | 'voted';
+const SIZES: { key: Size; label: string }[] = [
+  { key: 'xs', label: 'XS' },
+  { key: 's', label: 'S' },
+  { key: 'm', label: 'M' },
+  { key: 'l', label: 'L' },
+  { key: 'xl', label: 'XL' },
+];
+
+const VALUES: { key: Value; emoji: string; label: string; desc: string }[] = [
+  { key: 'gold', emoji: '🥇', label: 'Gull', desc: 'Høy verdi' },
+  { key: 'silver', emoji: '🥈', label: 'Sølv', desc: 'Middels' },
+  { key: 'bronze', emoji: '🥉', label: 'Bronse', desc: 'Lav verdi' },
+];
+
+const VALUE_MEDAL: Record<Value, string> = {
+  gold: '🥇',
+  silver: '🥈',
+  bronze: '🥉',
+};
+
+const SIZE_ORDER: Record<Size, number> = { xs: 0, s: 1, m: 2, l: 3, xl: 4 };
 
 /**
- * Deltaker-side.
- *
- * Flyt:
- * 1. Spør om navn (om ikke allerede i sessionStorage)
- * 2. Vis stemme-UI (størrelse + verdi)
- * 3. Etter stemming: vis bekreftelse
- * 4. Lytter på current_round via useSession → resetter UI ved ny runde
+ * Deltaker Vote-side – tre states:
+ * A) notVoted: stemmeform
+ * B) hasVoted && !revealed: venter på fasilitator
+ * C) hasVoted && revealed: vis resultater med konfetti
  */
 export function VotePage() {
   const navigate = useNavigate();
-  const { session, localParticipant, loading, error, joinSession, logout } = useSession();
+  const { session, localParticipant, logout, updateParticipantName } = useSession();
+  const { triggerConfetti } = useConfetti();
 
-  const [step, setStep] = useState<VoteStep>('name');
-  const [nameInput, setNameInput] = useState('');
-  const [nameError, setNameError] = useState<string | null>(null);
-  const [joining, setJoining] = useState(false);
+  // Navn-state (lagres i sessionStorage separat)
+  const [name, setName] = useState(() => {
+    return sessionStorage.getItem('estimering_vote_name') ?? '';
+  });
+  const [nameInput, setNameInput] = useState(name);
 
   const [selectedSize, setSelectedSize] = useState<Size | null>(null);
   const [selectedValue, setSelectedValue] = useState<Value | null>(null);
+  const [hasVoted, setHasVoted] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
 
-  // Holder styr på forrige runde for å detektere endring
+  // Sanntids-stemmer for denne runden
+  const [votes, setVotes] = useState<Array<{
+    id: string;
+    participant_id: string;
+    size: Size;
+    value: Value;
+    round?: number;
+  }>>([]);
+
+  // Revealed-state fra session
+  const revealed = session?.votes_revealed ?? false;
+
+  // Runde-tracking for reset
   const prevRoundRef = useRef<number | null>(null);
+  // Konfetti trigges kun én gang per reveal
+  const confettiTriggeredRef = useRef(false);
 
-  // Hvis vi allerede har localParticipant fra sessionStorage → gå direkte til voting
+  // Trigger konfetti ved reveal
   useEffect(() => {
-    if (localParticipant && session) {
-      setStep('voting');
+    if (revealed && hasVoted && !confettiTriggeredRef.current) {
+      confettiTriggeredRef.current = true;
+      triggerConfetti();
     }
-  }, [localParticipant, session]);
+  }, [revealed, hasVoted, triggerConfetti]);
 
-  // Lytt på rundeendring → reset UI
+  // Reset ved ny runde
   useEffect(() => {
     if (!session) return;
     if (prevRoundRef.current === null) {
@@ -50,47 +84,79 @@ export function VotePage() {
     }
     if (session.current_round !== prevRoundRef.current) {
       prevRoundRef.current = session.current_round;
-      // Reset stemme-UI
       setSelectedSize(null);
       setSelectedValue(null);
+      setHasVoted(false);
       setSubmitError(null);
-      setStep('voting');
+      confettiTriggeredRef.current = false;
+      setVotes([]);
     }
   }, [session?.current_round]);
 
-  // Sesjon avsluttet → tilbake til landing
+  // Last inn stemmer når session og round er kjent
+  useEffect(() => {
+    if (!session) return;
+    void supabase
+      .from('votes')
+      .select('id, participant_id, size, value')
+      .eq('session_id', session.id)
+      .eq('round', session.current_round)
+      .then(({ data }) => {
+        if (data) setVotes(data as typeof votes);
+      });
+
+    const channel = supabase
+      .channel(`vote-page:${session.id}:${session.current_round}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'votes',
+          filter: `session_id=eq.${session.id}`,
+        },
+        (payload) => {
+          const v = payload.new as { id: string; participant_id: string; size: Size; value: Value; round: number };
+          if (v.round !== session.current_round) return;
+          setVotes((prev) => prev.some((x) => x.id === v.id) ? prev : [...prev, v]);
+        },
+      )
+      .subscribe();
+
+    return () => { void supabase.removeChannel(channel); };
+  }, [session?.id, session?.current_round]);
+
+  // Sesjon avsluttet
   useEffect(() => {
     if (session?.status === 'completed') {
-      alert('Sesjonen er avsluttet av fasilitator.');
       logout();
       navigate('/');
     }
   }, [session?.status, logout, navigate]);
 
-  const handleJoin = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const name = nameInput.trim();
-    if (!name) {
-      setNameError('Skriv inn et navn for å fortsette.');
-      return;
+  // Rediger til ingen sesjon
+  useEffect(() => {
+    if (!session && !localParticipant) {
+      navigate('/join');
     }
-    setNameError(null);
-    setJoining(true);
-    const ok = await joinSession(name);
-    setJoining(false);
-    if (ok) {
-      setStep('voting');
-    }
-  };
+  }, [session, localParticipant, navigate]);
+
+  const canVote = selectedSize !== null && selectedValue !== null && name.trim().length > 0;
 
   const handleVote = async () => {
-    if (!selectedSize || !selectedValue || !localParticipant || !session) return;
+    if (!canVote || !session || !localParticipant) return;
+
+    const trimmedName = name.trim();
+
+    // Lagre navn i sessionStorage og oppdater deltaker
+    sessionStorage.setItem('estimering_vote_name', trimmedName);
+    await updateParticipantName(trimmedName);
 
     setSubmitting(true);
     setSubmitError(null);
 
     const { error: voteError } = await supabase.from('votes').insert({
-      session_id: localParticipant.sessionId,
+      session_id: session.id,
       participant_id: localParticipant.participantId,
       round: session.current_round,
       size: selectedSize,
@@ -108,140 +174,412 @@ export function VotePage() {
       return;
     }
 
-    setStep('voted');
+    setHasVoted(true);
+    // Legg til egen stemme lokalt
+    setVotes((prev) => [
+      ...prev,
+      {
+        id: crypto.randomUUID(),
+        participant_id: localParticipant.participantId,
+        size: selectedSize!,
+        value: selectedValue!,
+      },
+    ]);
   };
 
-  // ── Navn-steg ──────────────────────────────────────────────
-  if (step === 'name') {
+  // ── State A: Stemmeform ─────────────────────────────────────
+  if (!hasVoted) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
-        <div className="w-full max-w-sm bg-white rounded-2xl shadow-sm border border-gray-100 p-8 space-y-6">
-          <div className="text-center">
-            <div className="text-4xl mb-3">👤</div>
-            <h1 className="text-2xl font-bold text-gray-900">Bli med</h1>
-            <p className="mt-1 text-sm text-gray-500">Skriv inn navnet ditt for å delta</p>
-          </div>
-
-          <form onSubmit={handleJoin} className="space-y-4">
-            <div>
-              <label htmlFor="name" className="block text-sm font-medium text-gray-700 mb-1">
-                Navn
-              </label>
-              <input
-                id="name"
-                type="text"
-                value={nameInput}
-                onChange={(e) => setNameInput(e.target.value)}
-                placeholder="Ditt navn"
-                maxLength={60}
-                autoFocus
-                className="w-full px-4 py-3 rounded-lg border border-gray-300 text-gray-900 
-                           focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              />
-              {nameError && <p className="mt-1 text-sm text-red-600">{nameError}</p>}
-              {error && <p className="mt-1 text-sm text-red-600">{error}</p>}
-            </div>
-
-            <button
-              type="submit"
-              disabled={joining || loading}
-              className={[
-                'w-full py-3 px-6 rounded-xl font-semibold text-white transition-all',
-                'focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500',
-                joining || loading
-                  ? 'bg-blue-300 cursor-not-allowed'
-                  : 'bg-blue-600 hover:bg-blue-700 active:scale-95',
-              ].join(' ')}
-            >
-              {joining || loading ? 'Kobler til…' : 'Bli med'}
-            </button>
-          </form>
-        </div>
-      </div>
-    );
-  }
-
-  // ── Stemt ──────────────────────────────────────────────────
-  if (step === 'voted') {
-    return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
-        <div className="w-full max-w-sm bg-white rounded-2xl shadow-sm border border-gray-100 p-8 text-center space-y-4">
-          <div className="text-6xl">✓</div>
-          <h2 className="text-2xl font-bold text-green-700">Stemme registrert!</h2>
-          <p className="text-gray-500 text-sm">
-            Vent til fasilitator starter en ny runde.
-          </p>
-          {session && (
-            <p className="text-xs text-gray-400">Runde {session.current_round}</p>
-          )}
-        </div>
-      </div>
-    );
-  }
-
-  // ── Stemme-UI ──────────────────────────────────────────────
-  const canVote = selectedSize !== null && selectedValue !== null;
-
-  return (
-    <div className="min-h-screen bg-gray-50 p-4">
-      <div className="max-w-lg mx-auto space-y-6">
+      <div
+        className="min-h-screen flex flex-col"
+        style={{ background: 'oklch(0.965 0.012 165)' }}
+      >
         {/* Header */}
-        <div className="flex items-center justify-between pt-4">
-          <div>
-            <h1 className="text-xl font-bold text-gray-900">
-              Hei, {localParticipant?.name ?? ''}!
-            </h1>
-            {session && (
-              <p className="text-sm text-gray-500">Runde {session.current_round}</p>
-            )}
-          </div>
+        <div
+          className="flex items-center gap-3 px-4 py-4"
+          style={{ borderBottom: '1px solid oklch(0.92 0.015 165)' }}
+        >
           <button
             type="button"
             onClick={() => { logout(); navigate('/'); }}
-            className="text-xs text-gray-400 hover:text-gray-600 underline"
+            className="flex items-center justify-center w-9 h-9 rounded-xl transition-colors"
+            style={{ background: 'oklch(0.92 0.015 165)', color: 'oklch(0.30 0.08 165)' }}
+            aria-label="Tilbake"
           >
-            Forlat
+            <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true">
+              <path d="M11 4L6 9l5 5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
           </button>
+          <h1
+            className="text-lg font-semibold"
+            style={{ fontFamily: 'Sora, sans-serif', color: 'oklch(0.20 0.06 165)' }}
+          >
+            Deltager
+          </h1>
+          {session && (
+            <span
+              className="ml-auto text-xs px-2 py-0.5 rounded-full font-medium"
+              style={{
+                background: 'oklch(0.92 0.015 165)',
+                color: 'oklch(0.40 0.06 165)',
+                fontFamily: 'DM Sans, sans-serif',
+              }}
+            >
+              Runde {session.current_round}
+            </span>
+          )}
         </div>
 
-        {/* Størrelse */}
-        <div className="bg-white rounded-2xl border border-gray-100 p-6 space-y-4">
-          <h2 className="font-semibold text-gray-700 text-center">Velg størrelse</h2>
-          <SizeSelector
-            selected={selectedSize}
-            onChange={setSelectedSize}
-            disabled={submitting}
-          />
-        </div>
+        {/* Skjema-kort */}
+        <div className="flex-1 px-4 py-6 space-y-4">
+          <div
+            className="bg-white rounded-3xl p-5 space-y-5 animate-fadeUp"
+            style={{ boxShadow: '0 2px 20px oklch(0.20 0.06 165 / 0.07)' }}
+          >
+            <div className="text-center">
+              <h2
+                className="text-xl font-bold"
+                style={{ fontFamily: 'Sora, sans-serif', color: 'oklch(0.20 0.06 165)' }}
+              >
+                Din stemme
+              </h2>
+              <p
+                className="text-sm mt-1"
+                style={{ color: 'oklch(0.55 0.04 165)', fontFamily: 'DM Sans, sans-serif' }}
+              >
+                Velg størrelse og verdi, og stem
+              </p>
+            </div>
 
-        {/* Verdi */}
-        <div className="bg-white rounded-2xl border border-gray-100 p-6 space-y-4">
-          <h2 className="font-semibold text-gray-700 text-center">Velg forretningsverdi</h2>
-          <ValueSelector
-            selected={selectedValue}
-            onChange={setSelectedValue}
-            disabled={submitting}
-          />
-        </div>
+            {/* Navn */}
+            <div>
+              <label
+                htmlFor="vote-name"
+                className="block text-sm font-medium mb-1.5"
+                style={{ fontFamily: 'DM Sans, sans-serif', color: 'oklch(0.35 0.05 165)' }}
+              >
+                Ditt navn
+              </label>
+              <input
+                id="vote-name"
+                type="text"
+                value={nameInput}
+                onChange={(e) => {
+                  setNameInput(e.target.value);
+                  setName(e.target.value);
+                }}
+                placeholder="Skriv inn ditt navn"
+                maxLength={60}
+                autoFocus
+                className="w-full px-4 py-3 rounded-xl border text-sm focus:outline-none transition-colors"
+                style={{
+                  borderColor: 'oklch(0.88 0.02 165)',
+                  color: 'oklch(0.20 0.06 165)',
+                  fontFamily: 'DM Sans, sans-serif',
+                }}
+              />
+            </div>
 
-        {/* Stem-knapp */}
-        {submitError && (
-          <p className="text-sm text-red-600 text-center">{submitError}</p>
-        )}
-        <button
-          type="button"
-          onClick={handleVote}
-          disabled={!canVote || submitting}
-          className={[
-            'w-full py-4 rounded-xl font-bold text-lg transition-all',
-            'focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500',
-            canVote && !submitting
-              ? 'bg-blue-600 text-white hover:bg-blue-700 active:scale-95 shadow-md'
-              : 'bg-gray-200 text-gray-400 cursor-not-allowed',
-          ].join(' ')}
+            {/* Størrelse */}
+            <div>
+              <p
+                className="text-sm font-medium mb-2"
+                style={{ fontFamily: 'DM Sans, sans-serif', color: 'oklch(0.35 0.05 165)' }}
+              >
+                Størrelse
+              </p>
+              <div className="flex gap-2">
+                {SIZES.map(({ key, label }) => (
+                  <button
+                    key={key}
+                    type="button"
+                    onClick={() => setSelectedSize(key)}
+                    disabled={submitting}
+                    aria-pressed={selectedSize === key}
+                    className="flex-1 py-3 rounded-xl font-bold text-sm transition-all focus:outline-none"
+                    style={{
+                      fontFamily: 'Sora, sans-serif',
+                      background: selectedSize === key
+                        ? 'oklch(0.30 0.08 165)'
+                        : 'oklch(0.94 0.015 165)',
+                      color: selectedSize === key ? 'white' : 'oklch(0.35 0.05 165)',
+                      transform: selectedSize === key ? 'scale(1.04)' : 'scale(1)',
+                      boxShadow: selectedSize === key
+                        ? '0 2px 10px oklch(0.30 0.08 165 / 0.35)'
+                        : 'none',
+                    }}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Verdi */}
+            <div>
+              <p
+                className="text-sm font-medium mb-2"
+                style={{ fontFamily: 'DM Sans, sans-serif', color: 'oklch(0.35 0.05 165)' }}
+              >
+                Forretningsverdi
+              </p>
+              <div className="flex gap-2">
+                {VALUES.map(({ key, emoji, label, desc }) => (
+                  <button
+                    key={key}
+                    type="button"
+                    onClick={() => setSelectedValue(key)}
+                    disabled={submitting}
+                    aria-pressed={selectedValue === key}
+                    className="flex-1 flex flex-col items-center py-4 rounded-2xl transition-all focus:outline-none"
+                    style={{
+                      minHeight: '100px',
+                      background: selectedValue === key
+                        ? 'oklch(0.30 0.08 165)'
+                        : 'oklch(0.94 0.015 165)',
+                      transform: selectedValue === key ? 'scale(1.04)' : 'scale(1)',
+                      boxShadow: selectedValue === key
+                        ? '0 2px 10px oklch(0.30 0.08 165 / 0.35)'
+                        : 'none',
+                    }}
+                  >
+                    <span className="text-2xl mb-1">{emoji}</span>
+                    <span
+                      className="text-xs font-bold"
+                      style={{
+                        fontFamily: 'Sora, sans-serif',
+                        color: selectedValue === key ? 'white' : 'oklch(0.30 0.08 165)',
+                      }}
+                    >
+                      {label}
+                    </span>
+                    <span
+                      className="text-xs mt-0.5"
+                      style={{
+                        fontFamily: 'DM Sans, sans-serif',
+                        color: selectedValue === key ? 'white/80' : 'oklch(0.55 0.04 165)',
+                        opacity: 0.85,
+                      }}
+                    >
+                      {desc}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Feilmelding */}
+            {submitError && (
+              <p
+                className="text-sm text-center"
+                style={{ color: 'oklch(0.52 0.18 25)', fontFamily: 'DM Sans, sans-serif' }}
+              >
+                {submitError}
+              </p>
+            )}
+
+            {/* Stem-knapp */}
+            <button
+              type="button"
+              onClick={handleVote}
+              disabled={!canVote || submitting}
+              className="w-full py-4 rounded-2xl font-bold text-white text-base transition-all focus:outline-none focus:ring-2 focus:ring-offset-2"
+              style={{
+                fontFamily: 'Sora, sans-serif',
+                background: canVote && !submitting
+                  ? 'oklch(0.56 0.17 35)'
+                  : 'oklch(0.80 0.03 165)',
+                cursor: canVote && !submitting ? 'pointer' : 'not-allowed',
+                opacity: canVote && !submitting ? 1 : 0.6,
+                boxShadow: canVote && !submitting
+                  ? '0 2px 12px oklch(0.56 0.17 35 / 0.35)'
+                  : 'none',
+              }}
+            >
+              {submitting ? 'Sender…' : 'Stem 🗳️'}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ── State B: Venter på reveal ───────────────────────────────
+  if (!revealed) {
+    const myVoteEmoji = selectedValue ? VALUE_MEDAL[selectedValue] : '🗳️';
+    return (
+      <div
+        className="min-h-screen flex flex-col items-center justify-center px-5 py-10"
+        style={{ background: 'oklch(0.965 0.012 165)' }}
+      >
+        <div className="w-full max-w-sm text-center space-y-5">
+          {/* Stor medalje */}
+          <div className="text-7xl animate-popIn">{myVoteEmoji}</div>
+
+          <div>
+            <h2
+              className="text-2xl font-bold"
+              style={{ fontFamily: 'Sora, sans-serif', color: 'oklch(0.20 0.06 165)' }}
+            >
+              Stemme registrert!
+            </h2>
+            <p
+              className="mt-2 text-base"
+              style={{ fontFamily: 'DM Sans, sans-serif', color: 'oklch(0.45 0.05 165)' }}
+            >
+              Venter på fasilitator, {name} 👋
+            </p>
+          </div>
+
+          {/* Oppsummering */}
+          <div
+            className="bg-white rounded-2xl p-4 space-y-2"
+            style={{ boxShadow: '0 2px 16px oklch(0.20 0.06 165 / 0.07)' }}
+          >
+            <div className="flex justify-between items-center">
+              <span
+                className="text-sm"
+                style={{ fontFamily: 'DM Sans, sans-serif', color: 'oklch(0.50 0.04 165)' }}
+              >
+                Størrelse
+              </span>
+              <span
+                className="font-bold text-sm uppercase"
+                style={{ fontFamily: 'Sora, sans-serif', color: 'oklch(0.30 0.08 165)' }}
+              >
+                {selectedSize?.toUpperCase()}
+              </span>
+            </div>
+            <div className="flex justify-between items-center">
+              <span
+                className="text-sm"
+                style={{ fontFamily: 'DM Sans, sans-serif', color: 'oklch(0.50 0.04 165)' }}
+              >
+                Verdi
+              </span>
+              <span className="text-sm">
+                {selectedValue ? VALUE_MEDAL[selectedValue] : ''}{' '}
+                <span style={{ fontFamily: 'DM Sans, sans-serif', color: 'oklch(0.30 0.08 165)', fontWeight: 600 }}>
+                  {selectedValue ? VALUES.find((v) => v.key === selectedValue)?.label : ''}
+                </span>
+              </span>
+            </div>
+          </div>
+
+          {/* Puls-animasjon */}
+          <p
+            className="text-sm animate-pulse-slow"
+            style={{ fontFamily: 'DM Sans, sans-serif', color: 'oklch(0.55 0.04 165)' }}
+          >
+            • Venter på avsløring •
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  // ── State C: Resultater ─────────────────────────────────────
+  // Sorter stemmer etter størrelse
+  const sortedVotes = [...votes].sort(
+    (a, b) => SIZE_ORDER[a.size] - SIZE_ORDER[b.size],
+  );
+
+  // Konsensus-deteksjon
+  const uniqueSizes = new Set(votes.map((v) => v.size));
+  const hasConsensus = votes.length > 0 && uniqueSizes.size === 1;
+  const consensusSize = hasConsensus ? [...uniqueSizes][0] : null;
+
+  return (
+    <div
+      className="min-h-screen flex flex-col"
+      style={{ background: 'oklch(0.965 0.012 165)' }}
+    >
+      {/* Header */}
+      <div className="px-4 py-5 text-center">
+        <div className="text-4xl mb-1">🎊</div>
+        <h2
+          className="text-2xl font-bold"
+          style={{ fontFamily: 'Sora, sans-serif', color: 'oklch(0.20 0.06 165)' }}
         >
-          {submitting ? 'Sender…' : 'Stem 🗳️'}
-        </button>
+          Resultater!
+        </h2>
+      </div>
+
+      <div className="flex-1 px-4 pb-8 space-y-4">
+        {/* Konsensus-banner */}
+        {hasConsensus && consensusSize && (
+          <div
+            className="rounded-2xl px-4 py-3 text-center animate-slideIn"
+            style={{ background: 'oklch(0.30 0.08 165)', color: 'white' }}
+          >
+            <p
+              className="text-base font-bold"
+              style={{ fontFamily: 'Sora, sans-serif' }}
+            >
+              🎯 Konsensus — alle stemte {consensusSize.toUpperCase()}!
+            </p>
+          </div>
+        )}
+
+        {/* Stemmekort */}
+        <div className="space-y-2">
+          {sortedVotes.map((vote) => {
+            const isMine = vote.participant_id === localParticipant?.participantId;
+            return (
+              <div
+                key={vote.id}
+                className="bg-white rounded-2xl px-4 py-3 flex items-center gap-3 animate-slideIn"
+                style={{
+                  boxShadow: isMine
+                    ? '0 0 0 2px oklch(0.30 0.08 165), 0 2px 12px oklch(0.20 0.06 165 / 0.08)'
+                    : '0 1px 8px oklch(0.20 0.06 165 / 0.06)',
+                }}
+              >
+                <span className="text-2xl">{VALUE_MEDAL[vote.value]}</span>
+                <span
+                  className="flex-1 text-sm font-bold uppercase tracking-wide"
+                  style={{ fontFamily: 'Sora, sans-serif', color: 'oklch(0.30 0.08 165)' }}
+                >
+                  {vote.size.toUpperCase()}
+                </span>
+                {isMine && (
+                  <span
+                    className="text-xs px-2 py-0.5 rounded-full font-medium"
+                    style={{
+                      background: 'oklch(0.30 0.08 165)',
+                      color: 'white',
+                      fontFamily: 'DM Sans, sans-serif',
+                    }}
+                  >
+                    Din
+                  </span>
+                )}
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Din stemme-reminder */}
+        {selectedSize && selectedValue && (
+          <div
+            className="bg-white rounded-2xl px-4 py-3"
+            style={{ boxShadow: '0 1px 8px oklch(0.20 0.06 165 / 0.06)' }}
+          >
+            <p
+              className="text-xs mb-1"
+              style={{ fontFamily: 'DM Sans, sans-serif', color: 'oklch(0.55 0.04 165)' }}
+            >
+              Din stemme
+            </p>
+            <p
+              className="text-sm font-semibold"
+              style={{ fontFamily: 'Sora, sans-serif', color: 'oklch(0.20 0.06 165)' }}
+            >
+              {selectedSize.toUpperCase()} · {VALUE_MEDAL[selectedValue]}{' '}
+              {VALUES.find((v) => v.key === selectedValue)?.label}
+            </p>
+          </div>
+        )}
       </div>
     </div>
   );

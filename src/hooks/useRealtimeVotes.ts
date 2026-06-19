@@ -6,10 +6,21 @@ import type { Vote } from '../lib/types';
  * Abonnerer på stemmer for en sesjon og runde i sanntid.
  * Henter eksisterende stemmer og lytter på nye INSERT-events.
  * Resettes automatisk når currentRound endres.
+ * Returnerer også revealed-state fra sessions-tabellen.
  */
-export function useRealtimeVotes(sessionId: string | null, currentRound: number) {
+export function useRealtimeVotes(
+  sessionId: string | null,
+  currentRound: number,
+  initialRevealed = false,
+) {
   const [votes, setVotes] = useState<Vote[]>([]);
   const [loading, setLoading] = useState(true);
+  const [revealed, setRevealed] = useState(initialRevealed);
+
+  // Synkroniser revealed med ekstern endring (f.eks. ved runde-reset)
+  useEffect(() => {
+    setRevealed(initialRevealed);
+  }, [initialRevealed, currentRound]);
 
   useEffect(() => {
     if (!sessionId) {
@@ -64,5 +75,5 @@ export function useRealtimeVotes(sessionId: string | null, currentRound: number)
     };
   }, [sessionId, currentRound]);
 
-  return { votes, loading };
+  return { votes, loading, revealed, setRevealed };
 }
