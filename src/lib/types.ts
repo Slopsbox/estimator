@@ -26,6 +26,7 @@ export interface Session {
   created_at: string;
   join_code: string;
   votes_revealed: boolean;
+  started: boolean;
 }
 
 export interface Participant {

@@ -28,21 +28,19 @@ const VALUE_MEDAL: Record<Value, string> = {
 const SIZE_ORDER: Record<Size, number> = { xs: 0, s: 1, m: 2, l: 3, xl: 4 };
 
 /**
- * Deltaker Vote-side – tre states:
+ * Deltaker Vote-side – fire states:
+ * W) Venter på fasilitator (session.started === false)
  * A) notVoted: stemmeform
- * B) hasVoted && !revealed: venter på fasilitator
+ * B) hasVoted && !revealed: venter på avsløring
  * C) hasVoted && revealed: vis resultater med konfetti
  */
 export function VotePage() {
   const navigate = useNavigate();
-  const { session, localParticipant, logout, updateParticipantName } = useSession();
+  const { session, localParticipant, logout } = useSession();
   const { triggerConfetti } = useConfetti();
 
-  // Navn-state (lagres i sessionStorage separat)
-  const [name, setName] = useState(() => {
-    return sessionStorage.getItem('estimering_vote_name') ?? '';
-  });
-  const [nameInput, setNameInput] = useState(name);
+  // Navn hentes fra sessionStorage (satt ved join)
+  const name = sessionStorage.getItem('estimering_vote_name') ?? localParticipant?.name ?? '';
 
   const [selectedSize, setSelectedSize] = useState<Size | null>(null);
   const [selectedValue, setSelectedValue] = useState<Value | null>(null);
@@ -134,23 +132,17 @@ export function VotePage() {
     }
   }, [session?.status, logout, navigate]);
 
-  // Rediger til ingen sesjon
+  // Redirect til join hvis ingen sesjon
   useEffect(() => {
     if (!session && !localParticipant) {
       navigate('/join');
     }
   }, [session, localParticipant, navigate]);
 
-  const canVote = selectedSize !== null && selectedValue !== null && name.trim().length > 0;
+  const canVote = selectedSize !== null && selectedValue !== null;
 
   const handleVote = async () => {
     if (!canVote || !session || !localParticipant) return;
-
-    const trimmedName = name.trim();
-
-    // Lagre navn i sessionStorage og oppdater deltaker
-    sessionStorage.setItem('estimering_vote_name', trimmedName);
-    await updateParticipantName(trimmedName);
 
     setSubmitting(true);
     setSubmitError(null);
@@ -186,6 +178,80 @@ export function VotePage() {
       },
     ]);
   };
+
+  // ── State W: Venter på fasilitator ─────────────────────────
+  if (session && !session.started) {
+    const participantCount = undefined; // Ikke tilgjengelig her uten ekstra hook
+    void participantCount; // suppress unused warning
+    return (
+      <div
+        className="min-h-screen flex flex-col items-center justify-center px-5 py-10"
+        style={{ background: 'oklch(0.965 0.012 165)' }}
+      >
+        <div className="w-full max-w-sm text-center space-y-6 animate-fadeUp">
+          {/* Ikon */}
+          <div className="text-7xl animate-pulse-slow">⏳</div>
+
+          <div>
+            <h2
+              className="text-2xl font-bold"
+              style={{ fontFamily: 'Sora, sans-serif', color: 'oklch(0.20 0.06 165)' }}
+            >
+              Venter på fasilitator…
+            </h2>
+            <p
+              className="mt-2 text-base"
+              style={{ fontFamily: 'DM Sans, sans-serif', color: 'oklch(0.45 0.05 165)' }}
+            >
+              Du er med i sesjonen, {name} 👋
+            </p>
+          </div>
+
+          {/* Info-kort */}
+          <div
+            className="bg-white rounded-2xl p-4 space-y-3"
+            style={{ boxShadow: '0 2px 16px oklch(0.20 0.06 165 / 0.07)' }}
+          >
+            <div className="flex justify-between items-center">
+              <span
+                className="text-sm"
+                style={{ fontFamily: 'DM Sans, sans-serif', color: 'oklch(0.50 0.04 165)' }}
+              >
+                Sesjonskode
+              </span>
+              <span
+                className="font-bold text-sm tracking-widest"
+                style={{ fontFamily: 'Sora, sans-serif', color: 'oklch(0.30 0.08 165)' }}
+              >
+                {session.join_code}
+              </span>
+            </div>
+            <div className="flex justify-between items-center">
+              <span
+                className="text-sm"
+                style={{ fontFamily: 'DM Sans, sans-serif', color: 'oklch(0.50 0.04 165)' }}
+              >
+                Runde
+              </span>
+              <span
+                className="font-bold text-sm"
+                style={{ fontFamily: 'Sora, sans-serif', color: 'oklch(0.30 0.08 165)' }}
+              >
+                {session.current_round}
+              </span>
+            </div>
+          </div>
+
+          <p
+            className="text-sm animate-pulse-slow"
+            style={{ fontFamily: 'DM Sans, sans-serif', color: 'oklch(0.55 0.04 165)' }}
+          >
+            • Fasilitator starter snart •
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   // ── State A: Stemmeform ─────────────────────────────────────
   if (!hasVoted) {
@@ -249,35 +315,14 @@ export function VotePage() {
               >
                 Velg størrelse og verdi, og stem
               </p>
-            </div>
-
-            {/* Navn */}
-            <div>
-              <label
-                htmlFor="vote-name"
-                className="block text-sm font-medium mb-1.5"
-                style={{ fontFamily: 'DM Sans, sans-serif', color: 'oklch(0.35 0.05 165)' }}
-              >
-                Ditt navn
-              </label>
-              <input
-                id="vote-name"
-                type="text"
-                value={nameInput}
-                onChange={(e) => {
-                  setNameInput(e.target.value);
-                  setName(e.target.value);
-                }}
-                placeholder="Skriv inn ditt navn"
-                maxLength={60}
-                autoFocus
-                className="w-full px-4 py-3 rounded-xl border text-sm focus:outline-none transition-colors"
-                style={{
-                  borderColor: 'oklch(0.88 0.02 165)',
-                  color: 'oklch(0.20 0.06 165)',
-                  fontFamily: 'DM Sans, sans-serif',
-                }}
-              />
+              {name && (
+                <p
+                  className="text-xs mt-0.5"
+                  style={{ color: 'oklch(0.60 0.05 165)', fontFamily: 'DM Sans, sans-serif' }}
+                >
+                  Stemmer som: <strong>{name}</strong>
+                </p>
+              )}
             </div>
 
             {/* Størrelse */}

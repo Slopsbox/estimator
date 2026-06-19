@@ -4,7 +4,8 @@ import type { Participant } from '../lib/types';
 
 /**
  * Abonnerer på deltakerlisten for en sesjon i sanntid.
- * Henter eksisterende deltakere ved mount og lytter på nye INSERT-events.
+ * Henter eksisterende deltakere ved mount og lytter på INSERT- og UPDATE-events
+ * (UPDATE trengs for å fange navneendringer ved join).
  */
 export function useRealtimeParticipants(sessionId: string | null) {
   const [participants, setParticipants] = useState<Participant[]>([]);
@@ -49,6 +50,21 @@ export function useRealtimeParticipants(sessionId: string | null) {
             if (prev.some((p) => p.id === newParticipant.id)) return prev;
             return [...prev, newParticipant];
           });
+        },
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'participants',
+          filter: `session_id=eq.${sessionId}`,
+        },
+        (payload) => {
+          const updated = payload.new as Participant;
+          setParticipants((prev) =>
+            prev.map((p) => (p.id === updated.id ? updated : p)),
+          );
         },
       )
       .subscribe();

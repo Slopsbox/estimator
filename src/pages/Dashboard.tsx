@@ -5,8 +5,6 @@ import { useRealtimeVotes } from '../hooks/useRealtimeVotes';
 import { useSession } from '../hooks/useSession';
 import type { Participant, Size, Value, Vote } from '../lib/types';
 
-type DashboardTab = 'participants' | 'votes';
-
 const VALUE_MEDAL: Record<Value, string> = {
   gold: '🥇',
   silver: '🥈',
@@ -39,16 +37,15 @@ function initials(name: string): string {
     .toUpperCase();
 }
 
-/** Fasilitator-dashboard (revisjon 2). */
+/** Fasilitator-dashboard (revisjon 3) – ett sammenhengende view, ingen tabs. */
 export function DashboardPage() {
   const navigate = useNavigate();
-  const { session, localParticipant, loading, error, createSession, nextRound, endSession, revealVotes, logout } =
+  const { session, localParticipant, loading, error, createSession, startSession, nextRound, endSession, revealVotes, logout } =
     useSession();
 
   const [nameInput, setNameInput] = useState('');
   const [nameError, setNameError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
-  const [activeTab, setActiveTab] = useState<DashboardTab>('participants');
   const [actionLoading, setActionLoading] = useState(false);
   const [codeCopied, setCodeCopied] = useState(false);
 
@@ -79,6 +76,12 @@ export function DashboardPage() {
     setCreating(true);
     await createSession(name);
     setCreating(false);
+  };
+
+  const handleStartSession = async () => {
+    setActionLoading(true);
+    await startSession();
+    setActionLoading(false);
   };
 
   const handleNextRound = async () => {
@@ -147,7 +150,7 @@ export function DashboardPage() {
             <div className="text-center">
               <div className="text-4xl mb-3">🎯</div>
               <h2 className="text-xl font-bold" style={{ fontFamily: 'Sora, sans-serif', color: 'oklch(0.20 0.06 165)' }}>
-                Start sesjon
+                Opprett sesjon
               </h2>
               <p className="mt-1 text-sm" style={{ color: 'oklch(0.55 0.04 165)', fontFamily: 'DM Sans, sans-serif' }}>
                 Opprett en ny estimeringssesjon
@@ -201,7 +204,7 @@ export function DashboardPage() {
                   opacity: creating || loading ? 0.6 : 1,
                 }}
               >
-                {creating || loading ? 'Starter…' : 'Start sesjon'}
+                {creating || loading ? 'Oppretter…' : 'Opprett sesjon'}
               </button>
             </form>
           </div>
@@ -215,6 +218,8 @@ export function DashboardPage() {
   const votedCount = votes.length;
   const totalCount = voterParticipants.length;
   const progressPct = totalCount > 0 ? (votedCount / totalCount) * 100 : 0;
+
+  const sessionStarted = session.started;
 
   const joinCodeDots = [
     { color: 'oklch(0.56 0.14 165)' },
@@ -278,19 +283,21 @@ export function DashboardPage() {
         </button>
       </div>
 
-      {/* Progress bar */}
-      <div
-        className="h-1.5 w-full"
-        style={{ background: 'oklch(0.88 0.03 165)' }}
-      >
+      {/* Progress bar – kun synlig etter sesjon er startet */}
+      {sessionStarted && (
         <div
-          className="h-full transition-all duration-500"
-          style={{
-            width: `${progressPct}%`,
-            background: 'oklch(0.62 0.17 35)',
-          }}
-        />
-      </div>
+          className="h-1.5 w-full"
+          style={{ background: 'oklch(0.88 0.03 165)' }}
+        >
+          <div
+            className="h-full transition-all duration-500"
+            style={{
+              width: `${progressPct}%`,
+              background: 'oklch(0.62 0.17 35)',
+            }}
+          />
+        </div>
+      )}
 
       <div className="flex-1 px-4 py-4 space-y-4 overflow-y-auto">
         {/* Sesjonskode-kort */}
@@ -337,48 +344,15 @@ export function DashboardPage() {
           </button>
         </div>
 
-        {/* Tabs */}
+        {/* Kombinert deltaker + stemme-panel */}
         <div
           className="bg-white rounded-2xl overflow-hidden"
           style={{ boxShadow: '0 2px 16px oklch(0.20 0.06 165 / 0.07)' }}
         >
-          {/* Tab-header */}
-          <div
-            className="flex border-b"
-            style={{ borderColor: 'oklch(0.93 0.015 165)' }}
-          >
-            <button
-              type="button"
-              onClick={() => setActiveTab('participants')}
-              className="flex-1 py-3 text-sm font-semibold transition-colors focus:outline-none"
-              style={{
-                fontFamily: 'Sora, sans-serif',
-                color: activeTab === 'participants' ? 'oklch(0.30 0.08 165)' : 'oklch(0.55 0.04 165)',
-                borderBottom: activeTab === 'participants' ? '2px solid oklch(0.30 0.08 165)' : '2px solid transparent',
-              }}
-            >
-              👥 Deltakere
-            </button>
-            <button
-              type="button"
-              onClick={() => setActiveTab('votes')}
-              className="flex-1 py-3 text-sm font-semibold transition-colors focus:outline-none"
-              style={{
-                fontFamily: 'Sora, sans-serif',
-                color: activeTab === 'votes' ? 'oklch(0.30 0.08 165)' : 'oklch(0.55 0.04 165)',
-                borderBottom: activeTab === 'votes' ? '2px solid oklch(0.30 0.08 165)' : '2px solid transparent',
-              }}
-            >
-              🗳️ Stemmer
-            </button>
-          </div>
-
-          {/* Tab-innhold */}
           <div className="p-4">
-            {activeTab === 'participants' ? (
-              <ParticipantsTab participants={participants} />
-            ) : (
-              <VotesTab
+            {sessionStarted ? (
+              /* Etter oppstart: vis deltakere med stemmestatus */
+              <VotesPanel
                 participants={voterParticipants}
                 votes={votes}
                 revealed={session.votes_revealed}
@@ -387,6 +361,13 @@ export function DashboardPage() {
                 actionLoading={actionLoading}
                 onReveal={handleReveal}
                 onNextRound={handleNextRound}
+              />
+            ) : (
+              /* Før oppstart: vis deltakerliste + "Start sesjon"-knapp */
+              <PreStartPanel
+                participants={participants}
+                actionLoading={actionLoading}
+                onStart={handleStartSession}
               />
             )}
           </div>
@@ -398,47 +379,85 @@ export function DashboardPage() {
 
 // ── Sub-komponenter ─────────────────────────────────────────
 
-function ParticipantsTab({ participants }: { participants: Participant[] }) {
-  if (participants.length === 0) {
-    return (
-      <p
-        className="text-sm text-center py-4"
-        style={{ color: 'oklch(0.55 0.04 165)', fontFamily: 'DM Sans, sans-serif' }}
-      >
-        Ingen deltakere ennå.
-      </p>
-    );
-  }
+interface PreStartPanelProps {
+  participants: Participant[];
+  actionLoading: boolean;
+  onStart: () => void;
+}
+
+function PreStartPanel({ participants, actionLoading, onStart }: PreStartPanelProps) {
+  const nonFacilitators = participants.filter((p) => p.role === 'participant');
 
   return (
-    <ul className="space-y-2">
-      {participants.map((p) => (
-        <li key={p.id} className="flex items-center gap-3 py-1">
-          {/* Avatar med initialer */}
-          <div
-            className="w-9 h-9 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0"
-            style={{ background: avatarColor(p.name), fontFamily: 'Sora, sans-serif' }}
-          >
-            {initials(p.name)}
-          </div>
-          <span
-            className="flex-1 text-sm font-medium"
-            style={{ color: 'oklch(0.20 0.06 165)', fontFamily: 'DM Sans, sans-serif' }}
-          >
-            {p.name}
-          </span>
-          {/* Online-dot */}
-          <div
-            className="w-2 h-2 rounded-full"
-            style={{ background: 'oklch(0.55 0.16 165)' }}
-          />
-        </li>
-      ))}
-    </ul>
+    <div className="space-y-4">
+      {/* Status-tekst */}
+      <div className="text-center py-2">
+        <p
+          className="text-sm font-semibold"
+          style={{ fontFamily: 'Sora, sans-serif', color: 'oklch(0.30 0.08 165)' }}
+        >
+          Venter på deltakere…
+        </p>
+        <p
+          className="text-xs mt-0.5"
+          style={{ fontFamily: 'DM Sans, sans-serif', color: 'oklch(0.55 0.04 165)' }}
+        >
+          {nonFacilitators.length === 0
+            ? 'Ingen deltakere ennå'
+            : `${nonFacilitators.length} deltaker${nonFacilitators.length === 1 ? '' : 'e'} har joinet`}
+        </p>
+      </div>
+
+      {/* Deltakerliste */}
+      {nonFacilitators.length > 0 && (
+        <ul className="space-y-2">
+          {nonFacilitators.map((p) => (
+            <li key={p.id} className="flex items-center gap-3 py-1">
+              <div
+                className="w-9 h-9 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0"
+                style={{ background: avatarColor(p.name), fontFamily: 'Sora, sans-serif' }}
+              >
+                {initials(p.name)}
+              </div>
+              <span
+                className="flex-1 text-sm font-medium"
+                style={{ color: 'oklch(0.20 0.06 165)', fontFamily: 'DM Sans, sans-serif' }}
+              >
+                {p.name}
+              </span>
+              {/* Online-dot */}
+              <div
+                className="w-2 h-2 rounded-full"
+                style={{ background: 'oklch(0.55 0.16 165)' }}
+              />
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {/* Start sesjon-knapp */}
+      <button
+        type="button"
+        onClick={onStart}
+        disabled={actionLoading}
+        className="w-full py-4 rounded-2xl font-bold text-white text-base transition-all focus:outline-none"
+        style={{
+          fontFamily: 'Sora, sans-serif',
+          background: actionLoading
+            ? 'oklch(0.70 0.08 165)'
+            : 'oklch(0.52 0.18 145)',
+          cursor: actionLoading ? 'not-allowed' : 'pointer',
+          opacity: actionLoading ? 0.6 : 1,
+          boxShadow: actionLoading ? 'none' : '0 2px 12px oklch(0.52 0.18 145 / 0.35)',
+        }}
+      >
+        {actionLoading ? 'Starter…' : '▶ Start sesjon'}
+      </button>
+    </div>
   );
 }
 
-interface VotesTabProps {
+interface VotesPanelProps {
   participants: Participant[];
   votes: Vote[];
   revealed: boolean;
@@ -449,7 +468,7 @@ interface VotesTabProps {
   onNextRound: () => void;
 }
 
-function VotesTab({
+function VotesPanel({
   participants,
   votes,
   revealed,
@@ -458,7 +477,7 @@ function VotesTab({
   actionLoading,
   onReveal,
   onNextRound,
-}: VotesTabProps) {
+}: VotesPanelProps) {
   // Bygg oppslag: participantId → vote
   const voteMap = new Map(votes.map((v) => [v.participant_id, v]));
 

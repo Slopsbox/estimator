@@ -4,40 +4,68 @@ import { useSession } from '../hooks/useSession';
 
 /**
  * Deltager-join-side.
- * Lar deltaker taste inn 4-tegns sesjonskode for å bli med.
+ * Lar deltaker taste inn navn og 4-tegns sesjonskode for å bli med.
+ * Navn lagres i sessionStorage for fremtidige runder.
  */
 export function DeltagerJoinPage() {
   const navigate = useNavigate();
   const { joinSession, loading } = useSession();
 
+  const [name, setName] = useState(() => {
+    return sessionStorage.getItem('estimering_vote_name') ?? '';
+  });
+  const [nameError, setNameError] = useState<string | null>(null);
+
   const [code, setCode] = useState('');
-  const [error, setError] = useState<string | null>(null);
+  const [codeError, setCodeError] = useState<string | null>(null);
   const [shaking, setShaking] = useState(false);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const codeInputRef = useRef<HTMLInputElement>(null);
+
+  const handleNameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setName(e.target.value);
+    if (nameError) setNameError(null);
+  };
 
   const handleCodeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const val = e.target.value.toUpperCase().replace(/[^A-Z2-9]/g, '').slice(0, 4);
     setCode(val);
-    if (error) setError(null);
+    if (codeError) setCodeError(null);
   };
 
   const handleJoin = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (code.length < 4) return;
 
-    setError(null);
-    const ok = await joinSession(code);
+    let hasError = false;
+
+    if (!name.trim()) {
+      setNameError('Skriv inn ditt navn for å fortsette.');
+      hasError = true;
+    }
+
+    if (code.length < 4) {
+      setCodeError('Skriv inn den 4-tegns koden fra fasilitator.');
+      hasError = true;
+    }
+
+    if (hasError) return;
+
+    setCodeError(null);
+    setNameError(null);
+
+    const ok = await joinSession(code, name.trim());
 
     if (!ok) {
-      setError('Feil kode — prøv igjen.');
+      setCodeError('Feil kode — prøv igjen.');
       setShaking(true);
       setTimeout(() => setShaking(false), 500);
-      inputRef.current?.focus();
+      codeInputRef.current?.focus();
       return;
     }
 
     navigate('/vote');
   };
+
+  const canSubmit = name.trim().length > 0 && code.length === 4;
 
   return (
     <div
@@ -93,16 +121,58 @@ export function DeltagerJoinPage() {
             </p>
           </div>
 
-          {/* Kode-input */}
           <form onSubmit={handleJoin} className="space-y-4">
+            {/* Navn-input – øverst */}
             <div>
+              <label
+                htmlFor="join-name"
+                className="block text-sm font-medium mb-1.5"
+                style={{ fontFamily: 'DM Sans, sans-serif', color: 'oklch(0.35 0.05 165)' }}
+              >
+                Ditt navn
+              </label>
               <input
-                ref={inputRef}
+                id="join-name"
+                type="text"
+                value={name}
+                onChange={handleNameChange}
+                placeholder="Skriv inn ditt navn"
+                maxLength={60}
+                autoFocus
+                className="w-full px-4 py-3 rounded-xl border text-sm focus:outline-none transition-colors"
+                style={{
+                  borderColor: nameError ? 'oklch(0.52 0.18 25)' : 'oklch(0.88 0.02 165)',
+                  color: 'oklch(0.20 0.06 165)',
+                  fontFamily: 'DM Sans, sans-serif',
+                  boxShadow: nameError ? '0 0 0 3px oklch(0.52 0.18 25 / 0.15)' : 'none',
+                }}
+              />
+              {nameError && (
+                <p
+                  className="mt-1 text-sm animate-slideIn"
+                  style={{ color: 'oklch(0.52 0.18 25)', fontFamily: 'DM Sans, sans-serif' }}
+                >
+                  {nameError}
+                </p>
+              )}
+            </div>
+
+            {/* Kode-input */}
+            <div>
+              <label
+                htmlFor="join-code"
+                className="block text-sm font-medium mb-1.5"
+                style={{ fontFamily: 'DM Sans, sans-serif', color: 'oklch(0.35 0.05 165)' }}
+              >
+                Sesjonskode
+              </label>
+              <input
+                id="join-code"
+                ref={codeInputRef}
                 type="text"
                 value={code}
                 onChange={handleCodeChange}
                 maxLength={4}
-                autoFocus
                 autoCapitalize="characters"
                 autoComplete="off"
                 spellCheck={false}
@@ -119,41 +189,41 @@ export function DeltagerJoinPage() {
                   padding: '0.75rem 1rem',
                   color: 'oklch(0.20 0.06 165)',
                   background: 'white',
-                  borderColor: error
+                  borderColor: codeError
                     ? 'oklch(0.52 0.18 25)'
                     : code.length === 4
                     ? 'oklch(0.30 0.08 165)'
                     : 'oklch(0.85 0.02 165)',
-                  boxShadow: error
+                  boxShadow: codeError
                     ? '0 0 0 3px oklch(0.52 0.18 25 / 0.15)'
                     : code.length === 4
                     ? '0 0 0 3px oklch(0.30 0.08 165 / 0.15)'
                     : 'none',
                 }}
               />
-              {error && (
+              {codeError && (
                 <p
                   className="mt-2 text-center text-sm font-medium animate-slideIn"
                   style={{ color: 'oklch(0.52 0.18 25)', fontFamily: 'DM Sans, sans-serif' }}
                 >
-                  {error}
+                  {codeError}
                 </p>
               )}
             </div>
 
             <button
               type="submit"
-              disabled={code.length < 4 || loading}
+              disabled={!canSubmit || loading}
               className="w-full py-4 rounded-2xl font-semibold text-white text-base transition-all focus:outline-none focus:ring-2 focus:ring-offset-2"
               style={{
                 fontFamily: 'Sora, sans-serif',
                 fontWeight: 600,
                 background:
-                  code.length === 4 && !loading
+                  canSubmit && !loading
                     ? 'oklch(0.30 0.08 165)'
                     : 'oklch(0.75 0.04 165)',
-                cursor: code.length === 4 && !loading ? 'pointer' : 'not-allowed',
-                opacity: code.length === 4 && !loading ? 1 : 0.6,
+                cursor: canSubmit && !loading ? 'pointer' : 'not-allowed',
+                opacity: canSubmit && !loading ? 1 : 0.6,
               }}
             >
               {loading ? 'Kobler til…' : 'Bli med'}

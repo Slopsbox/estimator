@@ -131,6 +131,7 @@ export function useSession() {
           current_round: 1,
           join_code: joinCode,
           votes_revealed: false,
+          started: false,
         })
         .select()
         .single();
@@ -187,12 +188,14 @@ export function useSession() {
 
   /**
    * Join sesjon via join_code som deltaker.
+   * Tar navn som parameter – registrerer deltaker med riktig navn med én gang.
    */
-  const joinSession = useCallback(async (code: string): Promise<boolean> => {
+  const joinSession = useCallback(async (code: string, name: string): Promise<boolean> => {
     setLoading(true);
     setError(null);
 
     const normalizedCode = code.trim().toUpperCase();
+    const trimmedName = name.trim() || 'Anonym';
 
     // Finn sesjon via join_code
     const { data: sessionData, error: sessionError } = await supabase
@@ -214,7 +217,7 @@ export function useSession() {
       .from('participants')
       .insert({
         session_id: sessionData.id,
-        name: 'Anonym',
+        name: trimmedName,
         role: 'participant' as ParticipantRole,
       })
       .select()
@@ -229,9 +232,12 @@ export function useSession() {
     const local: LocalParticipant = {
       participantId: participantData.id as string,
       sessionId: sessionData.id as string,
-      name: 'Anonym',
+      name: trimmedName,
       role: 'participant',
     };
+
+    // Lagre navn i sessionStorage for fremtidige runder
+    sessionStorage.setItem('estimering_vote_name', trimmedName);
 
     writeToStorage(local);
     setLocalParticipant(local);
@@ -259,6 +265,22 @@ export function useSession() {
     setLocalParticipant(updated);
     return true;
   }, []);
+
+  /**
+   * Start sesjon (fasilitator) – setter started = true.
+   */
+  const startSession = useCallback(async (): Promise<void> => {
+    if (!session) return;
+
+    const { error: err } = await supabase
+      .from('sessions')
+      .update({ started: true })
+      .eq('id', session.id);
+
+    if (err) {
+      setError('Kunne ikke starte sesjonen. Prøv igjen.');
+    }
+  }, [session]);
 
   /**
    * Avslør stemmer (fasilitator).
@@ -323,6 +345,7 @@ export function useSession() {
     error,
     createSession,
     joinSession,
+    startSession,
     updateParticipantName,
     revealVotes,
     nextRound,
