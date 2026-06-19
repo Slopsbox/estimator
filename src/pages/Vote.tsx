@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { PriorityMatrix } from '../components/PriorityMatrix';
 import { useConfetti } from '../hooks/useConfetti';
 import { useSession } from '../hooks/useSession';
 import { supabase } from '../lib/supabase';
@@ -603,6 +604,11 @@ export function VotePage() {
             );
           })}
         </div>
+
+        {/* Prioriteringsanbefaling */}
+        {votes.length > 0 && (
+          <PriorityMatrix votes={votes} />
+        )}
 
         {/* Din stemme-reminder */}
         {selectedSize && selectedValue && (

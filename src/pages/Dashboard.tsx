@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { PriorityMatrix } from '../components/PriorityMatrix';
 import { useRealtimeParticipants } from '../hooks/useRealtimeParticipants';
 import { useRealtimeVotes } from '../hooks/useRealtimeVotes';
 import { useSession } from '../hooks/useSession';
@@ -602,6 +603,11 @@ function VotesPanel({
             );
           })}
         </ul>
+      )}
+
+      {/* Prioriteringsanbefaling – vises etter avsløring */}
+      {revealed && votes.length > 0 && (
+        <PriorityMatrix votes={votes} />
       )}
     </div>
   );
