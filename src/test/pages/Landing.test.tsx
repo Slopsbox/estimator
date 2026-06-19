@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { LandingPage } from '../../pages/Landing';
@@ -13,7 +13,20 @@ vi.mock('@marsidev/react-turnstile', () => ({
   ),
 }));
 
+/** Hjelpefunksjon: lag en fetch-mock som returnerer gitt JSON */
+function mockFetch(response: { success: boolean }, status = 200) {
+  return vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce({
+    ok: status >= 200 && status < 300,
+    status,
+    json: () => Promise.resolve(response),
+  } as Response);
+}
+
 describe('LandingPage', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   it('viser tittel Estimat', () => {
     render(
       <MemoryRouter>
@@ -43,8 +56,19 @@ describe('LandingPage', () => {
     expect(screen.getByRole('button', { name: /fasilitator/i })).toBeDisabled();
   });
 
-  it('knappene aktiveres etter vellykket Turnstile-verifisering', async () => {
+  it('viser veiledningstest om verifisering', () => {
+    render(
+      <MemoryRouter>
+        <LandingPage />
+      </MemoryRouter>,
+    );
+    expect(screen.getByText(/bekreft at du er et menneske/i)).toBeInTheDocument();
+  });
+
+  it('knappene aktiveres når server-side verifisering lykkes', async () => {
     const user = userEvent.setup();
+    mockFetch({ success: true });
+
     render(
       <MemoryRouter>
         <LandingPage />
@@ -53,16 +77,46 @@ describe('LandingPage', () => {
 
     await user.click(screen.getByTestId('mock-turnstile'));
 
-    expect(screen.getByRole('button', { name: /deltager/i })).not.toBeDisabled();
-    expect(screen.getByRole('button', { name: /fasilitator/i })).not.toBeDisabled();
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /deltager/i })).not.toBeDisabled();
+      expect(screen.getByRole('button', { name: /fasilitator/i })).not.toBeDisabled();
+    });
   });
 
-  it('viser veiledningstest om verifisering', () => {
+  it('viser feilmelding og beholder disabled når server avviser tokenet', async () => {
+    const user = userEvent.setup();
+    mockFetch({ success: false }, 403);
+
     render(
       <MemoryRouter>
         <LandingPage />
       </MemoryRouter>,
     );
-    expect(screen.getByText(/bekreft at du er et menneske/i)).toBeInTheDocument();
+
+    await user.click(screen.getByTestId('mock-turnstile'));
+
+    await waitFor(() => {
+      expect(screen.getByText(/verifisering mislyktes/i)).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /deltager/i })).toBeDisabled();
+      expect(screen.getByRole('button', { name: /fasilitator/i })).toBeDisabled();
+    });
+  });
+
+  it('graceful degradation: knappene aktiveres ved nettverksfeil', async () => {
+    const user = userEvent.setup();
+    vi.spyOn(globalThis, 'fetch').mockRejectedValueOnce(new Error('Network error'));
+
+    render(
+      <MemoryRouter>
+        <LandingPage />
+      </MemoryRouter>,
+    );
+
+    await user.click(screen.getByTestId('mock-turnstile'));
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /deltager/i })).not.toBeDisabled();
+      expect(screen.getByRole('button', { name: /fasilitator/i })).not.toBeDisabled();
+    });
   });
 });

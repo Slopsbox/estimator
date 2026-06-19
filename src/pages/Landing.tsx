@@ -10,10 +10,29 @@ import { TurnstileGate } from '../components/TurnstileGate';
  */
 export function LandingPage() {
   const [verified, setVerified] = useState(false);
+  const [verifyError, setVerifyError] = useState(false);
   const navigate = useNavigate();
 
-  const handleVerified = (_token: string) => {
-    setVerified(true);
+  const handleVerified = async (token: string) => {
+    setVerifyError(false);
+    try {
+      const res = await fetch('/api/verify-turnstile', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token }),
+      });
+      const data = await res.json() as { success: boolean };
+      if (data.success) {
+        setVerified(true);
+      } else {
+        // Server avviste tokenet – vis feil og la brukeren prøve igjen
+        setVerifyError(true);
+        setVerified(false);
+      }
+    } catch {
+      // Nettverksfeil: graceful degradation – tillat videre
+      setVerified(true);
+    }
   };
 
   return (
@@ -92,6 +111,14 @@ export function LandingPage() {
             Bekreft at du er et menneske
           </p>
           <TurnstileGate onSuccess={handleVerified} theme="light" />
+          {verifyError && (
+            <p
+              className="text-center text-xs text-red-500"
+              style={{ fontFamily: 'DM Sans, sans-serif' }}
+            >
+              Verifisering mislyktes. Prøv igjen.
+            </p>
+          )}
         </div>
 
         {/* Rolleknapper */}
