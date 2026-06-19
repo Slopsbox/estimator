@@ -47,6 +47,9 @@ export function useSession() {
   const [localParticipant, setLocalParticipant] = useState<LocalParticipant | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // initialized er false inntil gjenopprettings-effecten er forsøkt ferdig.
+  // Vote.tsx bruker denne for å unngå prematur redirect til /join.
+  const [initialized, setInitialized] = useState(false);
 
   // Ref for å unngå dobbel gjenoppretting
   const restoredRef = useRef(false);
@@ -57,7 +60,11 @@ export function useSession() {
     restoredRef.current = true;
 
     const local = readFromStorage();
-    if (!local) return;
+    if (!local) {
+      // Ingen lagret data – vi er ferdig med gjenoppretting
+      setInitialized(true);
+      return;
+    }
 
     setLocalParticipant(local);
 
@@ -71,9 +78,11 @@ export function useSession() {
         if (err || !data) {
           clearStorage();
           setLocalParticipant(null);
-          return;
+        } else {
+          setSession(data as Session);
         }
-        setSession(data as Session);
+        // Gjenoppretting er forsøkt ferdig uansett utfall
+        setInitialized(true);
       });
   }, []);
 
@@ -229,12 +238,13 @@ export function useSession() {
 
     console.debug('[joinSession] Forsøker å finne sesjon med kode:', normalizedCode);
 
-    // Finn sesjon via join_code – bruker ilike for case-insensitiv matching
-    // som sikkerhetsnett i tilfelle DB har mixed case
+    // Finn sesjon via join_code – bruker eq for eksakt match.
+    // join_code genereres alltid som uppercase, og normalizedCode er også uppercase,
+    // så eq er tryggere og mer forutsigbart enn ilike for dette formålet.
     const { data: sessionData, error: sessionError } = await supabase
       .from('sessions')
       .select('*')
-      .ilike('join_code', normalizedCode)
+      .eq('join_code', normalizedCode)
       .eq('status', 'active')
       .single();
 
@@ -244,6 +254,9 @@ export function useSession() {
         feilkode: sessionError?.code,
         feilmelding: sessionError?.message,
         detaljer: sessionError?.details,
+        hint: sessionError?.hint,
+        fullFeil: sessionError,
+        sessionData,
       });
       setError('Feil kode — prøv igjen.');
       setLoading(false);
@@ -388,6 +401,7 @@ export function useSession() {
     localParticipant,
     loading,
     error,
+    initialized,
     createSession,
     joinSession,
     startSession,

@@ -14,6 +14,7 @@ vi.mock('../../hooks/useSession', () => ({
     session: null,
     localParticipant: null,
     error: null,
+    initialized: true,
     createSession: vi.fn(),
     startSession: vi.fn(),
     updateParticipantName: vi.fn(),
@@ -147,7 +148,21 @@ describe('DeltagerJoinPage', () => {
     await user.click(screen.getByRole('button', { name: /bli med/i }));
     await waitFor(() => {
       expect(screen.getByText(/feil kode/i)).toBeInTheDocument();
+      // Feilmeldingen skal ha role="alert" for tilgjengelighet
+      const alert = screen.getByRole('alert');
+      expect(alert).toBeInTheDocument();
+      expect(alert).toHaveTextContent(/feil kode/i);
     });
+  });
+
+  it('placeholder i sesjonskode-feltet er "– – – –" (ikke ABCD)', () => {
+    render(
+      <MemoryRouter>
+        <DeltagerJoinPage />
+      </MemoryRouter>,
+    );
+    const codeInput = screen.getByLabelText(/sesjonskode/i);
+    expect(codeInput).toHaveAttribute('placeholder', '– – – –');
   });
 
   it('viser validerings-feil ved submit uten navn', async () => {

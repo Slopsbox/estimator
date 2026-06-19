@@ -55,6 +55,10 @@ export function DeltagerJoinPage() {
     const ok = await joinSession(code, name.trim());
 
     if (!ok) {
+      console.warn('[DeltagerJoin] joinSession returnerte false – feil kode?', {
+        kode: code,
+        navn: name.trim(),
+      });
       setCodeError('Feil kode — prøv igjen.');
       setShaking(true);
       setTimeout(() => setShaking(false), 500);
@@ -176,7 +180,7 @@ export function DeltagerJoinPage() {
                 autoCapitalize="characters"
                 autoComplete="off"
                 spellCheck={false}
-                placeholder="ABCD"
+                placeholder="– – – –"
                 className={[
                   'w-full text-center font-extrabold rounded-2xl border-2 transition-colors',
                   'focus:outline-none',
@@ -202,12 +206,23 @@ export function DeltagerJoinPage() {
                 }}
               />
               {codeError && (
-                <p
-                  className="mt-2 text-center text-sm font-medium animate-slideIn"
-                  style={{ color: 'oklch(0.52 0.18 25)', fontFamily: 'DM Sans, sans-serif' }}
+                <div
+                  role="alert"
+                  className="mt-3 flex items-center gap-2 px-4 py-3 rounded-xl animate-slideIn"
+                  style={{
+                    background: 'oklch(0.95 0.05 25)',
+                    border: '1.5px solid oklch(0.52 0.18 25)',
+                    fontFamily: 'DM Sans, sans-serif',
+                  }}
                 >
-                  {codeError}
-                </p>
+                  <span aria-hidden="true" style={{ fontSize: '1.1rem' }}>❌</span>
+                  <p
+                    className="text-sm font-semibold"
+                    style={{ color: 'oklch(0.40 0.18 25)' }}
+                  >
+                    {codeError}
+                  </p>
+                </div>
               )}
             </div>
 

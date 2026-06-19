@@ -36,7 +36,7 @@ const SIZE_ORDER: Record<Size, number> = { xs: 0, s: 1, m: 2, l: 3, xl: 4 };
  */
 export function VotePage() {
   const navigate = useNavigate();
-  const { session, localParticipant, logout } = useSession();
+  const { session, localParticipant, logout, initialized } = useSession();
   const { triggerConfetti } = useConfetti();
 
   // Navn hentes fra sessionStorage (satt ved join)
@@ -132,12 +132,14 @@ export function VotePage() {
     }
   }, [session?.status, logout, navigate]);
 
-  // Redirect til join hvis ingen sesjon
+  // Redirect til join hvis ingen sesjon – men BARE etter at gjenoppretting er forsøkt.
+  // Uten initialized-sjekk ville siden redirecte til /join øyeblikkelig ved mount,
+  // fordi session og localParticipant er null inntil sessionStorage-gjenoppretting er ferdig.
   useEffect(() => {
-    if (!session && !localParticipant) {
+    if (initialized && !session && !localParticipant) {
       navigate('/join');
     }
-  }, [session, localParticipant, navigate]);
+  }, [initialized, session, localParticipant, navigate]);
 
   const canVote = selectedSize !== null && selectedValue !== null;
 
