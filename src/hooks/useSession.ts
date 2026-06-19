@@ -77,7 +77,7 @@ export function useSession() {
       });
   }, []);
 
-  /** Lytt på sesjonsendringer (ny runde, status, votes_revealed) */
+  /** Lytt på sesjonsendringer (ny runde, status, votes_revealed, started) */
   useEffect(() => {
     if (!session) return;
 
@@ -92,14 +92,51 @@ export function useSession() {
           filter: `id=eq.${session.id}`,
         },
         (payload) => {
+          console.debug('[useSession] Realtime UPDATE mottatt:', payload.new);
           setSession(payload.new as Session);
         },
       )
-      .subscribe();
+      .subscribe((status) => {
+        console.debug('[useSession] Realtime subscription status:', status);
+      });
 
     return () => {
       void supabase.removeChannel(channel);
     };
+  }, [session?.id]);
+
+  /**
+   * Fallback polling – henter sesjonen hvert 3. sekund som backup
+   * i tilfelle Realtime er treg eller dropper en oppdatering.
+   */
+  useEffect(() => {
+    if (!session) return;
+
+    const interval = setInterval(async () => {
+      const { data, error: pollError } = await supabase
+        .from('sessions')
+        .select('*')
+        .eq('id', session.id)
+        .single();
+
+      if (pollError) {
+        console.warn('[useSession] Polling feilet:', pollError.message);
+        return;
+      }
+
+      if (data) {
+        setSession((prev) => {
+          // Oppdater kun hvis noe faktisk endret seg
+          if (JSON.stringify(prev) !== JSON.stringify(data)) {
+            console.debug('[useSession] Polling oppdaget endring, oppdaterer sesjon.');
+            return data as Session;
+          }
+          return prev;
+        });
+      }
+    }, 3000);
+
+    return () => clearInterval(interval);
   }, [session?.id]);
 
   /**
@@ -190,19 +227,30 @@ export function useSession() {
     const normalizedCode = code.trim().toUpperCase();
     const trimmedName = name.trim() || 'Anonym';
 
-    // Finn sesjon via join_code
+    console.debug('[joinSession] Forsøker å finne sesjon med kode:', normalizedCode);
+
+    // Finn sesjon via join_code – bruker ilike for case-insensitiv matching
+    // som sikkerhetsnett i tilfelle DB har mixed case
     const { data: sessionData, error: sessionError } = await supabase
       .from('sessions')
       .select('*')
-      .eq('join_code', normalizedCode)
+      .ilike('join_code', normalizedCode)
       .eq('status', 'active')
       .single();
 
     if (sessionError || !sessionData) {
+      console.error('[joinSession] Fant ikke sesjon:', {
+        kode: normalizedCode,
+        feilkode: sessionError?.code,
+        feilmelding: sessionError?.message,
+        detaljer: sessionError?.details,
+      });
       setError('Feil kode — prøv igjen.');
       setLoading(false);
       return false;
     }
+
+    console.debug('[joinSession] Fant sesjon:', sessionData.id);
 
     // Sjekk om deltaker allerede er med (ved navn-kollisjon, ikke aktuelt her)
     // Registrer ny deltaker
@@ -217,6 +265,10 @@ export function useSession() {
       .single();
 
     if (participantError || !participantData) {
+      console.error('[joinSession] Kunne ikke registrere deltaker:', {
+        feilkode: participantError?.code,
+        feilmelding: participantError?.message,
+      });
       setError('Kunne ikke bli med i sesjonen. Prøv igjen.');
       setLoading(false);
       return false;

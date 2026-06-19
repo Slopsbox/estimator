@@ -4,12 +4,13 @@ import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { DeltagerJoinPage } from '../../pages/DeltagerJoin';
 
-// Mock useSession
+// Mock useSession – loading styres av mockLoading-flagg for fleksibilitet i tester
+let mockLoading = false;
 const mockJoinSession = vi.fn();
 vi.mock('../../hooks/useSession', () => ({
   useSession: () => ({
     joinSession: mockJoinSession,
-    loading: false,
+    loading: mockLoading,
     session: null,
     localParticipant: null,
     error: null,
@@ -35,6 +36,7 @@ vi.mock('react-router-dom', async (importOriginal) => {
 
 describe('DeltagerJoinPage', () => {
   beforeEach(() => {
+    mockLoading = false;
     mockJoinSession.mockReset();
     mockNavigate.mockReset();
     sessionStorage.clear();
@@ -175,5 +177,31 @@ describe('DeltagerJoinPage', () => {
       </MemoryRouter>,
     );
     expect(screen.getByLabelText(/ditt navn/i)).toHaveValue('Kari');
+  });
+
+  it('viser spinner og "Kobler til…" ved loading-state', () => {
+    mockLoading = true;
+    render(
+      <MemoryRouter>
+        <DeltagerJoinPage />
+      </MemoryRouter>,
+    );
+    expect(screen.getByText('Kobler til…')).toBeInTheDocument();
+    // Spinner er et SVG med animate-spin
+    const btn = screen.getByRole('button', { name: /kobler til/i });
+    expect(btn).toBeDisabled();
+    expect(btn.querySelector('svg')).not.toBeNull();
+  });
+
+  it('knapp er disabled ved loading selv om canSubmit er true', () => {
+    mockLoading = true;
+    sessionStorage.setItem('estimering_vote_name', 'Ola');
+    render(
+      <MemoryRouter>
+        <DeltagerJoinPage />
+      </MemoryRouter>,
+    );
+    const btn = screen.getByRole('button', { name: /kobler til/i });
+    expect(btn).toBeDisabled();
   });
 });
