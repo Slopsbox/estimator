@@ -1,12 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { PriorityMatrix } from '../components/PriorityMatrix';
+import { PreStartPanel } from '../components/dashboard/PreStartPanel';
+import { VotesPanel } from '../components/dashboard/VotesPanel';
 import { useRealtimeParticipants } from '../hooks/useRealtimeParticipants';
 import { useRealtimeVotes } from '../hooks/useRealtimeVotes';
 import { useSession } from '../hooks/useSession';
-import { VALUE_MEDAL } from '../lib/constants';
-import type { Participant, Vote } from '../lib/types';
-import { avatarColor, initials } from '../lib/utils';
 
 /** Fasilitator-dashboard (revisjon 3) – ett sammenhengende view, ingen tabs. */
 export function DashboardPage() {
@@ -29,6 +27,14 @@ export function DashboardPage() {
 
   const isFacilitator = localParticipant?.role === 'facilitator';
 
+  // Statisk liste – definert øverst for å unngå kondisjonell hook-kall
+  const joinCodeDots = useMemo(() => [
+    { color: 'oklch(0.56 0.14 165)' },
+    { color: 'oklch(0.56 0.17 35)' },
+    { color: 'oklch(0.55 0.15 270)' },
+    { color: 'oklch(0.55 0.16 50)' },
+  ], []);
+
   useEffect(() => {
     if (session?.status === 'completed' && isFacilitator) {
       logout();
@@ -36,7 +42,7 @@ export function DashboardPage() {
     }
   }, [session?.status, isFacilitator, logout, navigate]);
 
-  const handleCreate = async (e: React.FormEvent) => {
+  const handleCreate = useCallback(async (e: React.FormEvent) => {
     e.preventDefault();
     const name = nameInput.trim();
     if (!name) {
@@ -47,27 +53,27 @@ export function DashboardPage() {
     setCreating(true);
     await createSession(name);
     setCreating(false);
-  };
+  }, [nameInput, createSession]);
 
-  const handleStartSession = async () => {
+  const handleStartSession = useCallback(async () => {
     setActionLoading(true);
     await startSession();
     setActionLoading(false);
-  };
+  }, [startSession]);
 
-  const handleNextRound = async () => {
+  const handleNextRound = useCallback(async () => {
     setActionLoading(true);
     await nextRound();
     setActionLoading(false);
-  };
+  }, [nextRound]);
 
-  const handleReveal = async () => {
+  const handleReveal = useCallback(async () => {
     setActionLoading(true);
     await revealVotes();
     setActionLoading(false);
-  };
+  }, [revealVotes]);
 
-  const handleEndSession = async () => {
+  const handleEndSession = useCallback(async () => {
     const confirmed = window.confirm('Er du sikker på at du vil avslutte sesjonen?');
     if (!confirmed) return;
     setActionLoading(true);
@@ -75,9 +81,9 @@ export function DashboardPage() {
     setActionLoading(false);
     logout();
     navigate('/');
-  };
+  }, [endSession, logout, navigate]);
 
-  const handleCopyCode = async () => {
+  const handleCopyCode = useCallback(async () => {
     if (!session?.join_code) return;
     try {
       await navigator.clipboard.writeText(session.join_code);
@@ -86,7 +92,7 @@ export function DashboardPage() {
     } catch {
       // Fallback uten clipboard-tilgang
     }
-  };
+  }, [session]);
 
   // ── Opprett sesjon ─────────────────────────────────────────
   if (!isFacilitator || !session) {
@@ -191,13 +197,6 @@ export function DashboardPage() {
   const progressPct = totalCount > 0 ? (votedCount / totalCount) * 100 : 0;
 
   const sessionStarted = session.started;
-
-  const joinCodeDots = [
-    { color: 'oklch(0.56 0.14 165)' },
-    { color: 'oklch(0.56 0.17 35)' },
-    { color: 'oklch(0.55 0.15 270)' },
-    { color: 'oklch(0.55 0.16 50)' },
-  ];
 
   // ── Dashboard ──────────────────────────────────────────────
   return (
@@ -344,241 +343,6 @@ export function DashboardPage() {
           </div>
         </div>
       </div>
-    </div>
-  );
-}
-
-// ── Sub-komponenter ─────────────────────────────────────────
-
-interface PreStartPanelProps {
-  participants: Participant[];
-  actionLoading: boolean;
-  onStart: () => void;
-}
-
-function PreStartPanel({ participants, actionLoading, onStart }: PreStartPanelProps) {
-  const nonFacilitators = participants.filter((p) => p.role === 'participant');
-
-  return (
-    <div className="space-y-4">
-      {/* Status-tekst */}
-      <div className="text-center py-2">
-        <p
-          className="text-sm font-semibold"
-          style={{ fontFamily: 'Sora, sans-serif', color: 'oklch(0.30 0.08 165)' }}
-        >
-          Venter på deltakere…
-        </p>
-        <p
-          className="text-xs mt-0.5"
-          style={{ fontFamily: 'DM Sans, sans-serif', color: 'oklch(0.55 0.04 165)' }}
-        >
-          {nonFacilitators.length === 0
-            ? 'Ingen deltakere ennå'
-            : `${nonFacilitators.length} deltaker${nonFacilitators.length === 1 ? '' : 'e'} har joinet`}
-        </p>
-      </div>
-
-      {/* Deltakerliste */}
-      {nonFacilitators.length > 0 && (
-        <ul className="space-y-2">
-          {nonFacilitators.map((p) => (
-            <li key={p.id} className="flex items-center gap-3 py-1">
-              <div
-                className="w-9 h-9 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0"
-                style={{ background: avatarColor(p.name), fontFamily: 'Sora, sans-serif' }}
-              >
-                {initials(p.name)}
-              </div>
-              <span
-                className="flex-1 text-sm font-medium"
-                style={{ color: 'oklch(0.20 0.06 165)', fontFamily: 'DM Sans, sans-serif' }}
-              >
-                {p.name}
-              </span>
-              {/* Online-dot */}
-              <div
-                className="w-2 h-2 rounded-full"
-                style={{ background: 'oklch(0.55 0.16 165)' }}
-              />
-            </li>
-          ))}
-        </ul>
-      )}
-
-      {/* Start sesjon-knapp */}
-      <button
-        type="button"
-        onClick={onStart}
-        disabled={actionLoading}
-        className="w-full py-4 rounded-2xl font-bold text-white text-base transition-all focus:outline-none"
-        style={{
-          fontFamily: 'Sora, sans-serif',
-          background: actionLoading
-            ? 'oklch(0.70 0.08 165)'
-            : 'oklch(0.52 0.18 145)',
-          cursor: actionLoading ? 'not-allowed' : 'pointer',
-          opacity: actionLoading ? 0.6 : 1,
-          boxShadow: actionLoading ? 'none' : '0 2px 12px oklch(0.52 0.18 145 / 0.35)',
-        }}
-      >
-        {actionLoading ? 'Starter…' : '▶ Start sesjon'}
-      </button>
-    </div>
-  );
-}
-
-interface VotesPanelProps {
-  participants: Participant[];
-  votes: Vote[];
-  revealed: boolean;
-  votedCount: number;
-  totalCount: number;
-  actionLoading: boolean;
-  onReveal: () => void;
-  onNextRound: () => void;
-}
-
-function VotesPanel({
-  participants,
-  votes,
-  revealed,
-  votedCount,
-  totalCount,
-  actionLoading,
-  onReveal,
-  onNextRound,
-}: VotesPanelProps) {
-  // Bygg oppslag: participantId → vote
-  const voteMap = new Map(votes.map((v) => [v.participant_id, v]));
-
-  return (
-    <div className="space-y-4">
-      {/* Reveal-panel */}
-      <div
-        className="rounded-xl p-3 space-y-2"
-        style={{ background: 'oklch(0.97 0.010 165)' }}
-      >
-        <p
-          className="text-sm text-center"
-          style={{ fontFamily: 'DM Sans, sans-serif', color: 'oklch(0.40 0.05 165)' }}
-        >
-          {votedCount} av {totalCount} har stemt
-        </p>
-        {!revealed ? (
-          <button
-            type="button"
-            onClick={onReveal}
-            disabled={actionLoading || votedCount === 0}
-            className="w-full py-3 rounded-xl font-semibold text-white text-sm transition-all focus:outline-none"
-            style={{
-              fontFamily: 'Sora, sans-serif',
-              background:
-                actionLoading || votedCount === 0
-                  ? 'oklch(0.75 0.04 165)'
-                  : 'oklch(0.30 0.08 165)',
-              cursor: actionLoading || votedCount === 0 ? 'not-allowed' : 'pointer',
-              opacity: actionLoading || votedCount === 0 ? 0.6 : 1,
-            }}
-          >
-            Vis resultater 🃏
-          </button>
-        ) : (
-          <button
-            type="button"
-            onClick={onNextRound}
-            disabled={actionLoading}
-            className="w-full py-3 rounded-xl font-semibold text-white text-sm transition-all focus:outline-none flex items-center justify-center gap-2"
-            style={{
-              fontFamily: 'Sora, sans-serif',
-              background: actionLoading ? 'oklch(0.75 0.04 165)' : 'oklch(0.56 0.17 35)',
-              cursor: actionLoading ? 'not-allowed' : 'pointer',
-              opacity: actionLoading ? 0.6 : 1,
-            }}
-          >
-            {/* Rotasjon-SVG */}
-            <svg
-              width="16"
-              height="16"
-              viewBox="0 0 16 16"
-              fill="none"
-              aria-hidden="true"
-              style={actionLoading ? { animation: 'spin 1s linear infinite' } : undefined}
-            >
-              <path
-                d="M13.5 8A5.5 5.5 0 1 1 8 2.5M13.5 2.5v3h-3"
-                stroke="currentColor"
-                strokeWidth="1.7"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            </svg>
-            Ny runde
-          </button>
-        )}
-      </div>
-
-      {/* Stemmeliste */}
-      {participants.length === 0 ? (
-        <p
-          className="text-sm text-center py-2"
-          style={{ color: 'oklch(0.55 0.04 165)', fontFamily: 'DM Sans, sans-serif' }}
-        >
-          Ingen deltakere ennå.
-        </p>
-      ) : (
-        <ul className="space-y-2">
-          {participants.map((p) => {
-            const vote = voteMap.get(p.id);
-            return (
-              <li key={p.id} className="flex items-center gap-3">
-                <div
-                  className="w-9 h-9 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0"
-                  style={{ background: avatarColor(p.name), fontFamily: 'Sora, sans-serif' }}
-                >
-                  {initials(p.name)}
-                </div>
-                <span
-                  className="flex-1 text-sm font-medium"
-                  style={{ color: 'oklch(0.20 0.06 165)', fontFamily: 'DM Sans, sans-serif' }}
-                >
-                  {p.name}
-                </span>
-                {/* Stemme-status */}
-                {vote ? (
-                  revealed ? (
-                    <span
-                      className="text-sm font-bold"
-                      style={{ fontFamily: 'Sora, sans-serif', color: 'oklch(0.30 0.08 165)' }}
-                    >
-                      {vote.size.toUpperCase()} {VALUE_MEDAL[vote.value]}
-                    </span>
-                  ) : (
-                    <span
-                      className="text-xs font-medium"
-                      style={{ color: 'oklch(0.55 0.16 165)', fontFamily: 'DM Sans, sans-serif' }}
-                    >
-                      Klar ✓
-                    </span>
-                  )
-                ) : (
-                  <span
-                    className="text-xs"
-                    style={{ color: 'oklch(0.65 0.04 165)', fontFamily: 'DM Sans, sans-serif' }}
-                  >
-                    Venter…
-                  </span>
-                )}
-              </li>
-            );
-          })}
-        </ul>
-      )}
-
-      {/* Prioriteringsanbefaling – vises etter avsløring */}
-      {revealed && votes.length > 0 && (
-        <PriorityMatrix votes={votes} />
-      )}
     </div>
   );
 }
