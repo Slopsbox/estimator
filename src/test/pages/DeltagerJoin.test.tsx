@@ -127,7 +127,6 @@ describe('DeltagerJoinPage', () => {
       ...window.location,
       href: '',
     });
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const setHrefSpy = vi.fn();
     Object.defineProperty(window, 'location', {
       value: { ...window.location, set href(val: string) { setHrefSpy(val); } },

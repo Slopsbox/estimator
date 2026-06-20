@@ -52,6 +52,7 @@ export function useSession() {
     const local = readFromStorage();
     if (!local) {
       // Ingen lagret data – vi er ferdig med gjenoppretting
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setInitialized(true);
       return;
     }
@@ -91,12 +92,11 @@ export function useSession() {
           filter: `id=eq.${session.id}`,
         },
         (payload) => {
-          console.debug('[useSession] Realtime UPDATE mottatt:', payload.new);
           setSession(payload.new as Session);
         },
       )
-      .subscribe((status) => {
-        console.debug('[useSession] Realtime subscription status:', status);
+      .subscribe((_status) => {
+        // subscription status
       });
 
     return () => {
@@ -115,7 +115,7 @@ export function useSession() {
     setError(null);
 
     // Generer unik join_code (prøv inntil 10 ganger ved kollisjon)
-    let joinCode = '';
+    let joinCode: string;
     let sessionData: Session | null = null;
 
     for (let attempt = 0; attempt < 10; attempt++) {
@@ -194,8 +194,6 @@ export function useSession() {
     const normalizedCode = code.trim().toUpperCase();
     const trimmedName = name.trim() || 'Anonym';
 
-    console.debug('[joinSession] Forsøker å finne sesjon med kode:', normalizedCode);
-
     // Finn sesjon via join_code – bruker eq for eksakt match.
     // join_code genereres alltid som uppercase, og normalizedCode er også uppercase,
     // så eq er tryggere og mer forutsigbart enn ilike for dette formålet.
@@ -207,21 +205,11 @@ export function useSession() {
       .single();
 
     if (sessionError || !sessionData) {
-      console.error('[joinSession] Fant ikke sesjon:', {
-        kode: normalizedCode,
-        feilkode: sessionError?.code,
-        feilmelding: sessionError?.message,
-        detaljer: sessionError?.details,
-        hint: sessionError?.hint,
-        fullFeil: sessionError,
-        sessionData,
-      });
+      console.error('[joinSession] Fant ikke sesjon med kode:', normalizedCode, sessionError?.code);
       setError('Feil kode — prøv igjen.');
       setLoading(false);
       return false;
     }
-
-    console.debug('[joinSession] Fant sesjon:', sessionData.id);
 
     // Sjekk om deltaker allerede er med (ved navn-kollisjon, ikke aktuelt her)
     // Registrer ny deltaker
@@ -236,10 +224,7 @@ export function useSession() {
       .single();
 
     if (participantError || !participantData) {
-      console.error('[joinSession] Kunne ikke registrere deltaker:', {
-        feilkode: participantError?.code,
-        feilmelding: participantError?.message,
-      });
+      console.error('[joinSession] Kunne ikke registrere deltaker:', participantError?.code);
       setError('Kunne ikke bli med i sesjonen. Prøv igjen.');
       setLoading(false);
       return false;

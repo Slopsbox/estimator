@@ -7,7 +7,6 @@ import type { Vote } from '../../lib/types';
 // ============================================================
 
 const { chainable, channelMock } = vi.hoisted(() => {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let subscribeCb: ((status: string) => void) | undefined;
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any

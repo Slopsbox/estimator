@@ -7,11 +7,8 @@ import type { Participant } from '../../lib/types';
 // ============================================================
 
 const { chainable, channelMock } = vi.hoisted(() => {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let subscribeCb: ((status: string) => void) | undefined;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let insertHandler: ((payload: { new: Participant }) => void) | undefined;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let updateHandler: ((payload: { new: Participant }) => void) | undefined;
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any

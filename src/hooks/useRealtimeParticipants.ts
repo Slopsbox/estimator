@@ -13,6 +13,7 @@ export function useRealtimeParticipants(sessionId: string | null) {
 
   useEffect(() => {
     if (!sessionId) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setLoading(false);
       return;
     }

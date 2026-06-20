@@ -136,7 +136,6 @@ export function LandingPage() {
               fontWeight: 600,
               cursor: verified ? 'pointer' : 'not-allowed',
               opacity: verified ? 1 : 0.6,
-              // eslint-disable-next-line @typescript-eslint/prefer-as-const
               ...(verified ? { boxShadow: '0 2px 12px oklch(0.30 0.08 165 / 0.35)' } : {}),
             }}
           >

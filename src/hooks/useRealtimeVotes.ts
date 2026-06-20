@@ -19,11 +19,13 @@ export function useRealtimeVotes(
 
   // Synkroniser revealed med ekstern endring (f.eks. ved runde-reset)
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setRevealed(initialRevealed);
   }, [initialRevealed, currentRound]);
 
   useEffect(() => {
     if (!sessionId) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setLoading(false);
       return;
     }
