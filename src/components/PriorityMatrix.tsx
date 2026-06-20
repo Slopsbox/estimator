@@ -1,4 +1,4 @@
-import type { Size, Value } from '../lib/types';
+import type { Size, Value, Vote } from '../lib/types';
 
 // ── Numeriske mapping-tabeller ──────────────────────────────
 
@@ -108,6 +108,7 @@ export interface MatrixResult {
   valueLabel: string;
 }
 
+/** Beregn matrise fra stemmer. Aksepterer Vote[] fra DB (size/value er string i DB-typen). */
 export function calculateMatrix(
   votes: Array<{ size: Size; value: Value }>,
 ): MatrixResult | null {
@@ -131,7 +132,11 @@ export function calculateMatrix(
 // ── Komponent ──────────────────────────────────────────────
 
 export interface PriorityMatrixProps {
-  votes: Array<{ size: Size; value: Value }>;
+  /**
+   * Stemmer fra DB. size/value er string i DB-typen, men CHECK-constraints
+   * garanterer at de alltid er gyldige Size/Value-verdier.
+   */
+  votes: Vote[] | Array<{ size: Size; value: Value }>;
 }
 
 /**
@@ -140,7 +145,8 @@ export interface PriorityMatrixProps {
  * og viser en prioriteringsanbefaling i riktig kvadrant.
  */
 export function PriorityMatrix({ votes }: PriorityMatrixProps) {
-  const result = calculateMatrix(votes);
+  // Cast til narrowed type – DB CHECK-constraints garanterer gyldige verdier
+  const result = calculateMatrix(votes as Array<{ size: Size; value: Value }>);
 
   if (!result) return null;
 

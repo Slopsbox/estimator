@@ -1,8 +1,44 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 
+// ============================================================
+// Enkel in-memory rate limiter per serverless function instance
+// Begrenser antall verifiseringsforsøk per IP per tidvindu
+// ============================================================
+const attempts = new Map<string, { count: number; resetAt: number }>();
+const MAX_ATTEMPTS = 10;
+const WINDOW_MS = 60_000; // 1 minutt
+
+function isRateLimited(ip: string): boolean {
+  const now = Date.now();
+  const entry = attempts.get(ip);
+
+  if (!entry || now > entry.resetAt) {
+    attempts.set(ip, { count: 1, resetAt: now + WINDOW_MS });
+    return false;
+  }
+
+  entry.count++;
+  return entry.count > MAX_ATTEMPTS;
+}
+
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
+  }
+
+  // Rate limiting basert på IP
+  const ip =
+    (Array.isArray(req.headers['x-forwarded-for'])
+      ? req.headers['x-forwarded-for'][0]
+      : req.headers['x-forwarded-for']) ??
+    req.socket?.remoteAddress ??
+    'unknown';
+
+  if (isRateLimited(ip)) {
+    return res.status(429).json({
+      success: false,
+      error: 'Too many requests',
+    });
   }
 
   const { token } = req.body ?? {};

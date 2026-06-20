@@ -1,54 +1,45 @@
 // ============================================================
 // Delte TypeScript-typer for estimeringsappen
-// Speiler datamodellen definert i oppdraget
+// ============================================================
+// DB-Row-typer er generert fra Supabase-skjemaet.
+// Importer database.types.ts ved hjelp av Tables<...> helper-typen.
+// App-nivå utility-typer defineres her.
 // ============================================================
 
-/** Mulige størrelsesestimater */
+import type { Tables } from './database.types';
+
+// ============================================================
+// Re-eksport av genererte DB-typer
+// ============================================================
+
+/** Rad fra sessions-tabellen */
+export type Session = Tables<'sessions'>;
+
+/** Rad fra participants-tabellen */
+export type Participant = Tables<'participants'>;
+
+/** Rad fra votes-tabellen */
+export type Vote = Tables<'votes'>;
+
+// ============================================================
+// App-nivå narrowing-typer (snevrere enn DB-typens `string`)
+// Disse speiler CHECK-constraints i skjemaet og brukes i app-logikk.
+// ============================================================
+
+/** Mulige størrelsesestimater (speiler CHECK-constraint i DB) */
 export type Size = 'xs' | 's' | 'm' | 'l' | 'xl';
 
-/** Forretningsverdi-rangering */
+/** Forretningsverdi-rangering (speiler CHECK-constraint i DB) */
 export type Value = 'gold' | 'silver' | 'bronze';
 
-/** Sesjonstatus */
+/** Sesjonstatus (speiler CHECK-constraint i DB) */
 export type SessionStatus = 'active' | 'completed';
 
-/** Deltaker-rolle */
+/** Deltaker-rolle (speiler CHECK-constraint i DB) */
 export type ParticipantRole = 'facilitator' | 'participant';
 
 // ============================================================
-// Database-modeller (speiler Supabase-tabellene)
-// ============================================================
-
-export interface Session {
-  id: string;
-  status: SessionStatus;
-  current_round: number;
-  created_at: string;
-  join_code: string;
-  votes_revealed: boolean;
-  started: boolean;
-}
-
-export interface Participant {
-  id: string;
-  session_id: string;
-  name: string;
-  role: ParticipantRole;
-  joined_at: string;
-}
-
-export interface Vote {
-  id: string;
-  session_id: string;
-  participant_id: string;
-  round: number;
-  size: Size;
-  value: Value;
-  created_at: string;
-}
-
-// ============================================================
-// Frontend-spesifikke typer
+// Frontend-spesifikke typer (ingen DB-ekvivalent)
 // ============================================================
 
 /** Lokal tilstand for en deltaker (lagres i sessionStorage) */

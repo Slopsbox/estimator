@@ -20,9 +20,10 @@ export function VoteResults({
   selectedValue,
   localParticipant,
 }: VoteResultsProps) {
-  // Sorter stemmer etter størrelse
+  // Sorter stemmer etter størrelse.
+  // DB CHECK-constraints garanterer at size/value alltid er gyldige Size/Value-verdier.
   const sortedVotes = [...votes].sort(
-    (a, b) => SIZE_ORDER[a.size] - SIZE_ORDER[b.size],
+    (a, b) => SIZE_ORDER[a.size as Size] - SIZE_ORDER[b.size as Size],
   );
 
   // Konsensus-deteksjon
@@ -76,7 +77,7 @@ export function VoteResults({
                     : '0 1px 8px oklch(0.20 0.06 165 / 0.06)',
                 }}
               >
-                <span className="text-2xl">{VALUE_MEDAL[vote.value]}</span>
+                <span className="text-2xl">{VALUE_MEDAL[vote.value as Value]}</span>
                 <span
                   className="flex-1 text-sm font-bold uppercase tracking-wide"
                   style={{ fontFamily: 'Sora, sans-serif', color: 'oklch(0.30 0.08 165)' }}

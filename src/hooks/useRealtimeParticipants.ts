@@ -29,7 +29,7 @@ export function useRealtimeParticipants(sessionId: string | null) {
         .order('joined_at', { ascending: true })
         .then(({ data, error }) => {
           if (!error && data) {
-            setParticipants(data as Participant[]);
+            setParticipants(data);
           }
           setLoading(false);
         });

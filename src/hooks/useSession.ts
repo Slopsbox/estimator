@@ -70,7 +70,7 @@ export function useSession() {
           clearStorage();
           setLocalParticipant(null);
         } else {
-          setSession(data as Session);
+          setSession(data);
         }
         // Gjenoppretting er forsøkt ferdig uansett utfall
         setInitialized(true);
@@ -115,11 +115,10 @@ export function useSession() {
     setError(null);
 
     // Generer unik join_code (prøv inntil 10 ganger ved kollisjon)
-    let joinCode: string;
     let sessionData: Session | null = null;
 
     for (let attempt = 0; attempt < 10; attempt++) {
-      joinCode = generateJoinCode();
+      const joinCode = generateJoinCode();
 
       const { data, error: sessionError } = await supabase
         .from('sessions')
@@ -134,7 +133,7 @@ export function useSession() {
         .single();
 
       if (!sessionError && data) {
-        sessionData = data as Session;
+        sessionData = data;
         break;
       }
 
@@ -158,7 +157,7 @@ export function useSession() {
       .insert({
         session_id: sessionData.id,
         name: facilitatorName,
-        role: 'facilitator' as ParticipantRole,
+        role: 'facilitator' satisfies ParticipantRole,
       })
       .select()
       .single();
@@ -170,7 +169,7 @@ export function useSession() {
     }
 
     const local: LocalParticipant = {
-      participantId: participantData.id as string,
+      participantId: participantData.id,
       sessionId: sessionData.id,
       name: facilitatorName,
       role: 'facilitator',
@@ -218,7 +217,7 @@ export function useSession() {
       .insert({
         session_id: sessionData.id,
         name: trimmedName,
-        role: 'participant' as ParticipantRole,
+        role: 'participant' satisfies ParticipantRole,
       })
       .select()
       .single();
@@ -231,8 +230,8 @@ export function useSession() {
     }
 
     const local: LocalParticipant = {
-      participantId: participantData.id as string,
-      sessionId: sessionData.id as string,
+      participantId: participantData.id,
+      sessionId: sessionData.id,
       name: trimmedName,
       role: 'participant',
     };
@@ -242,7 +241,7 @@ export function useSession() {
 
     writeToStorage(local);
     setLocalParticipant(local);
-    setSession(sessionData as Session);
+    setSession(sessionData);
     setLoading(false);
     return true;
   }, []);

@@ -44,7 +44,7 @@ export function useRealtimeVotes(
         .order('created_at', { ascending: true })
         .then(({ data, error }) => {
           if (!error && data) {
-            setVotes(data as Vote[]);
+            setVotes(data);
           }
           setLoading(false);
         });

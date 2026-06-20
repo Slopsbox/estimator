@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 import { PriorityMatrix } from '../PriorityMatrix';
 import { VALUE_MEDAL } from '../../lib/constants';
-import type { Participant, Vote } from '../../lib/types';
+import type { Participant, Value, Vote } from '../../lib/types';
 import { avatarColor, initials } from '../../lib/utils';
 
 export interface VotesPanelProps {
@@ -127,7 +127,7 @@ export function VotesPanel({
                       className="text-sm font-bold"
                       style={{ fontFamily: 'Sora, sans-serif', color: 'oklch(0.30 0.08 165)' }}
                     >
-                      {vote.size.toUpperCase()} {VALUE_MEDAL[vote.value]}
+                      {vote.size.toUpperCase()} {VALUE_MEDAL[vote.value as Value]}
                     </span>
                   ) : (
                     <span
