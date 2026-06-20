@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { TurnstileGate } from '../components/TurnstileGate';
+import { AppLogo } from '../components/AppLogo';
 
 /**
  * Landingsside – Gjensidige Builders designsystem.
@@ -63,14 +64,9 @@ export function LandingPage() {
 
       {/* Hero-innhold */}
       <div className="flex-1 flex flex-col items-center justify-center px-6 pb-8 pt-16">
-        {/* App-ikon: 4 ruter SVG */}
+        {/* App-ikon */}
         <div className="mb-5">
-          <svg width="56" height="56" viewBox="0 0 56 56" fill="none" aria-hidden="true">
-            <rect x="4" y="4" width="20" height="20" rx="5" fill="#C8002D" />
-            <rect x="32" y="4" width="20" height="20" rx="5" fill="#E8436A" opacity="0.85" />
-            <rect x="4" y="32" width="20" height="20" rx="5" fill="#E8436A" opacity="0.85" />
-            <rect x="32" y="32" width="20" height="20" rx="5" fill="#FFC2CB" opacity="0.6" />
-          </svg>
+          <AppLogo size={80} />
         </div>
 
         <h1
