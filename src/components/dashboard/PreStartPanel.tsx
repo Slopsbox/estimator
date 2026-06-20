@@ -16,13 +16,13 @@ export function PreStartPanel({ participants, actionLoading, onStart }: PreStart
       <div className="text-center py-2">
         <p
           className="text-sm font-semibold"
-          style={{ fontFamily: 'Sora, sans-serif', color: 'oklch(0.30 0.08 165)' }}
+          style={{ color: 'var(--color-neutral-900)' }}
         >
           Venter på deltakere…
         </p>
         <p
           className="text-xs mt-0.5"
-          style={{ fontFamily: 'DM Sans, sans-serif', color: 'oklch(0.55 0.04 165)' }}
+          style={{ color: 'var(--color-neutral-500)' }}
         >
           {nonFacilitators.length === 0
             ? 'Ingen deltakere ennå'
@@ -37,20 +37,20 @@ export function PreStartPanel({ participants, actionLoading, onStart }: PreStart
             <li key={p.id} className="flex items-center gap-3 py-1">
               <div
                 className="w-9 h-9 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0"
-                style={{ background: avatarColor(p.name), fontFamily: 'Sora, sans-serif' }}
+                style={{ background: avatarColor(p.name) }}
               >
                 {initials(p.name)}
               </div>
               <span
                 className="flex-1 text-sm font-medium"
-                style={{ color: 'oklch(0.20 0.06 165)', fontFamily: 'DM Sans, sans-serif' }}
+                style={{ color: 'var(--color-neutral-900)' }}
               >
                 {p.name}
               </span>
               {/* Online-dot */}
               <div
                 className="w-2 h-2 rounded-full"
-                style={{ background: 'oklch(0.55 0.16 165)' }}
+                style={{ background: 'var(--color-success)' }}
               />
             </li>
           ))}
@@ -62,15 +62,15 @@ export function PreStartPanel({ participants, actionLoading, onStart }: PreStart
         type="button"
         onClick={onStart}
         disabled={actionLoading}
-        className="w-full py-4 rounded-2xl font-bold text-white text-base transition-all focus:outline-none"
+        className="w-full py-4 font-bold text-white text-base transition-all focus:outline-none"
         style={{
-          fontFamily: 'Sora, sans-serif',
+          borderRadius: 'var(--radius-md)',
           background: actionLoading
-            ? 'oklch(0.70 0.08 165)'
-            : 'oklch(0.52 0.18 145)',
+            ? 'var(--color-neutral-200)'
+            : 'var(--color-red-600)',
+          color: actionLoading ? 'var(--color-neutral-400)' : 'white',
           cursor: actionLoading ? 'not-allowed' : 'pointer',
-          opacity: actionLoading ? 0.6 : 1,
-          boxShadow: actionLoading ? 'none' : '0 2px 12px oklch(0.52 0.18 145 / 0.35)',
+          boxShadow: actionLoading ? 'none' : '0 2px 12px rgba(200,0,45,.30)',
         }}
       >
         {actionLoading ? 'Starter…' : '▶ Start sesjon'}

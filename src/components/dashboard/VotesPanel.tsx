@@ -32,12 +32,15 @@ export function VotesPanel({
     <div className="space-y-4">
       {/* Reveal-panel */}
       <div
-        className="rounded-xl p-3 space-y-2"
-        style={{ background: 'oklch(0.97 0.010 165)' }}
+        className="p-3 space-y-2"
+        style={{
+          background: 'var(--color-neutral-100)',
+          borderRadius: 'var(--radius-md)',
+        }}
       >
         <p
           className="text-sm text-center"
-          style={{ fontFamily: 'DM Sans, sans-serif', color: 'oklch(0.40 0.05 165)' }}
+          style={{ color: 'var(--color-neutral-500)' }}
         >
           {votedCount} av {totalCount} har stemt
         </p>
@@ -46,15 +49,15 @@ export function VotesPanel({
             type="button"
             onClick={onReveal}
             disabled={actionLoading || votedCount === 0}
-            className="w-full py-3 rounded-xl font-semibold text-white text-sm transition-all focus:outline-none"
+            className="w-full py-3 font-semibold text-white text-sm transition-all focus:outline-none"
             style={{
-              fontFamily: 'Sora, sans-serif',
+              borderRadius: 'var(--radius-md)',
               background:
                 actionLoading || votedCount === 0
-                  ? 'oklch(0.75 0.04 165)'
-                  : 'oklch(0.30 0.08 165)',
+                  ? 'var(--color-neutral-200)'
+                  : 'var(--color-navy-900)',
+              color: actionLoading || votedCount === 0 ? 'var(--color-neutral-400)' : 'white',
               cursor: actionLoading || votedCount === 0 ? 'not-allowed' : 'pointer',
-              opacity: actionLoading || votedCount === 0 ? 0.6 : 1,
             }}
           >
             Vis resultater 🃏
@@ -64,10 +67,12 @@ export function VotesPanel({
             type="button"
             onClick={onNextRound}
             disabled={actionLoading}
-            className="w-full py-3 rounded-xl font-semibold text-white text-sm transition-all focus:outline-none flex items-center justify-center gap-2"
+            className="w-full py-3 font-semibold text-sm transition-all focus:outline-none flex items-center justify-center gap-2"
             style={{
-              fontFamily: 'Sora, sans-serif',
-              background: actionLoading ? 'oklch(0.75 0.04 165)' : 'oklch(0.56 0.17 35)',
+              borderRadius: 'var(--radius-md)',
+              background: 'transparent',
+              color: 'var(--color-neutral-700)',
+              border: '1.5px solid var(--color-neutral-200)',
               cursor: actionLoading ? 'not-allowed' : 'pointer',
               opacity: actionLoading ? 0.6 : 1,
             }}
@@ -98,7 +103,7 @@ export function VotesPanel({
       {participants.length === 0 ? (
         <p
           className="text-sm text-center py-2"
-          style={{ color: 'oklch(0.55 0.04 165)', fontFamily: 'DM Sans, sans-serif' }}
+          style={{ color: 'var(--color-neutral-500)' }}
         >
           Ingen deltakere ennå.
         </p>
@@ -110,38 +115,57 @@ export function VotesPanel({
               <li key={p.id} className="flex items-center gap-3">
                 <div
                   className="w-9 h-9 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0"
-                  style={{ background: avatarColor(p.name), fontFamily: 'Sora, sans-serif' }}
+                  style={{ background: avatarColor(p.name) }}
                 >
                   {initials(p.name)}
                 </div>
                 <span
                   className="flex-1 text-sm font-medium"
-                  style={{ color: 'oklch(0.20 0.06 165)', fontFamily: 'DM Sans, sans-serif' }}
+                  style={{ color: 'var(--color-neutral-900)' }}
                 >
                   {p.name}
                 </span>
                 {/* Stemme-status */}
                 {vote ? (
                   revealed ? (
+                    /* Avslørt stemme */
                     <span
-                      className="text-sm font-bold"
-                      style={{ fontFamily: 'Sora, sans-serif', color: 'oklch(0.30 0.08 165)' }}
+                      className="text-sm font-bold px-2 py-0.5"
+                      style={{
+                        background: 'var(--color-neutral-200)',
+                        color: 'var(--color-neutral-900)',
+                        borderRadius: 'var(--radius-sm)',
+                      }}
                     >
                       {vote.size.toUpperCase()} {VALUE_MEDAL[vote.value as Value]}
                     </span>
                   ) : (
+                    /* Klar */
                     <span
-                      className="text-xs font-medium"
-                      style={{ color: 'oklch(0.55 0.16 165)', fontFamily: 'DM Sans, sans-serif' }}
+                      className="text-xs font-medium px-2 py-0.5"
+                      style={{
+                        background: '#E8F4ED',
+                        color: 'var(--color-success)',
+                        borderRadius: 'var(--radius-sm)',
+                      }}
                     >
                       Klar ✓
                     </span>
                   )
                 ) : (
+                  /* Venter */
                   <span
-                    className="text-xs"
-                    style={{ color: 'oklch(0.65 0.04 165)', fontFamily: 'DM Sans, sans-serif' }}
+                    className="text-xs px-2 py-0.5 flex items-center gap-1"
+                    style={{
+                      background: '#FFF4E0',
+                      color: 'var(--color-warning)',
+                      borderRadius: 'var(--radius-sm)',
+                    }}
                   >
+                    <span
+                      className="w-1.5 h-1.5 rounded-full animate-pulse-slow inline-block"
+                      style={{ background: 'var(--color-warning)' }}
+                    />
                     Venter…
                   </span>
                 )}

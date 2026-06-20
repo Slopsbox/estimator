@@ -27,12 +27,12 @@ export function DashboardPage() {
 
   const isFacilitator = localParticipant?.role === 'facilitator';
 
-  // Statisk liste – definert øverst for å unngå kondisjonell hook-kall
+  // Statiske dots for sesjonskode-kortet – navy-farger
   const joinCodeDots = useMemo(() => [
-    { color: 'oklch(0.56 0.14 165)' },
-    { color: 'oklch(0.56 0.17 35)' },
-    { color: 'oklch(0.55 0.15 270)' },
-    { color: 'oklch(0.55 0.16 50)' },
+    { color: 'var(--color-navy-900)' },
+    { color: 'var(--color-navy-700)' },
+    { color: 'var(--color-navy-500)' },
+    { color: 'var(--color-navy-200)' },
   ], []);
 
   useEffect(() => {
@@ -99,37 +99,59 @@ export function DashboardPage() {
     return (
       <div
         className="min-h-screen flex flex-col"
-        style={{ background: 'oklch(0.965 0.012 165)' }}
+        style={{ background: 'var(--color-neutral-100)' }}
       >
         {/* Header */}
-        <div className="flex items-center gap-3 px-4 py-4">
+        <div
+          className="flex items-center gap-3 px-4 py-4"
+          style={{
+            background: 'white',
+            borderBottom: '1px solid var(--color-neutral-200)',
+          }}
+        >
           <button
             type="button"
             onClick={() => navigate('/')}
-            className="flex items-center justify-center w-9 h-9 rounded-xl transition-colors"
-            style={{ background: 'oklch(0.92 0.015 165)', color: 'oklch(0.30 0.08 165)' }}
+            className="flex items-center justify-center w-9 h-9 transition-colors"
+            style={{
+              background: 'var(--color-neutral-100)',
+              borderRadius: 'var(--radius-md)',
+              color: 'var(--color-neutral-700)',
+            }}
             aria-label="Tilbake"
           >
             <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true">
               <path d="M11 4L6 9l5 5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
             </svg>
           </button>
-          <h1 className="text-lg font-semibold" style={{ fontFamily: 'Sora, sans-serif', color: 'oklch(0.20 0.06 165)' }}>
+          <h1
+            className="text-lg font-semibold"
+            style={{ color: 'var(--color-neutral-900)' }}
+          >
             Fasilitator
           </h1>
         </div>
 
         <div className="flex-1 flex flex-col items-center justify-center px-5 py-8">
           <div
-            className="w-full max-w-sm bg-white rounded-3xl p-6 space-y-5 animate-fadeUp"
-            style={{ boxShadow: '0 2px 20px oklch(0.20 0.06 165 / 0.08)' }}
+            className="w-full max-w-sm bg-white p-6 space-y-5 animate-fadeUp"
+            style={{
+              borderRadius: 'var(--radius-xl)',
+              boxShadow: 'var(--shadow-md)',
+            }}
           >
             <div className="text-center">
               <div className="text-4xl mb-3">🎯</div>
-              <h2 className="text-xl font-bold" style={{ fontFamily: 'Sora, sans-serif', color: 'oklch(0.20 0.06 165)' }}>
+              <h2
+                className="text-xl font-bold"
+                style={{ color: 'var(--color-neutral-900)' }}
+              >
                 Opprett sesjon
               </h2>
-              <p className="mt-1 text-sm" style={{ color: 'oklch(0.55 0.04 165)', fontFamily: 'DM Sans, sans-serif' }}>
+              <p
+                className="mt-1 text-sm"
+                style={{ color: 'var(--color-neutral-500)' }}
+              >
                 Opprett en ny estimeringssesjon
               </p>
             </div>
@@ -139,7 +161,7 @@ export function DashboardPage() {
                 <label
                   htmlFor="facilitator-name"
                   className="block text-sm font-medium mb-1.5"
-                  style={{ fontFamily: 'DM Sans, sans-serif', color: 'oklch(0.35 0.05 165)' }}
+                  style={{ color: 'var(--color-neutral-700)' }}
                 >
                   Ditt navn
                 </label>
@@ -151,20 +173,27 @@ export function DashboardPage() {
                   placeholder="Fasilitators navn"
                   maxLength={60}
                   autoFocus
-                  className="w-full px-4 py-3 rounded-xl border text-sm focus:outline-none transition-colors"
+                  className="w-full px-4 py-3 text-sm focus:outline-none transition-colors"
                   style={{
-                    borderColor: 'oklch(0.88 0.02 165)',
-                    color: 'oklch(0.20 0.06 165)',
-                    fontFamily: 'DM Sans, sans-serif',
+                    border: '1.5px solid var(--color-neutral-300)',
+                    borderRadius: 'var(--radius-md)',
+                    color: 'var(--color-neutral-900)',
+                    background: 'white',
                   }}
                 />
                 {nameError && (
-                  <p className="mt-1 text-sm" style={{ color: 'oklch(0.52 0.18 25)', fontFamily: 'DM Sans, sans-serif' }}>
+                  <p
+                    className="mt-1 text-sm"
+                    style={{ color: 'var(--color-danger)' }}
+                  >
                     {nameError}
                   </p>
                 )}
                 {error && (
-                  <p className="mt-1 text-sm" style={{ color: 'oklch(0.52 0.18 25)', fontFamily: 'DM Sans, sans-serif' }}>
+                  <p
+                    className="mt-1 text-sm"
+                    style={{ color: 'var(--color-danger)' }}
+                  >
                     {error}
                   </p>
                 )}
@@ -173,12 +202,14 @@ export function DashboardPage() {
               <button
                 type="submit"
                 disabled={creating || loading}
-                className="w-full py-4 rounded-2xl font-semibold text-white text-base transition-all focus:outline-none"
+                className="w-full py-4 font-semibold text-white text-base transition-all focus:outline-none"
                 style={{
-                  fontFamily: 'Sora, sans-serif',
-                  background: creating || loading ? 'oklch(0.70 0.04 165)' : 'oklch(0.30 0.08 165)',
+                  borderRadius: 'var(--radius-md)',
+                  background: creating || loading
+                    ? 'var(--color-neutral-200)'
+                    : 'var(--color-navy-900)',
+                  color: creating || loading ? 'var(--color-neutral-400)' : 'white',
                   cursor: creating || loading ? 'not-allowed' : 'pointer',
-                  opacity: creating || loading ? 0.6 : 1,
                 }}
               >
                 {creating || loading ? 'Oppretter…' : 'Opprett sesjon'}
@@ -200,17 +231,20 @@ export function DashboardPage() {
 
   // ── Dashboard ──────────────────────────────────────────────
   return (
-    <div className="min-h-screen flex flex-col" style={{ background: 'oklch(0.965 0.012 165)' }}>
-      {/* Mørk header */}
+    <div
+      className="min-h-screen flex flex-col"
+      style={{ background: 'var(--color-neutral-100)' }}
+    >
+      {/* Mørk navy-header */}
       <div
         className="px-4 py-3 flex items-center gap-3"
-        style={{ background: 'oklch(0.24 0.08 165)' }}
+        style={{ background: 'var(--color-navy-900)' }}
       >
         <button
           type="button"
           onClick={() => { logout(); navigate('/'); }}
           className="flex items-center justify-center w-9 h-9 rounded-xl transition-colors"
-          style={{ background: 'oklch(0.32 0.08 165)', color: 'white' }}
+          style={{ background: 'rgba(255,255,255,.10)', color: 'white' }}
           aria-label="Tilbake"
         >
           <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true">
@@ -220,7 +254,6 @@ export function DashboardPage() {
 
         <span
           className="text-base font-semibold text-white flex-1"
-          style={{ fontFamily: 'Sora, sans-serif' }}
         >
           Fasilitator
         </span>
@@ -229,9 +262,8 @@ export function DashboardPage() {
         <span
           className="text-xs px-2.5 py-1 rounded-full font-medium"
           style={{
-            background: 'oklch(0.32 0.08 165)',
-            color: 'oklch(0.85 0.06 165)',
-            fontFamily: 'DM Sans, sans-serif',
+            background: 'rgba(255,255,255,.10)',
+            color: 'var(--color-navy-200)',
           }}
         >
           Runde {session.current_round}
@@ -242,10 +274,10 @@ export function DashboardPage() {
           type="button"
           onClick={handleEndSession}
           disabled={actionLoading}
-          className="text-xs px-3 py-1.5 rounded-lg font-semibold text-white transition-all focus:outline-none"
+          className="text-xs px-3 py-1.5 font-semibold text-white transition-all focus:outline-none"
           style={{
-            background: 'oklch(0.52 0.18 25)',
-            fontFamily: 'Sora, sans-serif',
+            background: 'var(--color-red-600)',
+            borderRadius: 'var(--radius-md)',
             opacity: actionLoading ? 0.6 : 1,
           }}
         >
@@ -257,13 +289,13 @@ export function DashboardPage() {
       {sessionStarted && (
         <div
           className="h-1.5 w-full"
-          style={{ background: 'oklch(0.88 0.03 165)' }}
+          style={{ background: 'var(--color-navy-700)' }}
         >
           <div
             className="h-full transition-all duration-500"
             style={{
               width: `${progressPct}%`,
-              background: 'oklch(0.62 0.17 35)',
+              background: 'var(--color-red-600)',
             }}
           />
         </div>
@@ -272,13 +304,16 @@ export function DashboardPage() {
       <div className="flex-1 px-4 py-4 space-y-4 overflow-y-auto">
         {/* Sesjonskode-kort */}
         <div
-          className="rounded-2xl px-5 py-4 space-y-1"
-          style={{ background: 'oklch(0.24 0.08 165)' }}
+          className="px-5 py-4 space-y-1"
+          style={{
+            background: 'var(--color-navy-900)',
+            borderRadius: 'var(--radius-lg)',
+          }}
         >
           <div className="flex items-center justify-between mb-2">
             <p
               className="text-xs"
-              style={{ color: 'oklch(0.75 0.05 165)', fontFamily: 'DM Sans, sans-serif' }}
+              style={{ color: '#7A93B8' }}
             >
               Del med deltakere
             </p>
@@ -301,13 +336,12 @@ export function DashboardPage() {
           >
             <span
               className="text-5xl font-extrabold tracking-[0.25em] text-white block"
-              style={{ fontFamily: 'Sora, sans-serif' }}
             >
               {session.join_code}
             </span>
             <span
               className="text-xs mt-1 block"
-              style={{ color: codeCopied ? 'oklch(0.75 0.15 165)' : 'oklch(0.60 0.05 165)', fontFamily: 'DM Sans, sans-serif' }}
+              style={{ color: codeCopied ? '#A0BADE' : '#7A93B8' }}
             >
               {codeCopied ? '✓ Kopiert!' : 'Trykk for å kopiere'}
             </span>
@@ -316,8 +350,11 @@ export function DashboardPage() {
 
         {/* Kombinert deltaker + stemme-panel */}
         <div
-          className="bg-white rounded-2xl overflow-hidden"
-          style={{ boxShadow: '0 2px 16px oklch(0.20 0.06 165 / 0.07)' }}
+          className="bg-white overflow-hidden"
+          style={{
+            borderRadius: 'var(--radius-lg)',
+            boxShadow: 'var(--shadow-sm)',
+          }}
         >
           <div className="p-4">
             {sessionStarted ? (

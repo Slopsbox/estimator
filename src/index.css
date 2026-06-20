@@ -2,14 +2,67 @@
 @tailwind components;
 @tailwind utilities;
 
-@layer base {
-  body {
-    font-family: 'DM Sans', sans-serif;
-  }
+:root {
+  /* Brand — Red */
+  --color-red-50: #FFE5EA;
+  --color-red-100: #FFC2CB;
+  --color-red-400: #E8436A;
+  --color-red-600: #C8002D;
+  --color-red-700: #960020;
+  --color-red-900: #640015;
 
-  h1, h2, h3, h4, h5, h6 {
-    font-family: 'Sora', sans-serif;
-  }
+  /* Brand — Navy */
+  --color-navy-50: #E8EEF8;
+  --color-navy-200: #A0BADE;
+  --color-navy-500: #2B5797;
+  --color-navy-700: #1A3A6B;
+  --color-navy-900: #0B1D3A;
+
+  /* Neutral */
+  --color-neutral-50: #FAFAF9;
+  --color-neutral-100: #F5F4F0;
+  --color-neutral-200: #E2E0DC;
+  --color-neutral-300: #C9C7C3;
+  --color-neutral-400: #9E9B96;
+  --color-neutral-500: #6B6865;
+  --color-neutral-700: #3D3B38;
+  --color-neutral-900: #1A1917;
+
+  /* Semantic */
+  --color-success: #1A7A4A;
+  --color-warning: #CC8000;
+  --color-danger: #C8002D;
+  --color-info: #2B5797;
+
+  /* Radius */
+  --radius-xs: 2px;
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --radius-full: 9999px;
+
+  /* Shadows */
+  --shadow-xs: 0 1px 2px rgba(10,20,40,.06);
+  --shadow-sm: 0 2px 8px rgba(10,20,40,.10);
+  --shadow-md: 0 8px 24px rgba(10,20,40,.14);
+  --shadow-lg: 0 20px 60px rgba(10,20,40,.20);
+
+  /* Spacing */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-12: 48px;
+  --space-16: 64px;
+}
+
+body {
+  font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
+  background: var(--color-neutral-100);
+  color: var(--color-neutral-900);
 }
 
 @keyframes fadeUp {

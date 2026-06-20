@@ -34,14 +34,14 @@ export function VoteResults({
   return (
     <div
       className="min-h-screen flex flex-col"
-      style={{ background: 'oklch(0.965 0.012 165)' }}
+      style={{ background: 'var(--color-neutral-100)' }}
     >
       {/* Header */}
       <div className="px-4 py-5 text-center">
         <div className="text-4xl mb-1">🎊</div>
         <h2
           className="text-2xl font-bold"
-          style={{ fontFamily: 'Sora, sans-serif', color: 'oklch(0.20 0.06 165)' }}
+          style={{ color: 'var(--color-neutral-900)' }}
         >
           Resultater!
         </h2>
@@ -51,12 +51,15 @@ export function VoteResults({
         {/* Konsensus-banner */}
         {hasConsensus && consensusSize && (
           <div
-            className="rounded-2xl px-4 py-3 text-center animate-slideIn"
-            style={{ background: 'oklch(0.30 0.08 165)', color: 'white' }}
+            className="px-4 py-3 text-center animate-slideIn"
+            style={{
+              background: 'var(--color-success)',
+              borderRadius: 'var(--radius-lg)',
+              color: 'white',
+            }}
           >
             <p
               className="text-base font-bold"
-              style={{ fontFamily: 'Sora, sans-serif' }}
             >
               🎯 Konsensus — alle stemte {consensusSize.toUpperCase()}!
             </p>
@@ -70,27 +73,31 @@ export function VoteResults({
             return (
               <div
                 key={vote.id}
-                className="bg-white rounded-2xl px-4 py-3 flex items-center gap-3 animate-slideIn"
+                className="bg-white px-4 py-3 flex items-center gap-3 animate-slideIn"
                 style={{
+                  border: isMine
+                    ? '2px solid var(--color-red-600)'
+                    : '1.5px solid var(--color-neutral-200)',
+                  borderRadius: '10px',
                   boxShadow: isMine
-                    ? '0 0 0 2px oklch(0.30 0.08 165), 0 2px 12px oklch(0.20 0.06 165 / 0.08)'
-                    : '0 1px 8px oklch(0.20 0.06 165 / 0.06)',
+                    ? 'none'
+                    : 'var(--shadow-xs)',
                 }}
               >
                 <span className="text-2xl">{VALUE_MEDAL[vote.value as Value]}</span>
                 <span
                   className="flex-1 text-sm font-bold uppercase tracking-wide"
-                  style={{ fontFamily: 'Sora, sans-serif', color: 'oklch(0.30 0.08 165)' }}
+                  style={{ color: 'var(--color-neutral-900)' }}
                 >
                   {vote.size.toUpperCase()}
                 </span>
                 {isMine && (
                   <span
-                    className="text-xs px-2 py-0.5 rounded-full font-medium"
+                    className="text-xs px-2 py-0.5 font-medium"
                     style={{
-                      background: 'oklch(0.30 0.08 165)',
+                      background: 'var(--color-red-600)',
                       color: 'white',
-                      fontFamily: 'DM Sans, sans-serif',
+                      borderRadius: 'var(--radius-full)',
                     }}
                   >
                     Din
@@ -109,18 +116,21 @@ export function VoteResults({
         {/* Din stemme-reminder */}
         {selectedSize && selectedValue && (
           <div
-            className="bg-white rounded-2xl px-4 py-3"
-            style={{ boxShadow: '0 1px 8px oklch(0.20 0.06 165 / 0.06)' }}
+            className="bg-white px-4 py-3"
+            style={{
+              borderRadius: 'var(--radius-lg)',
+              boxShadow: 'var(--shadow-xs)',
+            }}
           >
             <p
               className="text-xs mb-1"
-              style={{ fontFamily: 'DM Sans, sans-serif', color: 'oklch(0.55 0.04 165)' }}
+              style={{ color: 'var(--color-neutral-500)' }}
             >
               Din stemme
             </p>
             <p
               className="text-sm font-semibold"
-              style={{ fontFamily: 'Sora, sans-serif', color: 'oklch(0.20 0.06 165)' }}
+              style={{ color: 'var(--color-neutral-900)' }}
             >
               {selectedSize.toUpperCase()} · {VALUE_MEDAL[selectedValue]}{' '}
               {VALUES.find((v) => v.key === selectedValue)?.label}

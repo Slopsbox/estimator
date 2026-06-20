@@ -36,30 +36,30 @@ const QUADRANT_CONFIG: Record<Quadrant, QuadrantConfig> = {
   'do-now': {
     label: '⭐ Gjør nå',
     description: 'Høy verdi, lav innsats',
-    background: 'oklch(0.92 0.08 165)',
-    textColor: 'oklch(0.18 0.09 165)',
-    badgeBackground: 'oklch(0.82 0.10 165)',
+    background: '#E8F4ED',
+    textColor: '#1A1917',
+    badgeBackground: '#C6E6D4',
   },
   plan: {
     label: '📋 Planlegg',
     description: 'Høy verdi, høy innsats',
-    background: 'oklch(0.94 0.08 85)',
-    textColor: 'oklch(0.22 0.08 85)',
-    badgeBackground: 'oklch(0.86 0.10 85)',
+    background: '#FFF4E0',
+    textColor: '#3D3B38',
+    badgeBackground: '#FFE4A8',
   },
   'quick-win': {
     label: '⚡ Gjør raskt',
     description: 'Lav verdi, lav innsats',
-    background: 'oklch(0.94 0.06 85)',
-    textColor: 'oklch(0.28 0.07 85)',
-    badgeBackground: 'oklch(0.86 0.08 85)',
+    background: '#E8EEF8',
+    textColor: '#3D3B38',
+    badgeBackground: '#C8D8EE',
   },
   avoid: {
     label: '❌ Unngå',
     description: 'Lav verdi, høy innsats',
-    background: 'oklch(0.94 0.08 25)',
-    textColor: 'oklch(0.30 0.12 25)',
-    badgeBackground: 'oklch(0.86 0.10 25)',
+    background: '#FFE5EA',
+    textColor: '#3D3B38',
+    badgeBackground: '#FFC2CB',
   },
 };
 
@@ -162,7 +162,7 @@ export function PriorityMatrix({ votes }: PriorityMatrixProps) {
       {/* Anbefaling */}
       <p
         className="text-xl font-extrabold text-center"
-        style={{ fontFamily: 'Sora, sans-serif', color: config.textColor }}
+        style={{ color: config.textColor }}
       >
         {config.label}
       </p>
@@ -170,7 +170,7 @@ export function PriorityMatrix({ votes }: PriorityMatrixProps) {
       {/* Forklaring */}
       <p
         className="text-sm text-center"
-        style={{ fontFamily: 'DM Sans, sans-serif', color: config.textColor, opacity: 0.8 }}
+        style={{ color: config.textColor, opacity: 0.8 }}
       >
         {config.description}
       </p>
@@ -180,7 +180,6 @@ export function PriorityMatrix({ votes }: PriorityMatrixProps) {
         <span
           className="text-xs font-medium px-3 py-1 rounded-full"
           style={{
-            fontFamily: 'DM Sans, sans-serif',
             background: config.badgeBackground,
             color: config.textColor,
           }}

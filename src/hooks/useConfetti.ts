@@ -1,13 +1,13 @@
 import { useCallback, useEffect, useRef } from 'react';
 
 const CONFETTI_COLORS = [
-  '#2d8a5e',
-  '#F6821F',
-  '#f0c040',
-  '#9f4fe8',
-  '#e84040',
-  '#4070e0',
-  '#f48fb1',
+  '#C8002D',
+  '#0B1D3A',
+  '#2B5797',
+  '#1A7A4A',
+  '#CC8000',
+  '#E8436A',
+  '#A0BADE',
 ];
 
 const PIECE_COUNT = 70;

@@ -4,11 +4,11 @@
  */
 export function avatarColor(name: string): string {
   const colors = [
-    'oklch(0.56 0.14 165)',
-    'oklch(0.56 0.17 35)',
-    'oklch(0.55 0.15 270)',
-    'oklch(0.55 0.16 50)',
-    'oklch(0.54 0.14 320)',
+    '#0B1D3A',
+    '#1A3A6B',
+    '#2B5797',
+    '#A0BADE',
+    '#C8002D',
   ];
   let hash = 0;
   for (let i = 0; i < name.length; i++) {

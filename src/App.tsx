@@ -8,10 +8,10 @@ const DashboardPage = lazy(() => import('./pages/Dashboard').then((m) => ({ defa
 
 function LoadingScreen() {
   return (
-    <div className="min-h-screen flex items-center justify-center" style={{ background: 'oklch(0.965 0.012 165)' }}>
+    <div className="min-h-screen flex items-center justify-center" style={{ background: 'var(--color-neutral-100)' }}>
       <div className="text-center space-y-3">
         <div className="text-4xl animate-pulse-slow">⏳</div>
-        <p className="text-sm font-medium" style={{ fontFamily: 'DM Sans, sans-serif', color: 'oklch(0.45 0.05 165)' }}>
+        <p className="text-sm font-medium" style={{ color: 'var(--color-neutral-500)' }}>
           Laster...
         </p>
       </div>

@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useSession } from '../hooks/useSession';
 
 /**
- * Deltager-join-side.
+ * Deltager-join-side – Gjensidige Builders designsystem.
  * Lar deltaker taste inn navn og 4-tegns sesjonskode for å bli med.
  * Navn lagres i sessionStorage for fremtidige runder.
  */
@@ -82,20 +82,24 @@ export function DeltagerJoinPage() {
   return (
     <div
       className="min-h-screen flex flex-col"
-      style={{ background: 'oklch(0.965 0.012 165)' }}
+      style={{ background: 'var(--color-neutral-100)' }}
     >
       {/* Header */}
       <div
         className="flex items-center gap-3 px-4 py-4"
-        style={{ background: 'oklch(0.965 0.012 165)' }}
+        style={{
+          background: 'white',
+          borderBottom: '1px solid var(--color-neutral-200)',
+        }}
       >
         <button
           type="button"
           onClick={() => navigate('/')}
-          className="flex items-center justify-center w-9 h-9 rounded-xl transition-colors"
+          className="flex items-center justify-center w-9 h-9 transition-colors"
           style={{
-            background: 'oklch(0.92 0.015 165)',
-            color: 'oklch(0.30 0.08 165)',
+            background: 'var(--color-neutral-100)',
+            borderRadius: 'var(--radius-md)',
+            color: 'var(--color-neutral-700)',
           }}
           aria-label="Tilbake"
         >
@@ -105,7 +109,7 @@ export function DeltagerJoinPage() {
         </button>
         <h1
           className="text-lg font-semibold"
-          style={{ fontFamily: 'Sora, sans-serif', color: 'oklch(0.20 0.06 165)' }}
+          style={{ color: 'var(--color-neutral-900)', fontWeight: 700 }}
         >
           Bli med i sesjon
         </h1>
@@ -119,13 +123,13 @@ export function DeltagerJoinPage() {
             <div className="text-5xl mb-4">🔑</div>
             <h2
               className="text-2xl font-bold mb-2"
-              style={{ fontFamily: 'Sora, sans-serif', color: 'oklch(0.20 0.06 165)' }}
+              style={{ color: 'var(--color-neutral-900)', fontWeight: 700 }}
             >
               Skriv inn koden
             </h2>
             <p
-              className="text-sm text-gray-500"
-              style={{ fontFamily: 'DM Sans, sans-serif' }}
+              className="text-sm"
+              style={{ color: 'var(--color-neutral-500)' }}
             >
               Fasilitator deler en 4-tegns kode.
               <br />
@@ -139,7 +143,7 @@ export function DeltagerJoinPage() {
               <label
                 htmlFor="join-name"
                 className="block text-sm font-medium mb-1.5"
-                style={{ fontFamily: 'DM Sans, sans-serif', color: 'oklch(0.35 0.05 165)' }}
+                style={{ color: 'var(--color-neutral-700)' }}
               >
                 Ditt navn
               </label>
@@ -151,18 +155,19 @@ export function DeltagerJoinPage() {
                 placeholder="Skriv inn ditt navn"
                 maxLength={60}
                 autoFocus
-                className="w-full px-4 py-3 rounded-xl border text-sm focus:outline-none transition-colors"
+                className="w-full px-4 py-3 text-sm focus:outline-none transition-colors"
                 style={{
-                  borderColor: nameError ? 'oklch(0.52 0.18 25)' : 'oklch(0.88 0.02 165)',
-                  color: 'oklch(0.20 0.06 165)',
-                  fontFamily: 'DM Sans, sans-serif',
-                  boxShadow: nameError ? '0 0 0 3px oklch(0.52 0.18 25 / 0.15)' : 'none',
+                  border: `1.5px solid ${nameError ? 'var(--color-danger)' : 'var(--color-neutral-300)'}`,
+                  borderRadius: 'var(--radius-md)',
+                  color: 'var(--color-neutral-900)',
+                  background: 'white',
+                  boxShadow: nameError ? '0 0 0 3px rgba(200,0,45,.12)' : 'none',
                 }}
               />
               {nameError && (
                 <p
                   className="mt-1 text-sm animate-slideIn"
-                  style={{ color: 'oklch(0.52 0.18 25)', fontFamily: 'DM Sans, sans-serif' }}
+                  style={{ color: 'var(--color-danger)' }}
                 >
                   {nameError}
                 </p>
@@ -174,7 +179,7 @@ export function DeltagerJoinPage() {
               <label
                 htmlFor="join-code"
                 className="block text-sm font-medium mb-1.5"
-                style={{ fontFamily: 'DM Sans, sans-serif', color: 'oklch(0.35 0.05 165)' }}
+                style={{ color: 'var(--color-neutral-700)' }}
               >
                 Sesjonskode
               </label>
@@ -190,43 +195,45 @@ export function DeltagerJoinPage() {
                 spellCheck={false}
                 placeholder="– – – –"
                 className={[
-                  'w-full text-center font-extrabold rounded-2xl border-2 transition-colors',
+                  'w-full text-center font-extrabold transition-colors',
                   'focus:outline-none',
                   shaking ? 'animate-shake' : '',
                 ].join(' ')}
                 style={{
-                  fontFamily: 'Sora, sans-serif',
                   fontSize: '2.5rem',
                   letterSpacing: '0.3em',
                   padding: '0.75rem 1rem',
-                  color: 'oklch(0.20 0.06 165)',
+                  color: 'var(--color-neutral-900)',
                   background: 'white',
-                  borderColor: codeError
-                    ? 'oklch(0.52 0.18 25)'
-                    : code.length === 4
-                    ? 'oklch(0.30 0.08 165)'
-                    : 'oklch(0.85 0.02 165)',
+                  border: `2px solid ${
+                    codeError
+                      ? 'var(--color-danger)'
+                      : code.length === 4
+                      ? 'var(--color-danger)'
+                      : 'var(--color-neutral-300)'
+                  }`,
+                  borderRadius: 'var(--radius-md)',
                   boxShadow: codeError
-                    ? '0 0 0 3px oklch(0.52 0.18 25 / 0.15)'
+                    ? '0 0 0 3px rgba(200,0,45,.12)'
                     : code.length === 4
-                    ? '0 0 0 3px oklch(0.30 0.08 165 / 0.15)'
+                    ? '0 0 0 3px rgba(200,0,45,.12)'
                     : 'none',
                 }}
               />
               {codeError && (
                 <div
                   role="alert"
-                  className="mt-3 flex items-center gap-2 px-4 py-3 rounded-xl animate-slideIn"
+                  className="mt-3 flex items-center gap-2 px-4 py-3 animate-slideIn"
                   style={{
-                    background: 'oklch(0.95 0.05 25)',
-                    border: '1.5px solid oklch(0.52 0.18 25)',
-                    fontFamily: 'DM Sans, sans-serif',
+                    background: 'var(--color-red-50)',
+                    border: `1.5px solid var(--color-danger)`,
+                    borderRadius: 'var(--radius-md)',
                   }}
                 >
                   <span aria-hidden="true" style={{ fontSize: '1.1rem' }}>❌</span>
                   <p
                     className="text-sm font-semibold"
-                    style={{ color: 'oklch(0.40 0.18 25)' }}
+                    style={{ color: 'var(--color-danger)' }}
                   >
                     {codeError}
                   </p>
@@ -237,16 +244,16 @@ export function DeltagerJoinPage() {
             <button
               type="submit"
               disabled={!canSubmit || loading}
-              className="w-full py-4 rounded-2xl font-semibold text-white text-base transition-all focus:outline-none focus:ring-2 focus:ring-offset-2 flex items-center justify-center gap-2"
+              className="w-full py-4 font-semibold text-white text-base transition-all focus:outline-none focus:ring-2 focus:ring-offset-2 flex items-center justify-center gap-2"
               style={{
-                fontFamily: 'Sora, sans-serif',
                 fontWeight: 600,
                 background:
                   canSubmit && !loading
-                    ? 'oklch(0.30 0.08 165)'
-                    : 'oklch(0.75 0.04 165)',
+                    ? 'var(--color-navy-900)'
+                    : 'var(--color-neutral-200)',
+                color: canSubmit && !loading ? 'white' : 'var(--color-neutral-400)',
+                borderRadius: 'var(--radius-md)',
                 cursor: canSubmit && !loading ? 'pointer' : 'not-allowed',
-                opacity: canSubmit && !loading ? 1 : 0.6,
               }}
             >
               {loading ? (

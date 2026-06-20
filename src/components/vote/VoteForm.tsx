@@ -34,18 +34,22 @@ export function VoteForm({
   return (
     <div
       className="min-h-screen flex flex-col"
-      style={{ background: 'oklch(0.965 0.012 165)' }}
+      style={{ background: 'var(--color-neutral-100)' }}
     >
       {/* Header */}
       <div
         className="flex items-center gap-3 px-4 py-4"
-        style={{ borderBottom: '1px solid oklch(0.92 0.015 165)' }}
+        style={{ borderBottom: '1px solid var(--color-neutral-200)' }}
       >
         <button
           type="button"
           onClick={onBack}
-          className="flex items-center justify-center w-9 h-9 rounded-xl transition-colors"
-          style={{ background: 'oklch(0.92 0.015 165)', color: 'oklch(0.30 0.08 165)' }}
+          className="flex items-center justify-center w-9 h-9 transition-colors"
+          style={{
+            background: 'var(--color-neutral-100)',
+            borderRadius: 'var(--radius-md)',
+            color: 'var(--color-neutral-700)',
+          }}
           aria-label="Tilbake"
         >
           <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true">
@@ -54,16 +58,15 @@ export function VoteForm({
         </button>
         <h1
           className="text-lg font-semibold"
-          style={{ fontFamily: 'Sora, sans-serif', color: 'oklch(0.20 0.06 165)' }}
+          style={{ color: 'var(--color-neutral-900)' }}
         >
           Deltager
         </h1>
         <span
           className="ml-auto text-xs px-2 py-0.5 rounded-full font-medium"
           style={{
-            background: 'oklch(0.92 0.015 165)',
-            color: 'oklch(0.40 0.06 165)',
-            fontFamily: 'DM Sans, sans-serif',
+            background: 'var(--color-neutral-200)',
+            color: 'var(--color-neutral-700)',
           }}
         >
           Runde {currentRound}
@@ -73,26 +76,30 @@ export function VoteForm({
       {/* Skjema-kort */}
       <div className="flex-1 px-4 py-6 space-y-4">
         <div
-          className="bg-white rounded-3xl p-5 space-y-5 animate-fadeUp"
-          style={{ boxShadow: '0 2px 20px oklch(0.20 0.06 165 / 0.07)' }}
+          className="bg-white p-5 space-y-5 animate-fadeUp"
+          style={{
+            borderRadius: 'var(--radius-lg)',
+            boxShadow: 'var(--shadow-sm)',
+            border: '1px solid var(--color-neutral-200)',
+          }}
         >
           <div className="text-center">
             <h2
               className="text-xl font-bold"
-              style={{ fontFamily: 'Sora, sans-serif', color: 'oklch(0.20 0.06 165)' }}
+              style={{ color: 'var(--color-neutral-900)' }}
             >
               Din stemme
             </h2>
             <p
               className="text-sm mt-1"
-              style={{ color: 'oklch(0.55 0.04 165)', fontFamily: 'DM Sans, sans-serif' }}
+              style={{ color: 'var(--color-neutral-500)' }}
             >
               Velg størrelse og verdi, og stem
             </p>
             {name && (
               <p
                 className="text-xs mt-0.5"
-                style={{ color: 'oklch(0.60 0.05 165)', fontFamily: 'DM Sans, sans-serif' }}
+                style={{ color: 'var(--color-neutral-500)' }}
               >
                 Stemmer som: <strong>{name}</strong>
               </p>
@@ -103,7 +110,7 @@ export function VoteForm({
           <div>
             <p
               className="text-sm font-medium mb-2"
-              style={{ fontFamily: 'DM Sans, sans-serif', color: 'oklch(0.35 0.05 165)' }}
+              style={{ color: 'var(--color-neutral-700)' }}
             >
               Størrelse
             </p>
@@ -115,16 +122,15 @@ export function VoteForm({
                   onClick={() => onSelectSize(key)}
                   disabled={submitting}
                   aria-pressed={selectedSize === key}
-                  className="flex-1 py-3 rounded-xl font-bold text-sm transition-all focus:outline-none"
+                  className="flex-1 py-3 font-bold text-sm transition-all focus:outline-none"
                   style={{
-                    fontFamily: 'Sora, sans-serif',
-                    background: selectedSize === key
-                      ? 'oklch(0.30 0.08 165)'
-                      : 'oklch(0.94 0.015 165)',
-                    color: selectedSize === key ? 'white' : 'oklch(0.35 0.05 165)',
+                    borderRadius: 'var(--radius-md)',
+                    border: `2px solid ${selectedSize === key ? 'transparent' : 'var(--color-neutral-200)'}`,
+                    background: selectedSize === key ? 'var(--color-red-600)' : 'white',
+                    color: selectedSize === key ? 'white' : 'var(--color-neutral-700)',
                     transform: selectedSize === key ? 'scale(1.04)' : 'scale(1)',
                     boxShadow: selectedSize === key
-                      ? '0 2px 10px oklch(0.30 0.08 165 / 0.35)'
+                      ? '0 6px 20px rgba(200,0,45,.30)'
                       : 'none',
                   }}
                 >
@@ -138,7 +144,7 @@ export function VoteForm({
           <div>
             <p
               className="text-sm font-medium mb-2"
-              style={{ fontFamily: 'DM Sans, sans-serif', color: 'oklch(0.35 0.05 165)' }}
+              style={{ color: 'var(--color-neutral-700)' }}
             >
               Forretningsverdi
             </p>
@@ -150,15 +156,15 @@ export function VoteForm({
                   onClick={() => onSelectValue(key)}
                   disabled={submitting}
                   aria-pressed={selectedValue === key}
-                  className="flex-1 flex flex-col items-center py-4 rounded-2xl transition-all focus:outline-none"
+                  className="flex-1 flex flex-col items-center py-4 transition-all focus:outline-none"
                   style={{
                     minHeight: '100px',
-                    background: selectedValue === key
-                      ? 'oklch(0.30 0.08 165)'
-                      : 'oklch(0.94 0.015 165)',
+                    borderRadius: '10px',
+                    border: `2px solid ${selectedValue === key ? 'var(--color-red-600)' : 'var(--color-neutral-200)'}`,
+                    background: 'white',
                     transform: selectedValue === key ? 'scale(1.04)' : 'scale(1)',
                     boxShadow: selectedValue === key
-                      ? '0 2px 10px oklch(0.30 0.08 165 / 0.35)'
+                      ? '0 2px 10px rgba(200,0,45,.20)'
                       : 'none',
                   }}
                 >
@@ -166,8 +172,7 @@ export function VoteForm({
                   <span
                     className="text-xs font-bold"
                     style={{
-                      fontFamily: 'Sora, sans-serif',
-                      color: selectedValue === key ? 'white' : 'oklch(0.30 0.08 165)',
+                      color: selectedValue === key ? 'var(--color-red-600)' : 'var(--color-neutral-700)',
                     }}
                   >
                     {label}
@@ -175,8 +180,7 @@ export function VoteForm({
                   <span
                     className="text-xs mt-0.5"
                     style={{
-                      fontFamily: 'DM Sans, sans-serif',
-                      color: selectedValue === key ? 'white/80' : 'oklch(0.55 0.04 165)',
+                      color: 'var(--color-neutral-500)',
                       opacity: 0.85,
                     }}
                   >
@@ -191,7 +195,7 @@ export function VoteForm({
           {submitError && (
             <p
               className="text-sm text-center"
-              style={{ color: 'oklch(0.52 0.18 25)', fontFamily: 'DM Sans, sans-serif' }}
+              style={{ color: 'var(--color-danger)' }}
             >
               {submitError}
             </p>
@@ -202,17 +206,14 @@ export function VoteForm({
             type="button"
             onClick={onVote}
             disabled={!canVote || submitting}
-            className="w-full py-4 rounded-2xl font-bold text-white text-base transition-all focus:outline-none focus:ring-2 focus:ring-offset-2"
+            className="w-full py-4 font-bold text-white text-base transition-all focus:outline-none focus:ring-2 focus:ring-offset-2"
             style={{
-              fontFamily: 'Sora, sans-serif',
+              borderRadius: 'var(--radius-md)',
               background: canVote && !submitting
-                ? 'oklch(0.56 0.17 35)'
-                : 'oklch(0.80 0.03 165)',
+                ? 'var(--color-navy-900)'
+                : 'var(--color-neutral-200)',
+              color: canVote && !submitting ? 'white' : 'var(--color-neutral-400)',
               cursor: canVote && !submitting ? 'pointer' : 'not-allowed',
-              opacity: canVote && !submitting ? 1 : 0.6,
-              boxShadow: canVote && !submitting
-                ? '0 2px 12px oklch(0.56 0.17 35 / 0.35)'
-                : 'none',
             }}
           >
             {submitting ? 'Sender…' : 'Stem 🗳️'}

@@ -12,7 +12,7 @@ export function VoteWaiting({ session, name }: VoteWaitingProps) {
   return (
     <div
       className="min-h-screen flex flex-col items-center justify-center px-5 py-10"
-      style={{ background: 'oklch(0.965 0.012 165)' }}
+      style={{ background: 'var(--color-neutral-100)' }}
     >
       <div className="w-full max-w-sm text-center space-y-6 animate-fadeUp">
         {/* Ikon */}
@@ -21,13 +21,13 @@ export function VoteWaiting({ session, name }: VoteWaitingProps) {
         <div>
           <h2
             className="text-2xl font-bold"
-            style={{ fontFamily: 'Sora, sans-serif', color: 'oklch(0.20 0.06 165)' }}
+            style={{ color: 'var(--color-neutral-900)' }}
           >
             Venter på fasilitator…
           </h2>
           <p
             className="mt-2 text-base"
-            style={{ fontFamily: 'DM Sans, sans-serif', color: 'oklch(0.45 0.05 165)' }}
+            style={{ color: 'var(--color-neutral-500)' }}
           >
             Du er med i sesjonen, {name} 👋
           </p>
@@ -35,19 +35,22 @@ export function VoteWaiting({ session, name }: VoteWaitingProps) {
 
         {/* Info-kort */}
         <div
-          className="bg-white rounded-2xl p-4 space-y-3"
-          style={{ boxShadow: '0 2px 16px oklch(0.20 0.06 165 / 0.07)' }}
+          className="bg-white p-4 space-y-3"
+          style={{
+            borderRadius: 'var(--radius-lg)',
+            boxShadow: 'var(--shadow-sm)',
+          }}
         >
           <div className="flex justify-between items-center">
             <span
               className="text-sm"
-              style={{ fontFamily: 'DM Sans, sans-serif', color: 'oklch(0.50 0.04 165)' }}
+              style={{ color: 'var(--color-neutral-500)' }}
             >
               Sesjonskode
             </span>
             <span
               className="font-bold text-sm tracking-widest"
-              style={{ fontFamily: 'Sora, sans-serif', color: 'oklch(0.30 0.08 165)' }}
+              style={{ color: 'var(--color-neutral-900)' }}
             >
               {session.join_code}
             </span>
@@ -55,13 +58,13 @@ export function VoteWaiting({ session, name }: VoteWaitingProps) {
           <div className="flex justify-between items-center">
             <span
               className="text-sm"
-              style={{ fontFamily: 'DM Sans, sans-serif', color: 'oklch(0.50 0.04 165)' }}
+              style={{ color: 'var(--color-neutral-500)' }}
             >
               Runde
             </span>
             <span
               className="font-bold text-sm"
-              style={{ fontFamily: 'Sora, sans-serif', color: 'oklch(0.30 0.08 165)' }}
+              style={{ color: 'var(--color-neutral-900)' }}
             >
               {session.current_round}
             </span>
@@ -70,7 +73,7 @@ export function VoteWaiting({ session, name }: VoteWaitingProps) {
 
         <p
           className="text-sm animate-pulse-slow"
-          style={{ fontFamily: 'DM Sans, sans-serif', color: 'oklch(0.55 0.04 165)' }}
+          style={{ color: 'var(--color-neutral-400)' }}
         >
           • Fasilitator starter snart •
         </p>
