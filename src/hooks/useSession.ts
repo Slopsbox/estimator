@@ -1,19 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { generateJoinCode } from '../lib/joinCode';
 import { supabase } from '../lib/supabase';
 import type { LocalParticipant, ParticipantRole, Session } from '../lib/types';
 
 const STORAGE_KEY = 'estimering_participant';
-
-// Tegn som er tillatt i join-kode: A-Z unntatt I og O, 2-9 unntatt 0 og 1
-const JOIN_CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-
-function generateJoinCode(): string {
-  let code = '';
-  for (let i = 0; i < 4; i++) {
-    code += JOIN_CODE_CHARS[Math.floor(Math.random() * JOIN_CODE_CHARS.length)];
-  }
-  return code;
-}
 
 function readFromStorage(): LocalParticipant | null {
   try {
@@ -114,39 +104,7 @@ export function useSession() {
     };
   }, [session?.id]);
 
-  /**
-   * Fallback polling – henter sesjonen hvert 3. sekund som backup
-   * i tilfelle Realtime er treg eller dropper en oppdatering.
-   */
-  useEffect(() => {
-    if (!session) return;
 
-    const interval = setInterval(async () => {
-      const { data, error: pollError } = await supabase
-        .from('sessions')
-        .select('*')
-        .eq('id', session.id)
-        .single();
-
-      if (pollError) {
-        console.warn('[useSession] Polling feilet:', pollError.message);
-        return;
-      }
-
-      if (data) {
-        setSession((prev) => {
-          // Oppdater kun hvis noe faktisk endret seg
-          if (JSON.stringify(prev) !== JSON.stringify(data)) {
-            console.debug('[useSession] Polling oppdaget endring, oppdaterer sesjon.');
-            return data as Session;
-          }
-          return prev;
-        });
-      }
-    }, 3000);
-
-    return () => clearInterval(interval);
-  }, [session?.id]);
 
   /**
    * Opprett ny sesjon som fasilitator.

@@ -4,39 +4,9 @@ import { PriorityMatrix } from '../components/PriorityMatrix';
 import { useRealtimeParticipants } from '../hooks/useRealtimeParticipants';
 import { useRealtimeVotes } from '../hooks/useRealtimeVotes';
 import { useSession } from '../hooks/useSession';
-import type { Participant, Size, Value, Vote } from '../lib/types';
-
-const VALUE_MEDAL: Record<Value, string> = {
-  gold: '🥇',
-  silver: '🥈',
-  bronze: '🥉',
-};
-
-/** Generer stabil initialbakgrunn basert på navn */
-function avatarColor(name: string): string {
-  const colors = [
-    'oklch(0.56 0.14 165)',
-    'oklch(0.56 0.17 35)',
-    'oklch(0.55 0.15 270)',
-    'oklch(0.55 0.16 50)',
-    'oklch(0.54 0.14 320)',
-  ];
-  let hash = 0;
-  for (let i = 0; i < name.length; i++) {
-    hash = (hash * 31 + name.charCodeAt(i)) | 0;
-  }
-  return colors[Math.abs(hash) % colors.length];
-}
-
-function initials(name: string): string {
-  return name
-    .split(' ')
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((w) => w[0])
-    .join('')
-    .toUpperCase();
-}
+import { VALUE_MEDAL } from '../lib/constants';
+import type { Participant, Vote } from '../lib/types';
+import { avatarColor, initials } from '../lib/utils';
 
 /** Fasilitator-dashboard (revisjon 3) – ett sammenhengende view, ingen tabs. */
 export function DashboardPage() {
@@ -581,7 +551,7 @@ function VotesPanel({
                       className="text-sm font-bold"
                       style={{ fontFamily: 'Sora, sans-serif', color: 'oklch(0.30 0.08 165)' }}
                     >
-                      {(vote as unknown as { size: Size }).size.toUpperCase()} {VALUE_MEDAL[(vote as unknown as { value: Value }).value]}
+                      {vote.size.toUpperCase()} {VALUE_MEDAL[vote.value]}
                     </span>
                   ) : (
                     <span

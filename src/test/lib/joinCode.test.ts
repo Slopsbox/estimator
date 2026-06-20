@@ -1,19 +1,6 @@
 import { describe, expect, it } from 'vitest';
-
-/**
- * Tester join_code-genereringen isolert.
- * Koden er inlined her siden den er en intern helper.
- */
-
-const JOIN_CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-
-function generateJoinCode(): string {
-  let code = '';
-  for (let i = 0; i < 4; i++) {
-    code += JOIN_CODE_CHARS[Math.floor(Math.random() * JOIN_CODE_CHARS.length)];
-  }
-  return code;
-}
+import { generateJoinCode } from '../../lib/joinCode';
+import { JOIN_CODE_CHARS } from '../../lib/constants';
 
 describe('generateJoinCode', () => {
   it('genererer kode med 4 tegn', () => {
