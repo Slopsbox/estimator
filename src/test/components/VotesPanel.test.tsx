@@ -173,15 +173,16 @@ describe('VotesPanel', () => {
   });
 
   it('viser SpreadOMeter etter avsløring når stemmer finnes', () => {
-    const p = [makeParticipant('1', 'Ola')];
-    const v = [makeVote('1', 'xs', 'gold')];
+    // Trenger minst 2 stemmer med ulik størrelse (range > 0) — ved konsensus (range 0) skjules SpreadOMeter
+    const p = [makeParticipant('1', 'Ola'), makeParticipant('2', 'Kari')];
+    const v = [makeVote('1', 'xs', 'gold'), makeVote('2', 'xl', 'silver')];
     render(
       <VotesPanel
         {...defaultProps}
         participants={p}
         votes={v}
-        votedCount={1}
-        totalCount={1}
+        votedCount={2}
+        totalCount={2}
         revealed={true}
       />,
     );

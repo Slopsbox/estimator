@@ -78,6 +78,10 @@ export function SpreadOMeter({ votes }: SpreadOMeterProps) {
   if (votes.length === 0) return null;
 
   const range = calculateRange(votes);
+  // Når det er konsensus (range === 0) er "Stille hav" meldingen
+  // redundant med konsensus-banneret. Skjul komponenten helt.
+  if (range === 0) return null;
+
   const state = rangeToSeaState(range);
   const config = SEA_STATE_CONFIG[state];
 

@@ -75,11 +75,9 @@ describe('SpreadOMeter', () => {
     expect(container.firstChild).toBeNull();
   });
 
-  it('Tilstand "Stille hav" – range 0 (konsensus)', () => {
-    render(<SpreadOMeter votes={[vote('m'), vote('m'), vote('m')]} />);
-    expect(screen.getByText(/Stille hav/)).toBeInTheDocument();
-    expect(screen.getByText(/alle på samme bølgelengde/)).toBeInTheDocument();
-    expect(screen.getByRole('region', { name: /havtilstand/i })).toBeInTheDocument();
+  it('returnerer ingenting ved konsensus (range 0) — skjules fordi banner dekker det', () => {
+    const { container } = render(<SpreadOMeter votes={[vote('m'), vote('m'), vote('m')]} />);
+    expect(container.firstChild).toBeNull();
   });
 
   it('Tilstand "Litt bølger" – range 1', () => {
@@ -107,12 +105,13 @@ describe('SpreadOMeter', () => {
   });
 
   it('har role=region og aria-label for tilgjengelighet', () => {
-    render(<SpreadOMeter votes={[vote('m')]} />);
+    // Trenger range > 0 for at komponenten ikke returnerer null (range 0 skjules — banner dekker det)
+    render(<SpreadOMeter votes={[vote('m'), vote('xl')]} />);
     expect(screen.getByRole('region', { name: /havtilstand/i })).toBeInTheDocument();
   });
 
-  it('én stemme gir range 0 → Stille hav', () => {
-    render(<SpreadOMeter votes={[vote('xl')]} />);
-    expect(screen.getByText(/Stille hav/)).toBeInTheDocument();
+  it('én stemme gir ingenting (range 0) — skjules', () => {
+    const { container } = render(<SpreadOMeter votes={[vote('xl')]} />);
+    expect(container.firstChild).toBeNull();
   });
 });
