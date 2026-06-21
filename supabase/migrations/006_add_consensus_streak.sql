@@ -1,0 +1,1 @@
+ALTER TABLE sessions ADD COLUMN consensus_streak INTEGER NOT NULL DEFAULT 0;

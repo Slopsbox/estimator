@@ -1,4 +1,5 @@
 import { PriorityMatrix } from '../PriorityMatrix';
+import { SpreadOMeter } from '../SpreadOMeter';
 import { SIZE_ORDER, VALUE_MEDAL, VALUES } from '../../lib/constants';
 import type { LocalParticipant, Size, Value, Vote } from '../../lib/types';
 
@@ -8,6 +9,14 @@ interface VoteResultsProps {
   selectedSize: Size | null;
   selectedValue: Value | null;
   localParticipant: LocalParticipant | null;
+  consensusStreak: number;
+}
+
+/** Returner riktig antall flamme-emojier for streaken. */
+function streakFlames(streak: number): string {
+  if (streak >= 6) return '🔥🔥🔥';
+  if (streak >= 4) return '🔥🔥';
+  return '🔥';
 }
 
 /**
@@ -19,6 +28,7 @@ export function VoteResults({
   selectedSize,
   selectedValue,
   localParticipant,
+  consensusStreak,
 }: VoteResultsProps) {
   // Sorter stemmer etter størrelse.
   // DB CHECK-constraints garanterer at size/value alltid er gyldige Size/Value-verdier.
@@ -66,6 +76,24 @@ export function VoteResults({
           </div>
         )}
 
+        {/* Konsensus-streak badge */}
+        {consensusStreak >= 2 && (
+          <div
+            className="flex items-center justify-center gap-2 px-4 py-2 animate-slideIn"
+            style={{
+              background: 'linear-gradient(135deg, #CC8000 0%, #C8002D 100%)',
+              borderRadius: 'var(--radius-full)',
+            }}
+            role="status"
+            aria-label={`Konsensus-streak: ${consensusStreak} runder`}
+          >
+            <span className="text-lg">{streakFlames(consensusStreak)}</span>
+            <span className="text-sm font-bold text-white">
+              {consensusStreak} runder med konsensus!
+            </span>
+          </div>
+        )}
+
         {/* Stemmekort */}
         <div className="space-y-2">
           {sortedVotes.map((vote) => {
@@ -107,6 +135,11 @@ export function VoteResults({
             );
           })}
         </div>
+
+        {/* SpreadOMeter */}
+        {votes.length > 0 && (
+          <SpreadOMeter votes={votes} />
+        )}
 
         {/* Prioriteringsanbefaling */}
         {votes.length > 0 && (

@@ -154,6 +154,7 @@ export function VotePage() {
       selectedSize={selectedSize}
       selectedValue={selectedValue}
       localParticipant={localParticipant}
+      consensusStreak={session?.consensus_streak ?? 0}
     />
   );
 }

@@ -85,6 +85,7 @@ const BASE_SESSION: Session = {
   join_code: 'ABCD',
   votes_revealed: false,
   started: false,
+  consensus_streak: 0,
 };
 
 const PARTICIPANT_1: Participant = {

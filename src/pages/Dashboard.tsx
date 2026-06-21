@@ -69,9 +69,9 @@ export function DashboardPage() {
 
   const handleReveal = useCallback(async () => {
     setActionLoading(true);
-    await revealVotes();
+    await revealVotes(votes);
     setActionLoading(false);
-  }, [revealVotes]);
+  }, [revealVotes, votes]);
 
   const handleEndSession = useCallback(async () => {
     const confirmed = window.confirm('Er du sikker på at du vil avslutte sesjonen?');
@@ -366,6 +366,7 @@ export function DashboardPage() {
                 votedCount={votedCount}
                 totalCount={totalCount}
                 actionLoading={actionLoading}
+                consensusStreak={session.consensus_streak}
                 onReveal={handleReveal}
                 onNextRound={handleNextRound}
               />

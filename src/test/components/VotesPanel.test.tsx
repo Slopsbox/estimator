@@ -31,6 +31,7 @@ const defaultProps = {
   votedCount: 0,
   totalCount: 0,
   actionLoading: false,
+  consensusStreak: 0,
   onReveal: vi.fn(),
   onNextRound: vi.fn(),
 };
@@ -169,5 +170,88 @@ describe('VotesPanel', () => {
   it('deaktiverer "Ny runde"-knapp under actionLoading', () => {
     render(<VotesPanel {...defaultProps} revealed={true} actionLoading={true} />);
     expect(screen.getByRole('button', { name: /ny runde/i })).toBeDisabled();
+  });
+
+  it('viser SpreadOMeter etter avsløring når stemmer finnes', () => {
+    const p = [makeParticipant('1', 'Ola')];
+    const v = [makeVote('1', 'xs', 'gold')];
+    render(
+      <VotesPanel
+        {...defaultProps}
+        participants={p}
+        votes={v}
+        votedCount={1}
+        totalCount={1}
+        revealed={true}
+      />,
+    );
+    expect(screen.getByRole('region', { name: /havtilstand/i })).toBeInTheDocument();
+  });
+
+  it('viser IKKE SpreadOMeter før avsløring', () => {
+    const p = [makeParticipant('1', 'Ola')];
+    const v = [makeVote('1', 'xs', 'gold')];
+    render(
+      <VotesPanel
+        {...defaultProps}
+        participants={p}
+        votes={v}
+        votedCount={1}
+        totalCount={1}
+        revealed={false}
+      />,
+    );
+    expect(screen.queryByRole('region', { name: /havtilstand/i })).not.toBeInTheDocument();
+  });
+
+  it('viser streak-badge når consensusStreak >= 2 og revealed er true', () => {
+    const p = [makeParticipant('1', 'Ola')];
+    const v = [makeVote('1', 'm', 'gold')];
+    render(
+      <VotesPanel
+        {...defaultProps}
+        participants={p}
+        votes={v}
+        votedCount={1}
+        totalCount={1}
+        revealed={true}
+        consensusStreak={3}
+      />,
+    );
+    expect(screen.getByText(/3 runder med konsensus!/)).toBeInTheDocument();
+  });
+
+  it('viser IKKE streak-badge når consensusStreak === 1', () => {
+    const p = [makeParticipant('1', 'Ola')];
+    const v = [makeVote('1', 'm', 'gold')];
+    render(
+      <VotesPanel
+        {...defaultProps}
+        participants={p}
+        votes={v}
+        votedCount={1}
+        totalCount={1}
+        revealed={true}
+        consensusStreak={1}
+      />,
+    );
+    expect(screen.queryByText(/runder med konsensus/)).not.toBeInTheDocument();
+  });
+
+  it('viser IKKE streak-badge når consensusStreak === 0', () => {
+    const p = [makeParticipant('1', 'Ola')];
+    const v = [makeVote('1', 'm', 'gold')];
+    render(
+      <VotesPanel
+        {...defaultProps}
+        participants={p}
+        votes={v}
+        votedCount={1}
+        totalCount={1}
+        revealed={true}
+        consensusStreak={0}
+      />,
+    );
+    expect(screen.queryByText(/runder med konsensus/)).not.toBeInTheDocument();
   });
 });

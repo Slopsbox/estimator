@@ -85,6 +85,7 @@ const MOCK_SESSION = {
   join_code: 'ABCD',
   votes_revealed: false,
   started: false,
+  consensus_streak: 0,
 };
 
 const MOCK_PARTICIPANT = {
@@ -151,6 +152,7 @@ describe('useSession', () => {
           join_code: 'ABCD',
           votes_revealed: false,
           started: false,
+          consensus_streak: 0,
         }),
       );
 
@@ -376,7 +378,7 @@ describe('useSession', () => {
   });
 
   describe('revealVotes', () => {
-    it('kaller update med { votes_revealed: true }', async () => {
+    it('kaller update med { votes_revealed: true, consensus_streak: 0 } når ingen stemmer (ingen konsensus)', async () => {
       const { result } = renderHook(() => useSession());
       await setupCreatedSession(result);
 
@@ -385,11 +387,62 @@ describe('useSession', () => {
       chainable.eq.mockResolvedValue({ error: null });
 
       await act(async () => {
-        await result.current.revealVotes();
+        await result.current.revealVotes([]);
       });
 
-      expect(chainable.update).toHaveBeenCalledWith({ votes_revealed: true });
+      expect(chainable.update).toHaveBeenCalledWith({
+        votes_revealed: true,
+        consensus_streak: 0,
+      });
       expect(chainable.eq).toHaveBeenCalledWith('id', MOCK_SESSION.id);
+    });
+
+    it('inkrementerer consensus_streak ved konsensus (alle like størrelse)', async () => {
+      const { result } = renderHook(() => useSession());
+      await setupCreatedSession(result);
+
+      chainable.update.mockClear();
+      chainable.eq.mockClear();
+      chainable.eq.mockResolvedValue({ error: null });
+
+      const unanimousVotes = [
+        { size: 'm' },
+        { size: 'm' },
+        { size: 'm' },
+      ];
+
+      await act(async () => {
+        await result.current.revealVotes(unanimousVotes);
+      });
+
+      // MOCK_SESSION.consensus_streak = 0, ny streak = 1
+      expect(chainable.update).toHaveBeenCalledWith({
+        votes_revealed: true,
+        consensus_streak: 1,
+      });
+    });
+
+    it('resetter consensus_streak til 0 ved uenighet', async () => {
+      const { result } = renderHook(() => useSession());
+      await setupCreatedSession(result);
+
+      chainable.update.mockClear();
+      chainable.eq.mockClear();
+      chainable.eq.mockResolvedValue({ error: null });
+
+      const disagreedVotes = [
+        { size: 'm' },
+        { size: 'xl' },
+      ];
+
+      await act(async () => {
+        await result.current.revealVotes(disagreedVotes);
+      });
+
+      expect(chainable.update).toHaveBeenCalledWith({
+        votes_revealed: true,
+        consensus_streak: 0,
+      });
     });
   });
 

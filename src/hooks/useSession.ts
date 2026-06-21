@@ -128,6 +128,7 @@ export function useSession() {
           join_code: joinCode,
           votes_revealed: false,
           started: false,
+          consensus_streak: 0,
         })
         .select()
         .single();
@@ -284,13 +285,22 @@ export function useSession() {
 
   /**
    * Avslør stemmer (fasilitator).
+   * Oppdaterer samtidig consensus_streak:
+   *   - Konsensus (alle stemte likt): streak + 1
+   *   - Ikke konsensus: streak nullstilles til 0
    */
-  const revealVotes = useCallback(async (): Promise<void> => {
+  const revealVotes = useCallback(async (currentVotes: Array<{ size: string }>): Promise<void> => {
     if (!session) return;
+
+    const uniqueSizes = new Set(currentVotes.map((v) => v.size));
+    const isConsensus = currentVotes.length > 0 && uniqueSizes.size === 1;
+
+    // Beregn ny streak
+    const newStreak = isConsensus ? (session.consensus_streak + 1) : 0;
 
     const { error: err } = await supabase
       .from('sessions')
-      .update({ votes_revealed: true })
+      .update({ votes_revealed: true, consensus_streak: newStreak })
       .eq('id', session.id);
 
     if (err) {

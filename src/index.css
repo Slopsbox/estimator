@@ -94,6 +94,11 @@ body {
   80% { transform: translateX(7px); }
 }
 
+@keyframes wave {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-3px); }
+}
+
 .animate-fadeUp {
   animation: fadeUp 0.4s ease-out both;
 }

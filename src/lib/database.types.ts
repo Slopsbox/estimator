@@ -48,6 +48,7 @@ export type Database = {
       }
       sessions: {
         Row: {
+          consensus_streak: number
           created_at: string
           current_round: number
           id: string
@@ -57,6 +58,7 @@ export type Database = {
           votes_revealed: boolean
         }
         Insert: {
+          consensus_streak?: number
           created_at?: string
           current_round?: number
           id?: string
@@ -66,6 +68,7 @@ export type Database = {
           votes_revealed?: boolean
         }
         Update: {
+          consensus_streak?: number
           created_at?: string
           current_round?: number
           id?: string
