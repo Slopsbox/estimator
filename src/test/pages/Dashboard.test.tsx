@@ -155,19 +155,20 @@ describe('DashboardPage – opprett sesjon (ingen sesjon/fasilitator)', () => {
     expect(screen.getByRole('button', { name: /opprett sesjon/i })).toBeInTheDocument();
   });
 
-  it('2. validering: tomt navnefelt viser feilmelding', async () => {
+  it('2. validering: tomt navnefelt gir disabled knapp og ingen createSession-kall', async () => {
     const user = userEvent.setup();
     mockSession = null;
     mockLocalParticipant = null;
 
     renderDashboard();
 
-    // Submit uten navn
-    await user.click(screen.getByRole('button', { name: /opprett sesjon/i }));
+    // Knappen er disabled når input er tomt
+    const submitBtn = screen.getByRole('button', { name: /opprett sesjon/i });
+    expect(submitBtn).toBeDisabled();
 
-    expect(
-      screen.getByText(/skriv inn et navn for å fortsette/i),
-    ).toBeInTheDocument();
+    // Klikk på disabled-knapp (userEvent lar det gå gjennom – men handleCreate ikke kalt)
+    await user.click(submitBtn);
+
     expect(mockCreateSession).not.toHaveBeenCalled();
   });
 

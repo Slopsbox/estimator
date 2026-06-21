@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { AppLogo } from '../components/AppLogo';
 import { PreStartPanel } from '../components/dashboard/PreStartPanel';
 import { VotesPanel } from '../components/dashboard/VotesPanel';
 import { useRealtimeParticipants } from '../hooks/useRealtimeParticipants';
@@ -97,125 +98,115 @@ export function DashboardPage() {
   // ── Opprett sesjon ─────────────────────────────────────────
   if (!isFacilitator || !session) {
     return (
-      <div
-        className="min-h-screen flex flex-col"
-        style={{ background: 'var(--color-neutral-100)' }}
-      >
-        {/* Header */}
+      <div className="min-h-screen flex flex-col" style={{ background: '#F5F4F0' }}>
+        {/* Navy topp-seksjon */}
         <div
-          className="flex items-center gap-3 px-4 py-4"
           style={{
-            background: 'white',
-            borderBottom: '1px solid var(--color-neutral-200)',
+            background: '#0B1D3A',
+            borderRadius: '0 0 24px 24px',
+            padding: '16px 24px 40px',
           }}
         >
-          <button
-            type="button"
-            onClick={() => navigate('/')}
-            className="flex items-center justify-center w-9 h-9 transition-colors"
-            style={{
-              background: 'var(--color-neutral-100)',
-              borderRadius: 'var(--radius-md)',
-              color: 'var(--color-neutral-700)',
-            }}
-            aria-label="Tilbake"
-          >
-            <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true">
-              <path d="M11 4L6 9l5 5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
-          </button>
-          <h1
-            className="text-lg font-semibold"
-            style={{ color: 'var(--color-neutral-900)' }}
-          >
-            Fasilitator
-          </h1>
+          {/* Header-rad */}
+          <div className="flex items-center mb-8">
+            <button
+              type="button"
+              onClick={() => navigate('/')}
+              className="flex items-center justify-center w-9 h-9 focus:outline-none"
+              style={{ color: 'white', background: 'transparent' }}
+              aria-label="Tilbake"
+            >
+              <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true">
+                <path d="M11 4L6 9l5 5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </button>
+            <span
+              className="flex-1 text-center font-medium"
+              style={{ fontSize: 16, color: 'white' }}
+            >
+              Fasilitator
+            </span>
+            {/* Spacer for symmetri */}
+            <div className="w-9" />
+          </div>
+
+          {/* Ikon + tittel */}
+          <div className="text-center">
+            <AppLogo size={56} className="mx-auto mb-4" />
+            <h1 style={{ fontSize: 28, fontWeight: 700, color: '#fff', margin: 0 }}>
+              Opprett sesjon
+            </h1>
+            <p style={{ fontSize: 14, color: 'rgba(255,255,255,0.7)', marginTop: 8 }}>
+              Gi sesjonen et navn så deltakerne vet hvor de er
+            </p>
+          </div>
         </div>
 
-        <div className="flex-1 flex flex-col items-center justify-center px-5 py-8">
-          <div
-            className="w-full max-w-sm bg-white p-6 space-y-5 animate-fadeUp"
-            style={{
-              borderRadius: 'var(--radius-xl)',
-              boxShadow: 'var(--shadow-md)',
-            }}
-          >
-            <div className="text-center">
-              <div className="text-4xl mb-3">🎯</div>
-              <h2
-                className="text-xl font-bold"
-                style={{ color: 'var(--color-neutral-900)' }}
+        {/* Varm-grå-seksjon */}
+        <div className="flex-1 px-6 pt-8">
+          <form onSubmit={handleCreate} className="space-y-4">
+            <div>
+              <label
+                htmlFor="facilitator-name"
+                className="block mb-2"
+                style={{ fontSize: 14, fontWeight: 500, color: '#0B1D3A' }}
               >
-                Opprett sesjon
-              </h2>
-              <p
-                className="mt-1 text-sm"
-                style={{ color: 'var(--color-neutral-500)' }}
-              >
-                Opprett en ny estimeringssesjon
-              </p>
+                Ditt navn
+              </label>
+              <input
+                id="facilitator-name"
+                type="text"
+                value={nameInput}
+                onChange={(e) => setNameInput(e.target.value)}
+                placeholder="Fasilitators navn"
+                maxLength={60}
+                autoFocus
+                className="w-full focus:outline-none transition-colors"
+                style={{
+                  height: 52,
+                  borderRadius: 12,
+                  border: '1.5px solid #E2E0DC',
+                  background: '#fff',
+                  padding: '0 16px',
+                  fontSize: 16,
+                  color: '#0B1D3A',
+                }}
+                onFocus={(e) => { e.currentTarget.style.borderColor = '#0B1D3A'; }}
+                onBlur={(e) => { e.currentTarget.style.borderColor = '#E2E0DC'; }}
+              />
+              {nameError && (
+                <p className="mt-1 text-sm" style={{ color: 'var(--color-danger)' }}>
+                  {nameError}
+                </p>
+              )}
+              {error && (
+                <p className="mt-1 text-sm" style={{ color: 'var(--color-danger)' }}>
+                  {error}
+                </p>
+              )}
             </div>
 
-            <form onSubmit={handleCreate} className="space-y-4">
-              <div>
-                <label
-                  htmlFor="facilitator-name"
-                  className="block text-sm font-medium mb-1.5"
-                  style={{ color: 'var(--color-neutral-700)' }}
-                >
-                  Ditt navn
-                </label>
-                <input
-                  id="facilitator-name"
-                  type="text"
-                  value={nameInput}
-                  onChange={(e) => setNameInput(e.target.value)}
-                  placeholder="Fasilitators navn"
-                  maxLength={60}
-                  autoFocus
-                  className="w-full px-4 py-3 text-sm focus:outline-none transition-colors"
-                  style={{
-                    border: '1.5px solid var(--color-neutral-300)',
-                    borderRadius: 'var(--radius-md)',
-                    color: 'var(--color-neutral-900)',
-                    background: 'white',
-                  }}
-                />
-                {nameError && (
-                  <p
-                    className="mt-1 text-sm"
-                    style={{ color: 'var(--color-danger)' }}
-                  >
-                    {nameError}
-                  </p>
-                )}
-                {error && (
-                  <p
-                    className="mt-1 text-sm"
-                    style={{ color: 'var(--color-danger)' }}
-                  >
-                    {error}
-                  </p>
-                )}
-              </div>
+            <button
+              type="submit"
+              disabled={!nameInput.trim() || creating || loading}
+              className="w-full font-semibold text-white focus:outline-none transition-opacity"
+              style={{
+                height: 52,
+                borderRadius: 12,
+                background: '#0B1D3A',
+                fontSize: 16,
+                fontWeight: 600,
+                opacity: !nameInput.trim() || creating || loading ? 0.4 : 1,
+                cursor: !nameInput.trim() || creating || loading ? 'not-allowed' : 'pointer',
+              }}
+            >
+              {creating || loading ? 'Oppretter…' : 'Opprett sesjon'}
+            </button>
+          </form>
 
-              <button
-                type="submit"
-                disabled={creating || loading}
-                className="w-full py-4 font-semibold text-white text-base transition-all focus:outline-none"
-                style={{
-                  borderRadius: 'var(--radius-md)',
-                  background: creating || loading
-                    ? 'var(--color-neutral-200)'
-                    : 'var(--color-navy-900)',
-                  color: creating || loading ? 'var(--color-neutral-400)' : 'white',
-                  cursor: creating || loading ? 'not-allowed' : 'pointer',
-                }}
-              >
-                {creating || loading ? 'Oppretter…' : 'Opprett sesjon'}
-              </button>
-            </form>
-          </div>
+          <p style={{ fontSize: 13, color: '#6B6865', textAlign: 'center', marginTop: 16 }}>
+            Deltakere kobler seg til med en 4-sifret kode
+          </p>
         </div>
       </div>
     );
