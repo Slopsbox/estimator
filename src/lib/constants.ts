@@ -9,9 +9,9 @@ export const SIZES: { key: Size; label: string }[] = [
 ];
 
 export const VALUES: { key: Value; emoji: string; label: string; desc: string }[] = [
-  { key: 'gold', emoji: '🥇', label: 'Gull', desc: 'Høy verdi' },
-  { key: 'silver', emoji: '🥈', label: 'Sølv', desc: 'Middels' },
   { key: 'bronze', emoji: '🥉', label: 'Bronse', desc: 'Lav verdi' },
+  { key: 'silver', emoji: '🥈', label: 'Sølv', desc: 'Middels' },
+  { key: 'gold', emoji: '🥇', label: 'Gull', desc: 'Høy verdi' },
 ];
 
 export const VALUE_MEDAL: Record<Value, string> = {
