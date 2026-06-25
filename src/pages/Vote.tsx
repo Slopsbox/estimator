@@ -52,21 +52,22 @@ export function VotePage() {
   }, [revealed, hasVoted, triggerConfetti]);
 
   // Reset ved ny runde
+  const currentRound = session?.current_round ?? null;
   useEffect(() => {
-    if (!session) return;
+    if (currentRound === null) return;
     if (prevRoundRef.current === null) {
-      prevRoundRef.current = session.current_round;
+      prevRoundRef.current = currentRound;
       return;
     }
-    if (session.current_round !== prevRoundRef.current) {
-      prevRoundRef.current = session.current_round;
+    if (currentRound !== prevRoundRef.current) {
+      prevRoundRef.current = currentRound;
       setSelectedSize(null);
       setSelectedValue(null);
       setHasVoted(false);
       setSubmitError(null);
       confettiTriggeredRef.current = false;
     }
-  }, [session?.current_round]);
+  }, [currentRound]);
 
   // Sesjon avsluttet
   useEffect(() => {

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { render, screen } from '@testing-library/react';
-import { PriorityMatrix, calculateMatrix } from '../../components/PriorityMatrix';
+import { PriorityMatrix } from '../../components/PriorityMatrix';
+import { calculateMatrix } from '../../lib/priorityMatrix';
 import type { Size, Value } from '../../lib/types';
 
 // ── Hjelpere ────────────────────────────────────────────────

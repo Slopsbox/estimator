@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { render, screen } from '@testing-library/react';
-import { SpreadOMeter, calculateRange, rangeToSeaState } from '../../components/SpreadOMeter';
+import { SpreadOMeter } from '../../components/SpreadOMeter';
+import { calculateRange, rangeToSeaState } from '../../lib/spreadOMeter';
 import type { Size } from '../../lib/types';
 
 // ── Hjelpere ────────────────────────────────────────────────

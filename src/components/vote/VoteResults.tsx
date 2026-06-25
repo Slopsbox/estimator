@@ -1,5 +1,6 @@
 import { PriorityMatrix } from '../PriorityMatrix';
 import { SpreadOMeter } from '../SpreadOMeter';
+import { NavyPageLayout } from '../NavyPageLayout';
 import { SIZE_ORDER, VALUE_MEDAL, VALUES } from '../../lib/constants';
 import type { LocalParticipant, Size, Value, Vote } from '../../lib/types';
 
@@ -44,42 +45,23 @@ export function VoteResults({
   const hasConsensus = votes.length > 0 && uniqueSizes.size === 1;
   const consensusSize = hasConsensus ? [...uniqueSizes][0] : null;
 
-  return (
-    <div className="min-h-screen flex flex-col" style={{ background: '#F5F4F0' }}>
-      {/* Navy topp-seksjon (~25%) */}
-      <div
-        style={{
-          background: '#0B1D3A',
-          borderRadius: '0 0 24px 24px',
-          padding: '16px 24px 36px',
-        }}
-      >
-        {/* Header-rad */}
-        <div className="flex items-center mb-6">
-          {/* Spacer venstre for symmetri */}
-          <div className="w-9" />
-          <span
-            className="flex-1 text-center font-medium"
-            style={{ fontSize: 16, color: 'white' }}
-          >
-            Deltager
-          </span>
-          {/* Runde-badge høyre */}
-          {currentRound !== undefined && (
-            <span
-              className="text-xs font-medium px-3 py-1 rounded-full"
-              style={{
-                background: 'rgba(255,255,255,0.1)',
-                color: '#A0BADE',
-              }}
-            >
-              Runde {currentRound}
-            </span>
-          )}
-          {currentRound === undefined && <div className="w-9" />}
-        </div>
+  const roundBadge = currentRound !== undefined ? (
+    <span
+      className="text-xs font-medium px-3 py-1 rounded-full"
+      style={{
+        background: 'rgba(255,255,255,0.1)',
+        color: '#A0BADE',
+      }}
+    >
+      Runde {currentRound}
+    </span>
+  ) : undefined;
 
-        {/* Konfetti-emoji + tittel + undertekst */}
+  return (
+    <NavyPageLayout
+      roleLabel="Deltager"
+      headerRight={roundBadge}
+      navyContent={
         <div className="text-center">
           <div style={{ fontSize: 40, lineHeight: 1, marginBottom: 12 }} aria-hidden="true">
             🎊
@@ -91,10 +73,10 @@ export function VoteResults({
             {votes.length} stemme{votes.length !== 1 ? 'r' : ''} avlagt
           </p>
         </div>
-      </div>
-
-      {/* Varm-grå bunn (scrollbar) */}
-      <div className="flex-1 px-4 pt-6 pb-8 space-y-4">
+      }
+    >
+      {/* Varm-grå bunn (scrollbar) – overstyrer standard px-6 pt-8 */}
+      <div className="-mx-6 -mt-8 px-4 pt-6 pb-8 space-y-4">
         {/* Konsensus-banner */}
         {hasConsensus && consensusSize && (
           <div
@@ -204,7 +186,7 @@ export function VoteResults({
           </div>
         )}
       </div>
-    </div>
+    </NavyPageLayout>
   );
 }
 

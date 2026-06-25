@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AppLogo } from '../components/AppLogo';
+import { NavyPageLayout } from '../components/NavyPageLayout';
 import { PreStartPanel } from '../components/dashboard/PreStartPanel';
 import { VotesPanel } from '../components/dashboard/VotesPanel';
 import { useRealtimeParticipants } from '../hooks/useRealtimeParticipants';
@@ -18,6 +19,9 @@ export function DashboardPage() {
   const [creating, setCreating] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
   const [codeCopied, setCodeCopied] = useState(false);
+
+  // Ref for å rydde setTimeout og unngå state-oppdatering etter unmount
+  const copyTimeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   const { participants } = useRealtimeParticipants(session?.id ?? null);
   const { votes } = useRealtimeVotes(
@@ -42,6 +46,13 @@ export function DashboardPage() {
       navigate('/');
     }
   }, [session?.status, isFacilitator, logout, navigate]);
+
+  // Cleanup copyTimeout ved unmount
+  useEffect(() => {
+    return () => {
+      if (copyTimeoutRef.current) clearTimeout(copyTimeoutRef.current);
+    };
+  }, []);
 
   const handleCreate = useCallback(async (e: React.FormEvent) => {
     e.preventDefault();
@@ -89,48 +100,24 @@ export function DashboardPage() {
     try {
       await navigator.clipboard.writeText(session.join_code);
       setCodeCopied(true);
-      setTimeout(() => setCodeCopied(false), 2000);
+      if (copyTimeoutRef.current) clearTimeout(copyTimeoutRef.current);
+      copyTimeoutRef.current = setTimeout(() => setCodeCopied(false), 2000);
     } catch {
-      // Fallback uten clipboard-tilgang
+      // Clipboard API ikke tilgjengelig – vis "Kopiert!"-indikator som fallback
+      // (koden er allerede synlig på skjermen)
+      setCodeCopied(true);
+      if (copyTimeoutRef.current) clearTimeout(copyTimeoutRef.current);
+      copyTimeoutRef.current = setTimeout(() => setCodeCopied(false), 2000);
     }
   }, [session]);
 
   // ── Opprett sesjon ─────────────────────────────────────────
   if (!isFacilitator || !session) {
     return (
-      <div className="min-h-screen flex flex-col" style={{ background: '#F5F4F0' }}>
-        {/* Navy topp-seksjon */}
-        <div
-          style={{
-            background: '#0B1D3A',
-            borderRadius: '0 0 24px 24px',
-            padding: '16px 24px 40px',
-          }}
-        >
-          {/* Header-rad */}
-          <div className="flex items-center mb-8">
-            <button
-              type="button"
-              onClick={() => navigate('/')}
-              className="flex items-center justify-center w-9 h-9 focus:outline-none"
-              style={{ color: 'white', background: 'transparent' }}
-              aria-label="Tilbake"
-            >
-              <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true">
-                <path d="M11 4L6 9l5 5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-              </svg>
-            </button>
-            <span
-              className="flex-1 text-center font-medium"
-              style={{ fontSize: 16, color: 'white' }}
-            >
-              Fasilitator
-            </span>
-            {/* Spacer for symmetri */}
-            <div className="w-9" />
-          </div>
-
-          {/* Ikon + tittel */}
+      <NavyPageLayout
+        roleLabel="Fasilitator"
+        onBack={() => navigate('/')}
+        navyContent={
           <div className="text-center">
             <AppLogo size={56} className="mx-auto mb-4" />
             <h1 style={{ fontSize: 28, fontWeight: 700, color: '#fff', margin: 0 }}>
@@ -140,75 +127,72 @@ export function DashboardPage() {
               Gi sesjonen et navn så deltakerne vet hvor de er
             </p>
           </div>
-        </div>
-
-        {/* Varm-grå-seksjon */}
-        <div className="flex-1 px-6 pt-8">
-          <form onSubmit={handleCreate} className="space-y-4">
-            <div>
-              <label
-                htmlFor="facilitator-name"
-                className="block mb-2"
-                style={{ fontSize: 14, fontWeight: 500, color: '#0B1D3A' }}
-              >
-                Ditt navn
-              </label>
-              <input
-                id="facilitator-name"
-                type="text"
-                value={nameInput}
-                onChange={(e) => setNameInput(e.target.value)}
-                placeholder="Fasilitators navn"
-                maxLength={60}
-                autoFocus
-                className="w-full focus:outline-none transition-colors"
-                style={{
-                  height: 52,
-                  borderRadius: 12,
-                  border: '1.5px solid #E2E0DC',
-                  background: '#fff',
-                  padding: '0 16px',
-                  fontSize: 16,
-                  color: '#0B1D3A',
-                }}
-                onFocus={(e) => { e.currentTarget.style.borderColor = '#0B1D3A'; }}
-                onBlur={(e) => { e.currentTarget.style.borderColor = '#E2E0DC'; }}
-              />
-              {nameError && (
-                <p className="mt-1 text-sm" style={{ color: 'var(--color-danger)' }}>
-                  {nameError}
-                </p>
-              )}
-              {error && (
-                <p className="mt-1 text-sm" style={{ color: 'var(--color-danger)' }}>
-                  {error}
-                </p>
-              )}
-            </div>
-
-            <button
-              type="submit"
-              disabled={!nameInput.trim() || creating || loading}
-              className="w-full font-semibold text-white focus:outline-none transition-opacity"
+        }
+      >
+        <form onSubmit={handleCreate} className="space-y-4">
+          <div>
+            <label
+              htmlFor="facilitator-name"
+              className="block mb-2"
+              style={{ fontSize: 14, fontWeight: 500, color: '#0B1D3A' }}
+            >
+              Ditt navn
+            </label>
+            <input
+              id="facilitator-name"
+              type="text"
+              value={nameInput}
+              onChange={(e) => setNameInput(e.target.value)}
+              placeholder="Fasilitators navn"
+              maxLength={60}
+              autoFocus
+              className="w-full focus:outline-none transition-colors"
               style={{
                 height: 52,
                 borderRadius: 12,
-                background: '#0B1D3A',
+                border: '1.5px solid #E2E0DC',
+                background: '#fff',
+                padding: '0 16px',
                 fontSize: 16,
-                fontWeight: 600,
-                opacity: !nameInput.trim() || creating || loading ? 0.4 : 1,
-                cursor: !nameInput.trim() || creating || loading ? 'not-allowed' : 'pointer',
+                color: '#0B1D3A',
               }}
-            >
-              {creating || loading ? 'Oppretter…' : 'Opprett sesjon'}
-            </button>
-          </form>
+              onFocus={(e) => { e.currentTarget.style.borderColor = '#0B1D3A'; }}
+              onBlur={(e) => { e.currentTarget.style.borderColor = '#E2E0DC'; }}
+            />
+            {nameError && (
+              <p className="mt-1 text-sm" style={{ color: 'var(--color-danger)' }}>
+                {nameError}
+              </p>
+            )}
+            {error && (
+              <p className="mt-1 text-sm" style={{ color: 'var(--color-danger)' }}>
+                {error}
+              </p>
+            )}
+          </div>
 
-          <p style={{ fontSize: 13, color: '#6B6865', textAlign: 'center', marginTop: 16 }}>
-            Deltakere kobler seg til med en 4-sifret kode
-          </p>
-        </div>
-      </div>
+          <button
+            type="submit"
+            disabled={!nameInput.trim() || creating || loading}
+            className="w-full font-semibold text-white focus:outline-none transition-opacity"
+            style={{
+              height: 52,
+              borderRadius: 12,
+              background: '#0B1D3A',
+              fontSize: 16,
+              fontWeight: 600,
+              opacity: !nameInput.trim() || creating || loading ? 0.4 : 1,
+              cursor: !nameInput.trim() || creating || loading ? 'not-allowed' : 'pointer',
+            }}
+          >
+            {creating || loading ? 'Oppretter…' : 'Opprett sesjon'}
+          </button>
+        </form>
+
+        <p style={{ fontSize: 13, color: '#6B6865', textAlign: 'center', marginTop: 16 }}>
+          Deltakere kobler seg til med en 4-sifret kode
+        </p>
+      </NavyPageLayout>
     );
   }
 

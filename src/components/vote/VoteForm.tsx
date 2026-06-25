@@ -1,4 +1,5 @@
 import { SIZES, VALUES } from '../../lib/constants';
+import { NavyPageLayout } from '../NavyPageLayout';
 import type { Size, Value } from '../../lib/types';
 
 interface VoteFormProps {
@@ -32,54 +33,24 @@ export function VoteForm({
 }: VoteFormProps) {
   const canVote = selectedSize !== null && selectedValue !== null;
 
-  return (
-    <div className="min-h-screen flex flex-col" style={{ background: '#F5F4F0' }}>
-      {/* Navy topp-seksjon */}
-      <div
-        style={{
-          background: '#0B1D3A',
-          borderRadius: '0 0 24px 24px',
-          padding: '16px 24px 40px',
-        }}
-      >
-        {/* Header-rad */}
-        <div className="flex items-center mb-8">
-          <button
-            type="button"
-            onClick={onBack}
-            className="flex items-center justify-center w-9 h-9 focus:outline-none"
-            style={{ color: 'white', background: 'transparent' }}
-            aria-label="Tilbake"
-          >
-            <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true">
-              <path
-                d="M11 4L6 9l5 5"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            </svg>
-          </button>
-          <span
-            className="flex-1 text-center font-medium"
-            style={{ fontSize: 16, color: 'white' }}
-          >
-            Deltager
-          </span>
-          {/* Runde-badge */}
-          <span
-            className="text-xs font-medium px-3 py-1 rounded-full"
-            style={{
-              background: 'rgba(255,255,255,0.1)',
-              color: '#A0BADE',
-            }}
-          >
-            Runde {currentRound}
-          </span>
-        </div>
+  const roundBadge = (
+    <span
+      className="text-xs font-medium px-3 py-1 rounded-full"
+      style={{
+        background: 'rgba(255,255,255,0.1)',
+        color: '#A0BADE',
+      }}
+    >
+      Runde {currentRound}
+    </span>
+  );
 
-        {/* Tittel + undertekst */}
+  return (
+    <NavyPageLayout
+      roleLabel="Deltager"
+      onBack={onBack}
+      headerRight={roundBadge}
+      navyContent={
         <div className="text-center">
           <h1 style={{ fontSize: 24, fontWeight: 700, color: '#fff', margin: 0 }}>
             Din stemme
@@ -93,10 +64,9 @@ export function VoteForm({
             </p>
           )}
         </div>
-      </div>
-
-      {/* Varm-grå-seksjon */}
-      <div className="flex-1 px-6 pt-6 space-y-5">
+      }
+    >
+      <div className="space-y-5">
         {/* Størrelse */}
         <div>
           <p
@@ -205,7 +175,7 @@ export function VoteForm({
           {submitting ? 'Sender…' : 'Stem 🗳️'}
         </button>
       </div>
-    </div>
+    </NavyPageLayout>
   );
 }
 

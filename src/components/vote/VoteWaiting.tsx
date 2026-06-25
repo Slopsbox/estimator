@@ -1,4 +1,5 @@
 import { AppLogo } from '../AppLogo';
+import { NavyPageLayout } from '../NavyPageLayout';
 import type { Session, LocalParticipant } from '../../lib/types';
 
 interface VoteWaitingProps {
@@ -12,30 +13,9 @@ interface VoteWaitingProps {
  */
 export function VoteWaiting({ session, name }: VoteWaitingProps) {
   return (
-    <div className="min-h-screen flex flex-col" style={{ background: '#F5F4F0' }}>
-      {/* Navy topp-seksjon (~30%) */}
-      <div
-        style={{
-          background: '#0B1D3A',
-          borderRadius: '0 0 24px 24px',
-          padding: '16px 24px 40px',
-        }}
-      >
-        {/* Header-rad: ingen tilbake-knapp, "Deltager" sentrert */}
-        <div className="flex items-center mb-8">
-          {/* Spacer venstre for symmetri */}
-          <div className="w-9" />
-          <span
-            className="flex-1 text-center font-medium"
-            style={{ fontSize: 16, color: 'white' }}
-          >
-            Deltager
-          </span>
-          {/* Spacer høyre for symmetri */}
-          <div className="w-9" />
-        </div>
-
-        {/* Logo + tittel + undertekst */}
+    <NavyPageLayout
+      roleLabel="Deltager"
+      navyContent={
         <div className="text-center">
           <AppLogo size={48} className="mx-auto mb-4" />
           <h1 style={{ fontSize: 24, fontWeight: 700, color: '#fff', margin: 0 }}>
@@ -45,11 +25,10 @@ export function VoteWaiting({ session, name }: VoteWaitingProps) {
             Du er med i sesjonen, {name} 👋
           </p>
         </div>
-      </div>
-
-      {/* Varm-grå bunn */}
-      <div className="flex-1 px-6 pt-8 space-y-5">
-        {/* Info-kort */}
+      }
+    >
+      {/* Info-kort */}
+      <div className="space-y-5">
         <div
           className="bg-white p-4 space-y-3"
           style={{
@@ -87,7 +66,7 @@ export function VoteWaiting({ session, name }: VoteWaitingProps) {
           • Fasilitator starter snart •
         </p>
       </div>
-    </div>
+    </NavyPageLayout>
   );
 }
 

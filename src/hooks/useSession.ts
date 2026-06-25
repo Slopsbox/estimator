@@ -78,18 +78,19 @@ export function useSession() {
   }, []);
 
   /** Lytt på sesjonsendringer (ny runde, status, votes_revealed, started) */
+  const sessionId = session?.id ?? null;
   useEffect(() => {
-    if (!session) return;
+    if (!sessionId) return;
 
     const channel = supabase
-      .channel(`session-watch:${session.id}`)
+      .channel(`session-watch:${sessionId}`)
       .on(
         'postgres_changes',
         {
           event: 'UPDATE',
           schema: 'public',
           table: 'sessions',
-          filter: `id=eq.${session.id}`,
+          filter: `id=eq.${sessionId}`,
         },
         (payload) => {
           setSession(payload.new as Session);
@@ -102,7 +103,7 @@ export function useSession() {
     return () => {
       void supabase.removeChannel(channel);
     };
-  }, [session?.id]);
+  }, [sessionId]);
 
 
 

@@ -1,4 +1,5 @@
 import { VALUE_MEDAL, VALUES } from '../../lib/constants';
+import { NavyPageLayout } from '../NavyPageLayout';
 import type { Size, Value } from '../../lib/types';
 
 interface VoteAwaitRevealProps {
@@ -16,42 +17,23 @@ export function VoteAwaitReveal({ name, selectedSize, selectedValue, currentRoun
   const myVoteEmoji = VALUE_MEDAL[selectedValue];
   const valueLabel = VALUES.find((v) => v.key === selectedValue)?.label ?? '';
 
-  return (
-    <div className="min-h-screen flex flex-col" style={{ background: '#F5F4F0' }}>
-      {/* Navy topp-seksjon (~30%) */}
-      <div
-        style={{
-          background: '#0B1D3A',
-          borderRadius: '0 0 24px 24px',
-          padding: '16px 24px 40px',
-        }}
-      >
-        {/* Header-rad */}
-        <div className="flex items-center mb-8">
-          {/* Spacer venstre for symmetri */}
-          <div className="w-9" />
-          <span
-            className="flex-1 text-center font-medium"
-            style={{ fontSize: 16, color: 'white' }}
-          >
-            Deltager
-          </span>
-          {/* Runde-badge høyre */}
-          {currentRound !== undefined && (
-            <span
-              className="text-xs font-medium px-3 py-1 rounded-full"
-              style={{
-                background: 'rgba(255,255,255,0.1)',
-                color: '#A0BADE',
-              }}
-            >
-              Runde {currentRound}
-            </span>
-          )}
-          {currentRound === undefined && <div className="w-9" />}
-        </div>
+  const roundBadge = currentRound !== undefined ? (
+    <span
+      className="text-xs font-medium px-3 py-1 rounded-full"
+      style={{
+        background: 'rgba(255,255,255,0.1)',
+        color: '#A0BADE',
+      }}
+    >
+      Runde {currentRound}
+    </span>
+  ) : undefined;
 
-        {/* Medalje + tittel + undertekst */}
+  return (
+    <NavyPageLayout
+      roleLabel="Deltager"
+      headerRight={roundBadge}
+      navyContent={
         <div className="text-center">
           <div
             className="animate-popIn"
@@ -67,10 +49,9 @@ export function VoteAwaitReveal({ name, selectedSize, selectedValue, currentRoun
             Venter på fasilitator, {name} 👋
           </p>
         </div>
-      </div>
-
-      {/* Varm-grå bunn */}
-      <div className="flex-1 px-6 pt-8 space-y-5">
+      }
+    >
+      <div className="space-y-5">
         {/* Oppsummerings-kort */}
         <div
           className="bg-white p-4 space-y-3"
@@ -109,7 +90,7 @@ export function VoteAwaitReveal({ name, selectedSize, selectedValue, currentRoun
           • Venter på avsløring •
         </p>
       </div>
-    </div>
+    </NavyPageLayout>
   );
 }
 
