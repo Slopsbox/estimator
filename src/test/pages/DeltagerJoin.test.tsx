@@ -43,15 +43,15 @@ describe('DeltagerJoinPage', () => {
     sessionStorage.clear();
   });
 
-  it('viser ikon, heading og instruksjonstekst', () => {
+  it('viser heading, undertekst og rollestempel', () => {
     render(
       <MemoryRouter>
         <DeltagerJoinPage />
       </MemoryRouter>,
     );
-    expect(screen.getByText('🔑')).toBeInTheDocument();
-    expect(screen.getByText('Skriv inn koden')).toBeInTheDocument();
-    expect(screen.getByText(/fasilitator deler/i)).toBeInTheDocument();
+    expect(screen.getByText('Bli med i sesjon')).toBeInTheDocument();
+    expect(screen.getByText(/skriv inn koden fra fasilitator/i)).toBeInTheDocument();
+    expect(screen.getByText('Deltager')).toBeInTheDocument();
   });
 
   it('viser navneinput og kodeinput', () => {
