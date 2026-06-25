@@ -142,6 +142,7 @@ export function VotePage() {
         name={name}
         selectedSize={selectedSize!}
         selectedValue={selectedValue!}
+        currentRound={session?.current_round}
       />
     );
   }
@@ -155,6 +156,7 @@ export function VotePage() {
       selectedValue={selectedValue}
       localParticipant={localParticipant}
       consensusStreak={session?.consensus_streak ?? 0}
+      currentRound={session?.current_round}
     />
   );
 }
