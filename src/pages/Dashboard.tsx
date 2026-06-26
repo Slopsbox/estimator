@@ -7,6 +7,7 @@ import { VotesPanel } from '../components/dashboard/VotesPanel';
 import { useRealtimeParticipants } from '../hooks/useRealtimeParticipants';
 import { useRealtimeVotes } from '../hooks/useRealtimeVotes';
 import { useSession } from '../hooks/useSession';
+import { useWakeLock } from '../hooks/useWakeLock';
 
 /** Fasilitator-dashboard (revisjon 3) – ett sammenhengende view, ingen tabs. */
 export function DashboardPage() {
@@ -205,6 +206,78 @@ export function DashboardPage() {
   const sessionStarted = session.started;
 
   // ── Dashboard ──────────────────────────────────────────────
+  // Wrapper-komponent som aktiverer Wake Lock kun i det aktive dashboard-viewet
+  return <ActiveDashboardView
+    session={session}
+    voterParticipants={voterParticipants}
+    participants={participants}
+    votes={votes}
+    votedCount={votedCount}
+    totalCount={totalCount}
+    progressPct={progressPct}
+    sessionStarted={sessionStarted}
+    actionLoading={actionLoading}
+    codeCopied={codeCopied}
+    joinCodeDots={joinCodeDots}
+    handleEndSession={handleEndSession}
+    handleReveal={handleReveal}
+    handleNextRound={handleNextRound}
+    handleStartSession={handleStartSession}
+    handleCopyCode={handleCopyCode}
+    logout={logout}
+    navigate={navigate}
+  />;
+}
+
+/** Props til ActiveDashboardView */
+interface ActiveDashboardViewProps {
+  session: NonNullable<ReturnType<typeof useSession>['session']>;
+  voterParticipants: ReturnType<typeof useRealtimeParticipants>['participants'];
+  participants: ReturnType<typeof useRealtimeParticipants>['participants'];
+  votes: ReturnType<typeof useRealtimeVotes>['votes'];
+  votedCount: number;
+  totalCount: number;
+  progressPct: number;
+  sessionStarted: boolean;
+  actionLoading: boolean;
+  codeCopied: boolean;
+  joinCodeDots: { color: string }[];
+  handleEndSession: () => void;
+  handleReveal: () => void;
+  handleNextRound: () => void;
+  handleStartSession: () => void;
+  handleCopyCode: () => void;
+  logout: () => void;
+  navigate: (path: string) => void;
+}
+
+/**
+ * Det aktive dashboard-viewet.
+ * Hookes opp Wake Lock her så den kun er aktiv når fasilitator har en pågående sesjon,
+ * ikke i opprett-sesjon-skjermen.
+ */
+function ActiveDashboardView({
+  session,
+  voterParticipants,
+  participants,
+  votes,
+  votedCount,
+  totalCount,
+  progressPct,
+  sessionStarted,
+  actionLoading,
+  codeCopied,
+  joinCodeDots,
+  handleEndSession,
+  handleReveal,
+  handleNextRound,
+  handleStartSession,
+  handleCopyCode,
+  logout,
+  navigate,
+}: ActiveDashboardViewProps) {
+  useWakeLock(); // Holder skjermen våken mens fasilitator er i aktiv sesjon
+
   return (
     <div
       className="min-h-screen flex flex-col"

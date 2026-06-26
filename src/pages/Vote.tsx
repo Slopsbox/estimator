@@ -7,6 +7,7 @@ import { VoteWaiting } from '../components/vote/VoteWaiting';
 import { useConfetti } from '../hooks/useConfetti';
 import { useRealtimeVotes } from '../hooks/useRealtimeVotes';
 import { useSession } from '../hooks/useSession';
+import { useWakeLock } from '../hooks/useWakeLock';
 import { supabase } from '../lib/supabase';
 import type { Size, Value } from '../lib/types';
 
@@ -21,6 +22,7 @@ export function VotePage() {
   const navigate = useNavigate();
   const { session, localParticipant, logout, initialized } = useSession();
   const { triggerConfetti } = useConfetti();
+  useWakeLock(); // Holder skjermen våken under estimering
 
   // Navn hentes fra sessionStorage (satt ved join)
   const name = sessionStorage.getItem('estimering_vote_name') ?? localParticipant?.name ?? '';
