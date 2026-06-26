@@ -1,0 +1,1535 @@
+<!DOCTYPE html>
+<html lang="no">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Estimat – Arkitekturdokumentasjon</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <style>
+    /* ============================================================
+       DESIGN TOKENS – Gjensidige Builders
+    ============================================================ */
+    :root {
+      --navy-900: #0B1D3A;
+      --navy-700: #1A3A6B;
+      --navy-500: #2B5797;
+      --navy-200: #A0BADE;
+      --navy-100: #D1DDED;
+
+      --red-600: #C8002D;
+      --red-100: #FFE5EA;
+
+      --neutral-100: #F5F4F0;
+      --neutral-200: #E8E6E0;
+      --neutral-300: #D4D1C9;
+      --neutral-500: #6B6860;
+      --neutral-700: #3D3B36;
+      --neutral-900: #1A1916;
+
+      --success: #1A7A4A;
+      --warning: #CC8000;
+
+      --radius-sm: 4px;
+      --radius-md: 8px;
+      --radius-lg: 12px;
+      --radius-xl: 16px;
+      --radius-2xl: 24px;
+
+      --shadow-sm: 0 1px 3px rgba(11,29,58,.08);
+      --shadow-md: 0 4px 12px rgba(11,29,58,.12);
+      --shadow-lg: 0 8px 24px rgba(11,29,58,.16);
+    }
+
+    /* ============================================================
+       RESET & BASE
+    ============================================================ */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html { font-size: 16px; scroll-behavior: smooth; }
+
+    body {
+      font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
+      background: var(--neutral-100);
+      color: var(--neutral-900);
+      line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* ============================================================
+       TYPOGRAPHY
+    ============================================================ */
+    h1 { font-size: 2.25rem; font-weight: 800; line-height: 1.15; }
+    h2 { font-size: 1.5rem; font-weight: 700; line-height: 1.25; margin-bottom: 1rem; }
+    h3 { font-size: 1.125rem; font-weight: 700; line-height: 1.3; margin-bottom: .5rem; }
+    h4 { font-size: .9375rem; font-weight: 600; line-height: 1.4; margin-bottom: .25rem; }
+    p { font-size: .9375rem; line-height: 1.7; color: var(--neutral-700); }
+    code {
+      font-family: 'SFMono-Regular', 'Consolas', 'Liberation Mono', monospace;
+      font-size: .8125rem;
+      background: var(--neutral-200);
+      color: var(--navy-700);
+      padding: .15em .4em;
+      border-radius: var(--radius-sm);
+    }
+
+    /* ============================================================
+       LAYOUT
+    ============================================================ */
+    .page-wrapper { max-width: 960px; margin: 0 auto; padding: 0 1.5rem 4rem; }
+
+    /* ============================================================
+       COVER SECTION
+    ============================================================ */
+    .cover {
+      background: var(--navy-900);
+      color: white;
+      border-radius: 0 0 var(--radius-2xl) var(--radius-2xl);
+      padding: 3.5rem 2.5rem 3rem;
+      margin-bottom: 3rem;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .cover::before {
+      content: '';
+      position: absolute;
+      top: -60px; right: -60px;
+      width: 280px; height: 280px;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(43,87,151,.35) 0%, transparent 70%);
+      pointer-events: none;
+    }
+
+    .cover::after {
+      content: '';
+      position: absolute;
+      bottom: -80px; left: -40px;
+      width: 320px; height: 320px;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(200,0,45,.15) 0%, transparent 70%);
+      pointer-events: none;
+    }
+
+    .cover-inner { position: relative; z-index: 1; }
+
+    .cover-eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: .5rem;
+      font-size: .75rem;
+      font-weight: 600;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      color: var(--navy-200);
+      background: rgba(255,255,255,.07);
+      border: 1px solid rgba(255,255,255,.1);
+      border-radius: 100px;
+      padding: .3rem .85rem;
+      margin-bottom: 1.25rem;
+    }
+
+    .cover h1 { color: white; margin-bottom: .75rem; }
+
+    .cover .subtitle {
+      font-size: 1.0625rem;
+      color: rgba(255,255,255,.72);
+      max-width: 520px;
+      line-height: 1.65;
+      margin-bottom: 2.25rem;
+    }
+
+    .badge-row { display: flex; flex-wrap: wrap; gap: .5rem; }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: .4rem;
+      padding: .35rem .75rem;
+      border-radius: 100px;
+      font-size: .78125rem;
+      font-weight: 600;
+      border: 1.5px solid rgba(255,255,255,.18);
+      color: white;
+      background: rgba(255,255,255,.08);
+      backdrop-filter: blur(4px);
+    }
+
+    .badge-dot {
+      width: 7px; height: 7px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+
+    /* ============================================================
+       SECTION WRAPPER
+    ============================================================ */
+    .section {
+      background: white;
+      border-radius: var(--radius-xl);
+      padding: 2rem 2.25rem;
+      margin-bottom: 1.5rem;
+      box-shadow: var(--shadow-sm);
+      border: 1px solid var(--neutral-200);
+    }
+
+    .section-label {
+      display: flex;
+      align-items: center;
+      gap: .6rem;
+      font-size: .6875rem;
+      font-weight: 700;
+      letter-spacing: .1em;
+      text-transform: uppercase;
+      color: var(--red-600);
+      margin-bottom: .5rem;
+    }
+
+    .section-label .label-num {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 20px; height: 20px;
+      border-radius: 50%;
+      background: var(--red-100);
+      color: var(--red-600);
+      font-size: .625rem;
+      font-weight: 800;
+    }
+
+    /* ============================================================
+       ARCHITECTURE DIAGRAM
+    ============================================================ */
+    .arch-diagram {
+      display: grid;
+      grid-template-columns: 1fr auto 1fr auto 1fr;
+      gap: 0;
+      align-items: center;
+      margin: 1.75rem 0 1rem;
+      padding: 0 .5rem;
+    }
+
+    .arch-node {
+      background: var(--neutral-100);
+      border: 2px solid var(--neutral-200);
+      border-radius: var(--radius-xl);
+      padding: 1.1rem 1rem;
+      text-align: center;
+      position: relative;
+    }
+
+    .arch-node.primary {
+      background: var(--navy-900);
+      border-color: var(--navy-900);
+      color: white;
+    }
+
+    .arch-node.accent {
+      background: var(--red-100);
+      border-color: var(--red-600);
+    }
+
+    .arch-node .node-icon { font-size: 1.75rem; display: block; margin-bottom: .35rem; }
+
+    .arch-node .node-title {
+      font-size: .8125rem;
+      font-weight: 700;
+      display: block;
+      margin-bottom: .2rem;
+    }
+
+    .arch-node .node-sub {
+      font-size: .6875rem;
+      font-weight: 500;
+      opacity: .7;
+      display: block;
+    }
+
+    .arch-node.primary .node-title { color: white; }
+    .arch-node.primary .node-sub { color: rgba(255,255,255,.6); }
+    .arch-node.accent .node-title { color: var(--red-600); }
+    .arch-node.accent .node-sub { color: var(--red-600); opacity: .75; }
+
+    .arch-arrow {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: .2rem;
+      padding: 0 .25rem;
+    }
+
+    .arch-arrow .arrow-line {
+      width: 100%;
+      position: relative;
+      display: flex;
+      align-items: center;
+      gap: 2px;
+    }
+
+    .arch-arrow .a-line {
+      flex: 1;
+      height: 2px;
+      background: var(--neutral-300);
+    }
+
+    .arch-arrow .a-head {
+      width: 0; height: 0;
+      border-top: 5px solid transparent;
+      border-bottom: 5px solid transparent;
+      border-left: 8px solid var(--neutral-300);
+    }
+
+    .arch-arrow .a-head-back {
+      width: 0; height: 0;
+      border-top: 5px solid transparent;
+      border-bottom: 5px solid transparent;
+      border-right: 8px solid var(--navy-200);
+    }
+
+    .arch-arrow .arrow-label {
+      font-size: .625rem;
+      font-weight: 600;
+      color: var(--neutral-500);
+      text-align: center;
+      white-space: nowrap;
+    }
+
+    .arch-arrow .realtime-line {
+      flex: 1;
+      height: 2px;
+      background: var(--navy-200);
+      border-top: 2px dashed var(--navy-200);
+      background: none;
+    }
+
+    /* PWA overlay band */
+    .pwa-band {
+      background: linear-gradient(90deg, rgba(11,29,58,.04) 0%, rgba(200,0,45,.04) 100%);
+      border: 1.5px dashed var(--neutral-300);
+      border-radius: var(--radius-lg);
+      padding: .6rem 1rem;
+      margin-top: 1.25rem;
+      display: flex;
+      align-items: center;
+      gap: .75rem;
+      font-size: .8125rem;
+    }
+
+    .pwa-band .pwa-icon { font-size: 1.125rem; }
+
+    .pwa-band strong { color: var(--navy-700); font-weight: 700; }
+    .pwa-band span { color: var(--neutral-500); font-size: .75rem; }
+
+    /* Turnstile flow */
+    .turnstile-flow {
+      display: flex;
+      align-items: center;
+      gap: .5rem;
+      margin-top: 1rem;
+      flex-wrap: wrap;
+    }
+
+    .tf-node {
+      background: var(--neutral-100);
+      border: 1.5px solid var(--neutral-200);
+      border-radius: var(--radius-md);
+      padding: .45rem .85rem;
+      font-size: .75rem;
+      font-weight: 600;
+      color: var(--neutral-700);
+      white-space: nowrap;
+    }
+
+    .tf-node.cf { border-color: #f6821f; color: #c06010; background: #fff5ec; }
+    .tf-node.vercel { border-color: var(--navy-500); color: var(--navy-700); background: var(--navy-100); }
+    .tf-node.browser { border-color: var(--neutral-300); }
+
+    .tf-arrow {
+      font-size: .75rem;
+      color: var(--neutral-400);
+      font-weight: 700;
+      color: var(--neutral-500);
+    }
+
+    /* ============================================================
+       TECH TABLE
+    ============================================================ */
+    .tech-table { width: 100%; border-collapse: collapse; margin-top: 1.25rem; }
+
+    .tech-table th {
+      font-size: .6875rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: .08em;
+      color: var(--neutral-500);
+      padding: .5rem .75rem;
+      text-align: left;
+      border-bottom: 2px solid var(--neutral-200);
+    }
+
+    .tech-table td {
+      padding: .75rem .75rem;
+      font-size: .875rem;
+      border-bottom: 1px solid var(--neutral-100);
+      vertical-align: top;
+    }
+
+    .tech-table tr:last-child td { border-bottom: none; }
+
+    .tech-table tr:hover td { background: var(--neutral-100); }
+
+    .tech-tag {
+      display: inline-flex;
+      align-items: center;
+      gap: .35rem;
+      padding: .25rem .6rem;
+      border-radius: 100px;
+      font-size: .75rem;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    .tech-tag.react { background: #e8f7fb; color: #0e7490; }
+    .tech-tag.ts { background: #e8edfb; color: #1d4ed8; }
+    .tech-tag.vite { background: #f0e8ff; color: #7c3aed; }
+    .tech-tag.tailwind { background: #e0f2fe; color: #0369a1; }
+    .tech-tag.supabase { background: #e6faf0; color: #166534; }
+    .tech-tag.vercel { background: var(--neutral-900); color: white; }
+    .tech-tag.cf { background: #fff4e6; color: #c26010; }
+    .tech-tag.pwa { background: var(--red-100); color: var(--red-600); }
+
+    /* ============================================================
+       ER DIAGRAM
+    ============================================================ */
+    .er-diagram {
+      display: grid;
+      grid-template-columns: 1fr auto 1fr auto 1fr;
+      gap: 0;
+      align-items: start;
+      margin-top: 1.75rem;
+    }
+
+    .er-table {
+      background: var(--neutral-100);
+      border: 2px solid var(--neutral-200);
+      border-radius: var(--radius-lg);
+      overflow: hidden;
+    }
+
+    .er-table-header {
+      background: var(--navy-900);
+      color: white;
+      padding: .65rem 1rem;
+      font-size: .8125rem;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      gap: .4rem;
+    }
+
+    .er-pk { font-size: .6rem; background: var(--warning); color: white; padding: .1em .35em; border-radius: 3px; font-weight: 800; }
+    .er-fk { font-size: .6rem; background: var(--navy-500); color: white; padding: .1em .35em; border-radius: 3px; font-weight: 800; }
+
+    .er-field {
+      padding: .45rem 1rem;
+      font-size: .75rem;
+      font-family: 'SFMono-Regular', 'Consolas', monospace;
+      border-bottom: 1px solid var(--neutral-200);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: .5rem;
+      color: var(--neutral-700);
+    }
+
+    .er-field:last-child { border-bottom: none; }
+
+    .er-field-name { color: var(--navy-700); font-weight: 600; }
+    .er-field-type { color: var(--neutral-500); font-size: .6875rem; }
+
+    .er-connector {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0 .35rem;
+      padding-top: 2.5rem; /* align with middle of table */
+    }
+
+    .er-line {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: .2rem;
+    }
+
+    .er-line-h {
+      width: 32px;
+      height: 2px;
+      background: var(--navy-200);
+    }
+
+    .er-label {
+      font-size: .6rem;
+      font-weight: 700;
+      color: var(--navy-500);
+      white-space: nowrap;
+    }
+
+    /* ============================================================
+       FLOWCHART
+    ============================================================ */
+    .flow-container { margin-top: 1.5rem; }
+
+    .flow-title {
+      font-size: .75rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: .08em;
+      color: var(--neutral-500);
+      margin-bottom: .75rem;
+      display: flex;
+      align-items: center;
+      gap: .5rem;
+    }
+
+    .flow-title .flow-role-badge {
+      padding: .2rem .6rem;
+      border-radius: 100px;
+      font-size: .6875rem;
+      font-weight: 700;
+    }
+
+    .flow-title .facilitator-badge { background: var(--navy-900); color: white; }
+    .flow-title .deltager-badge { background: var(--red-100); color: var(--red-600); }
+
+    .flow-steps {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 0;
+    }
+
+    .flow-step {
+      display: flex;
+      align-items: center;
+      background: white;
+      border: 1.5px solid var(--neutral-200);
+      border-radius: var(--radius-md);
+      padding: .5rem .85rem;
+      font-size: .78125rem;
+      font-weight: 600;
+      color: var(--neutral-700);
+      white-space: nowrap;
+      position: relative;
+      transition: border-color .15s;
+    }
+
+    .flow-step.start { background: var(--navy-900); color: white; border-color: var(--navy-900); }
+    .flow-step.end { background: var(--neutral-900); color: white; border-color: var(--neutral-900); }
+    .flow-step.action { border-color: var(--red-600); color: var(--red-600); background: var(--red-100); }
+    .flow-step.wait { border-color: var(--navy-200); color: var(--navy-500); background: var(--navy-100); }
+    .flow-step.check { border-color: var(--warning); color: #7a4e00; background: #fff8e6; }
+
+    .flow-arrow {
+      width: 20px;
+      height: 2px;
+      background: var(--neutral-300);
+      position: relative;
+      flex-shrink: 0;
+    }
+
+    .flow-arrow::after {
+      content: '';
+      position: absolute;
+      right: 0;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 0; height: 0;
+      border-top: 4px solid transparent;
+      border-bottom: 4px solid transparent;
+      border-left: 6px solid var(--neutral-300);
+    }
+
+    .flow-break {
+      width: 100%;
+      height: .5rem;
+    }
+
+    /* ============================================================
+       COMPONENT TREE
+    ============================================================ */
+    .component-tree {
+      font-family: 'SFMono-Regular', 'Consolas', monospace;
+      font-size: .8125rem;
+      line-height: 1.8;
+      background: var(--neutral-100);
+      border: 1.5px solid var(--neutral-200);
+      border-radius: var(--radius-lg);
+      padding: 1.25rem 1.5rem;
+      margin-top: 1.25rem;
+      color: var(--neutral-700);
+    }
+
+    .tree-root { color: var(--navy-700); font-weight: 700; }
+    .tree-page { color: var(--navy-500); font-weight: 600; }
+    .tree-component { color: var(--neutral-700); }
+    .tree-leaf { color: var(--neutral-500); }
+    .tree-comment { color: var(--neutral-400); font-style: italic; }
+
+    /* ============================================================
+       REALTIME SECTION
+    ============================================================ */
+    .realtime-channels {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 1rem;
+      margin-top: 1.25rem;
+    }
+
+    .channel-card {
+      background: var(--neutral-100);
+      border: 1.5px solid var(--neutral-200);
+      border-radius: var(--radius-lg);
+      padding: 1rem;
+    }
+
+    .channel-card .channel-name {
+      font-family: 'SFMono-Regular', 'Consolas', monospace;
+      font-size: .75rem;
+      font-weight: 700;
+      color: var(--navy-700);
+      background: var(--navy-100);
+      border-radius: var(--radius-sm);
+      padding: .2em .5em;
+      display: inline-block;
+      margin-bottom: .5rem;
+    }
+
+    .channel-card .channel-desc { font-size: .78125rem; color: var(--neutral-600); line-height: 1.5; }
+    .channel-card .channel-events { margin-top: .5rem; display: flex; gap: .3rem; flex-wrap: wrap; }
+
+    .event-pill {
+      font-size: .625rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: .06em;
+      padding: .15rem .5rem;
+      border-radius: 100px;
+    }
+
+    .event-pill.insert { background: #e6faf0; color: #166534; }
+    .event-pill.update { background: #e8edfb; color: #1d4ed8; }
+
+    /* ============================================================
+       SECURITY GRID
+    ============================================================ */
+    .security-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 1rem;
+      margin-top: 1.25rem;
+    }
+
+    .security-card {
+      background: var(--neutral-100);
+      border: 1.5px solid var(--neutral-200);
+      border-radius: var(--radius-lg);
+      padding: 1.1rem 1.15rem;
+    }
+
+    .security-card .sec-icon { font-size: 1.5rem; margin-bottom: .35rem; display: block; }
+
+    .security-card h4 { font-size: .875rem; color: var(--navy-900); margin-bottom: .3rem; }
+
+    .security-card p { font-size: .78125rem; }
+
+    .security-card .sec-note {
+      font-size: .6875rem;
+      color: var(--neutral-500);
+      font-style: italic;
+      margin-top: .5rem;
+      padding-top: .5rem;
+      border-top: 1px solid var(--neutral-200);
+    }
+
+    /* ============================================================
+       PWA FEATURES
+    ============================================================ */
+    .pwa-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 1rem;
+      margin-top: 1.25rem;
+    }
+
+    .pwa-feature {
+      border: 1.5px solid var(--neutral-200);
+      border-radius: var(--radius-lg);
+      padding: 1.1rem 1.15rem;
+      background: var(--neutral-100);
+    }
+
+    .pwa-feature .pf-icon { font-size: 1.375rem; margin-bottom: .3rem; display: block; }
+    .pwa-feature h4 { color: var(--navy-900); font-size: .875rem; margin-bottom: .3rem; }
+    .pwa-feature p { font-size: .78125rem; }
+
+    /* ============================================================
+       CICD PIPELINE
+    ============================================================ */
+    .pipeline {
+      display: flex;
+      align-items: stretch;
+      gap: 0;
+      margin-top: 1.5rem;
+      border: 1.5px solid var(--neutral-200);
+      border-radius: var(--radius-xl);
+      overflow: hidden;
+    }
+
+    .pipeline-step {
+      flex: 1;
+      padding: 1.1rem .9rem;
+      text-align: center;
+      border-right: 1.5px solid var(--neutral-200);
+      position: relative;
+    }
+
+    .pipeline-step:last-child { border-right: none; }
+
+    .pipeline-step::after {
+      content: '→';
+      position: absolute;
+      right: -10px;
+      top: 50%;
+      transform: translateY(-50%);
+      font-size: .75rem;
+      font-weight: 700;
+      color: var(--neutral-400);
+      background: white;
+      z-index: 1;
+      padding: 0 2px;
+    }
+
+    .pipeline-step:last-child::after { display: none; }
+
+    .pipeline-step .ps-icon { font-size: 1.25rem; display: block; margin-bottom: .3rem; }
+    .pipeline-step .ps-name { font-size: .75rem; font-weight: 700; color: var(--navy-700); }
+    .pipeline-step .ps-cmd {
+      font-family: monospace;
+      font-size: .6875rem;
+      color: var(--neutral-500);
+      margin-top: .2rem;
+    }
+
+    .pipeline-step.success { background: #e6faf0; }
+    .pipeline-step.success .ps-name { color: var(--success); }
+
+    /* ============================================================
+       PROJECT STRUCTURE
+    ============================================================ */
+    .project-structure {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1.25rem;
+      margin-top: 1.25rem;
+    }
+
+    .struct-group h4 { color: var(--navy-700); font-size: .875rem; margin-bottom: .5rem; }
+
+    .struct-item {
+      display: flex;
+      align-items: baseline;
+      gap: .5rem;
+      font-size: .78125rem;
+      padding: .3rem 0;
+      border-bottom: 1px solid var(--neutral-100);
+    }
+
+    .struct-item:last-child { border-bottom: none; }
+
+    .struct-path {
+      font-family: 'SFMono-Regular', 'Consolas', monospace;
+      font-size: .6875rem;
+      color: var(--navy-500);
+      font-weight: 600;
+      white-space: nowrap;
+      min-width: 160px;
+    }
+
+    .struct-desc { color: var(--neutral-600); line-height: 1.4; }
+
+    /* ============================================================
+       CALLOUT / NOTE BOX
+    ============================================================ */
+    .callout {
+      border-radius: var(--radius-md);
+      padding: .85rem 1rem;
+      margin-top: 1.25rem;
+      font-size: .8125rem;
+      display: flex;
+      gap: .75rem;
+      align-items: flex-start;
+    }
+
+    .callout.info {
+      background: var(--navy-100);
+      border: 1.5px solid var(--navy-200);
+      color: var(--navy-700);
+    }
+
+    .callout.warn {
+      background: #fff8e6;
+      border: 1.5px solid #f0c060;
+      color: #7a4e00;
+    }
+
+    .callout.success {
+      background: #e6faf0;
+      border: 1.5px solid #a3d9bc;
+      color: #166534;
+    }
+
+    .callout-icon { font-size: 1rem; flex-shrink: 0; margin-top: .05rem; }
+    .callout p { font-size: .8125rem; color: inherit; margin: 0; }
+
+    /* ============================================================
+       FOOTER
+    ============================================================ */
+    .doc-footer {
+      text-align: center;
+      padding: 2rem 0 1rem;
+      font-size: .75rem;
+      color: var(--neutral-500);
+      border-top: 1px solid var(--neutral-200);
+      margin-top: 3rem;
+    }
+
+    /* ============================================================
+       PRINT / PDF
+    ============================================================ */
+    @media print {
+      @page {
+        size: A4;
+        margin: 18mm 16mm 16mm;
+      }
+
+      body { background: white; font-size: 11pt; }
+
+      .page-wrapper { max-width: 100%; padding: 0; }
+
+      .cover {
+        background: var(--navy-900) !important;
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+        border-radius: 0 0 12px 12px;
+        page-break-after: avoid;
+      }
+
+      .section {
+        page-break-inside: avoid;
+        box-shadow: none;
+        border: 1px solid var(--neutral-200);
+        margin-bottom: 1rem;
+      }
+
+      .realtime-channels { grid-template-columns: repeat(3, 1fr); }
+      .security-grid { grid-template-columns: repeat(2, 1fr); }
+      .pwa-grid { grid-template-columns: repeat(2, 1fr); }
+      .project-structure { grid-template-columns: 1fr 1fr; }
+
+      .arch-diagram { gap: 0; }
+
+      .pipeline { flex-direction: row; }
+
+      h2 { page-break-after: avoid; }
+
+      .callout { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+
+      .er-table-header {
+        background: var(--navy-900) !important;
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+      }
+
+      a { text-decoration: none; color: inherit; }
+    }
+
+    /* ============================================================
+       RESPONSIVE
+    ============================================================ */
+    @media (max-width: 720px) {
+      .arch-diagram { grid-template-columns: 1fr; gap: .75rem; }
+      .arch-arrow { display: none; }
+      .er-diagram { grid-template-columns: 1fr; }
+      .er-connector { display: none; }
+      .realtime-channels { grid-template-columns: 1fr; }
+      .security-grid { grid-template-columns: 1fr; }
+      .pwa-grid { grid-template-columns: 1fr; }
+      .project-structure { grid-template-columns: 1fr; }
+      .pipeline { flex-direction: column; border-radius: var(--radius-lg); }
+      .pipeline-step { border-right: none; border-bottom: 1.5px solid var(--neutral-200); }
+      .pipeline-step:last-child { border-bottom: none; }
+      .pipeline-step::after { display: none; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ============================================================
+       COVER
+  ============================================================ -->
+  <div class="cover">
+    <div class="page-wrapper">
+      <div class="cover-inner">
+        <span class="cover-eyebrow">📐 Arkitekturdokumentasjon · Juni 2026</span>
+        <h1>Estimat – Planning Poker</h1>
+        <p class="subtitle">
+          En Progressive Web App for sprint-estimering i Gjensidige. Fasilitator oppretter en sesjon og deler en 4-tegns kode – deltakerne stemmer anonymt på størrelse og forretningsverdi, og resultater avsløres i sanntid for hele teamet.
+        </p>
+        <div class="badge-row">
+          <span class="badge"><span class="badge-dot" style="background:#61DAFB"></span>React 19</span>
+          <span class="badge"><span class="badge-dot" style="background:#3178c6"></span>TypeScript 5.8</span>
+          <span class="badge"><span class="badge-dot" style="background:#646cff"></span>Vite 6</span>
+          <span class="badge"><span class="badge-dot" style="background:#38bdf8"></span>Tailwind CSS</span>
+          <span class="badge"><span class="badge-dot" style="background:#3ecf8e"></span>Supabase</span>
+          <span class="badge"><span class="badge-dot" style="background:white"></span>Vercel</span>
+          <span class="badge"><span class="badge-dot" style="background:#f6821f"></span>Cloudflare</span>
+          <span class="badge"><span class="badge-dot" style="background:#C8002D"></span>PWA</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="page-wrapper">
+
+    <!-- ============================================================
+         § 2 – SYSTEMARKITEKTUR
+    ============================================================ -->
+    <div class="section">
+      <div class="section-label"><span class="label-num">2</span> Systemarkitektur</div>
+      <h2>Overordnet arkitektur</h2>
+      <p>Appen er en klientside SPA som kommuniserer direkte med Supabase for data og sanntid. Vercel håndterer hosting og eksponerer én serverless funksjon for bot-beskyttelse. All realtime-flyt går via Supabase Postgres Changes over WebSocket tilbake til nettleseren.</p>
+
+      <div class="arch-diagram">
+        <!-- Klient -->
+        <div class="arch-node primary">
+          <span class="node-icon">🌐</span>
+          <span class="node-title">Nettleser / PWA</span>
+          <span class="node-sub">React SPA</span>
+          <span class="node-sub" style="margin-top:.2rem; font-size:.6rem; opacity:.5">Service Worker · Wake Lock</span>
+        </div>
+
+        <!-- Arrow klient → Vercel -->
+        <div class="arch-arrow">
+          <div class="arrow-line"><div class="a-line"></div><div class="a-head"></div></div>
+          <div class="arrow-label">HTTPS</div>
+          <div class="arrow-line"><div class="a-head-back"></div><div class="a-line" style="background:var(--navy-200)"></div></div>
+          <div class="arrow-label" style="color:var(--navy-500)">Respons</div>
+        </div>
+
+        <!-- Vercel -->
+        <div class="arch-node">
+          <span class="node-icon">▲</span>
+          <span class="node-title" style="color:var(--navy-900)">Vercel</span>
+          <span class="node-sub">Hosting · CDN</span>
+          <span class="node-sub" style="font-size:.6rem; margin-top:.2rem">Serverless: /api/verify-turnstile</span>
+        </div>
+
+        <!-- Arrow Vercel → Supabase -->
+        <div class="arch-arrow">
+          <div class="arrow-line"><div class="a-line"></div><div class="a-head"></div></div>
+          <div class="arrow-label">REST + WS</div>
+          <div class="arrow-line"><div class="a-head-back"></div><div class="realtime-line"></div></div>
+          <div class="arrow-label" style="color:var(--navy-500)">Realtime ←</div>
+        </div>
+
+        <!-- Supabase -->
+        <div class="arch-node accent">
+          <span class="node-icon">🗄️</span>
+          <span class="node-title">Supabase</span>
+          <span class="node-sub">Postgres · Realtime</span>
+          <span class="node-sub" style="font-size:.6rem; margin-top:.2rem">RLS · Auth API · Storage</span>
+        </div>
+      </div>
+
+      <!-- Turnstile flow -->
+      <p style="font-size:.75rem; font-weight:700; text-transform:uppercase; letter-spacing:.08em; color:var(--neutral-500); margin-top:1.5rem; margin-bottom:.5rem;">Bot-beskyttelse (Cloudflare Turnstile)</p>
+      <div class="turnstile-flow">
+        <div class="tf-node browser">🌐 Nettleser<br><span style="font-size:.625rem; color:var(--neutral-400)">Mottar token</span></div>
+        <div class="tf-arrow">→ POST token →</div>
+        <div class="tf-node vercel">▲ Vercel Serverless<br><span style="font-size:.625rem">/api/verify-turnstile</span></div>
+        <div class="tf-arrow">→ server-side →</div>
+        <div class="tf-node cf">☁️ Cloudflare<br><span style="font-size:.625rem">challenges.cloudflare.com</span></div>
+        <div class="tf-arrow">← success/fail ←</div>
+        <div class="tf-node vercel">▲ Svar til klient<br><span style="font-size:.625rem">200 / 403 / 429</span></div>
+      </div>
+
+      <!-- PWA band -->
+      <div class="pwa-band">
+        <span class="pwa-icon">📱</span>
+        <div>
+          <strong>PWA / Service Worker (Workbox)</strong>
+          <span style="display:block">Alle statiske assets pre-cachet · JS-chunks NetworkFirst (1 dag) · Offline fallback til index.html · autoUpdate med skipWaiting + clientsClaim</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============================================================
+         § 3 – TEKNOLOGIVALG
+    ============================================================ -->
+    <div class="section">
+      <div class="section-label"><span class="label-num">3</span> Teknologivalg</div>
+      <h2>Teknologistack og begrunnelser</h2>
+
+      <table class="tech-table">
+        <thead>
+          <tr>
+            <th>Teknologi</th>
+            <th>Rolle</th>
+            <th>Begrunnelse</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>
+              <span class="tech-tag vite">⚡ Vite 6</span><br>
+              <span class="tech-tag react" style="margin-top:.3rem">⚛ React 19</span>
+            </td>
+            <td style="color:var(--neutral-700)">Frontend-rammeverk og byggverktøy</td>
+            <td>Vite gir lynrask HMR og optimal produksjonsbuild med tree-shaking. React 19 med concurrent features. Lazy loading per rute gir rask TTI.</td>
+          </tr>
+          <tr>
+            <td><span class="tech-tag ts">📘 TypeScript 5.8</span></td>
+            <td style="color:var(--neutral-700)">Typesikkerhet</td>
+            <td>Statisk typesjekk fanger feil tidlig. DB-typer generert fra Supabase-skjema gir ende-til-ende typesikkerhet. Strikt modus uten <code>any</code>.</td>
+          </tr>
+          <tr>
+            <td><span class="tech-tag tailwind">🎨 Tailwind CSS 3</span></td>
+            <td style="color:var(--neutral-700)">Styling</td>
+            <td>Utility-first med Gjensidige Builders-design-tokens som CSS custom properties. Ingen runtime CSS-in-JS overhead. PurgeCSS i produksjonsbuild.</td>
+          </tr>
+          <tr>
+            <td><span class="tech-tag supabase">🟢 Supabase</span></td>
+            <td style="color:var(--neutral-700)">Database, Realtime, API</td>
+            <td>Postgres med Realtime via WebSocket (Postgres Changes). RLS for tilgangskontroll på databasenivå. Ingen egendriftet backend nødvendig. Gratis tier dekker MVP-volum.</td>
+          </tr>
+          <tr>
+            <td><span class="tech-tag vercel">▲ Vercel</span></td>
+            <td style="color:var(--neutral-700)">Hosting + Serverless</td>
+            <td>Zero-config deploy fra GitHub. Edge-CDN globalt. Serverless functions for API-ruter (Turnstile-validering) uten å driftsette en full server.</td>
+          </tr>
+          <tr>
+            <td><span class="tech-tag cf">☁️ Cloudflare Turnstile</span></td>
+            <td style="color:var(--neutral-700)">Bot-beskyttelse</td>
+            <td>Brukervenlig CAPTCHA-alternativ uten privacy-problemer. Server-side verifisering via Vercel serverless (secret key aldri eksponert til nettleser). Rate limiting (10 req/min/IP) som ekstra lag.</td>
+          </tr>
+          <tr>
+            <td><span class="tech-tag pwa">📱 vite-plugin-pwa</span></td>
+            <td style="color:var(--neutral-700)">PWA / Offline</td>
+            <td>Workbox-basert Service Worker med autoUpdate. Installerbar som native app på mobil. Screen Wake Lock hindrer skjerm fra å slukke under avstemning. Chunk-feil etter deploy håndteres med automatisk reload.</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- ============================================================
+         § 4 – DATAMODELL
+    ============================================================ -->
+    <div class="section">
+      <div class="section-label"><span class="label-num">4</span> Datamodell</div>
+      <h2>Databaseskjema – ER-diagram</h2>
+      <p>Tre tabeller i Postgres. Alle har RLS aktivert. Relasjoner med <code>ON DELETE CASCADE</code> sikrer at underliggende data slettes med sesjonen.</p>
+
+      <div class="er-diagram">
+        <!-- sessions -->
+        <div class="er-table">
+          <div class="er-table-header">🎯 sessions</div>
+          <div class="er-field"><span class="er-field-name">id</span> <span class="er-pk">PK</span><span class="er-field-type">uuid</span></div>
+          <div class="er-field"><span class="er-field-name">status</span><span class="er-field-type">text · active|completed</span></div>
+          <div class="er-field"><span class="er-field-name">join_code</span><span class="er-field-type">text · UNIQUE</span></div>
+          <div class="er-field"><span class="er-field-name">current_round</span><span class="er-field-type">integer</span></div>
+          <div class="er-field"><span class="er-field-name">started</span><span class="er-field-type">boolean</span></div>
+          <div class="er-field"><span class="er-field-name">votes_revealed</span><span class="er-field-type">boolean</span></div>
+          <div class="er-field"><span class="er-field-name">consensus_streak</span><span class="er-field-type">integer</span></div>
+          <div class="er-field"><span class="er-field-name">created_at</span><span class="er-field-type">timestamptz</span></div>
+        </div>
+
+        <!-- Connector sessions → participants -->
+        <div class="er-connector">
+          <div class="er-line">
+            <div class="er-label">1</div>
+            <div class="er-line-h"></div>
+            <div class="er-label">∞</div>
+          </div>
+        </div>
+
+        <!-- participants -->
+        <div class="er-table">
+          <div class="er-table-header">👤 participants</div>
+          <div class="er-field"><span class="er-field-name">id</span> <span class="er-pk">PK</span><span class="er-field-type">uuid</span></div>
+          <div class="er-field"><span class="er-field-name">session_id</span> <span class="er-fk">FK</span><span class="er-field-type">uuid → sessions</span></div>
+          <div class="er-field"><span class="er-field-name">name</span><span class="er-field-type">text</span></div>
+          <div class="er-field"><span class="er-field-name">role</span><span class="er-field-type">text · facilitator|participant</span></div>
+          <div class="er-field"><span class="er-field-name">joined_at</span><span class="er-field-type">timestamptz</span></div>
+        </div>
+
+        <!-- Connector participants → votes -->
+        <div class="er-connector">
+          <div class="er-line">
+            <div class="er-label">1</div>
+            <div class="er-line-h"></div>
+            <div class="er-label">∞</div>
+          </div>
+        </div>
+
+        <!-- votes -->
+        <div class="er-table">
+          <div class="er-table-header">🗳️ votes</div>
+          <div class="er-field"><span class="er-field-name">id</span> <span class="er-pk">PK</span><span class="er-field-type">uuid</span></div>
+          <div class="er-field"><span class="er-field-name">session_id</span> <span class="er-fk">FK</span><span class="er-field-type">uuid → sessions</span></div>
+          <div class="er-field"><span class="er-field-name">participant_id</span> <span class="er-fk">FK</span><span class="er-field-type">uuid → participants</span></div>
+          <div class="er-field"><span class="er-field-name">round</span><span class="er-field-type">integer</span></div>
+          <div class="er-field"><span class="er-field-name">size</span><span class="er-field-type">text · xs|s|m|l|xl</span></div>
+          <div class="er-field"><span class="er-field-name">value</span><span class="er-field-type">text · gold|silver|bronze</span></div>
+          <div class="er-field"><span class="er-field-name">created_at</span><span class="er-field-type">timestamptz</span></div>
+          <div class="er-field" style="background:#fff8e6; color:#7a4e00; font-size:.65rem; padding:.3rem 1rem; font-style:italic;">UNIQUE(participant_id, round)</div>
+        </div>
+      </div>
+
+      <div class="callout info" style="margin-top:1.25rem">
+        <span class="callout-icon">ℹ️</span>
+        <p><strong>REPLICA IDENTITY FULL</strong> er satt på alle tre tabeller (migrasjon 004). Dette sikrer at Supabase Realtime sender alle feltverdier i UPDATE-payloaden – ikke bare primærnøkkelen. Uten dette mangler feltene i realtime-hendelsene.</p>
+      </div>
+
+      <div class="callout info" style="margin-top:.75rem; background:#fff8e6; border-color:#f0c060; color:#7a4e00">
+        <span class="callout-icon">🔄</span>
+        <p><strong>Migrasjonsspor:</strong> 001 initial schema → 002 join_code + votes_revealed → 003 started → 004 REPLICA IDENTITY FULL → 005 tighten RLS → 006 consensus_streak → 007 pg_cron cleanup</p>
+      </div>
+    </div>
+
+    <!-- ============================================================
+         § 5 – BRUKERFLYTER
+    ============================================================ -->
+    <div class="section">
+      <div class="section-label"><span class="label-num">5</span> Brukerflyter</div>
+      <h2>Brukerflyt – fasilitator og deltaker</h2>
+
+      <!-- Fasilitator -->
+      <div class="flow-container">
+        <div class="flow-title">
+          <span class="flow-role-badge facilitator-badge">Fasilitator</span>
+          Oppretter og styrer sesjonen
+        </div>
+        <div class="flow-steps">
+          <div class="flow-step start">🏠 Landing</div>
+          <div class="flow-arrow"></div>
+          <div class="flow-step check">🤖 Turnstile</div>
+          <div class="flow-arrow"></div>
+          <div class="flow-step">✍️ Navn + rolle</div>
+          <div class="flow-arrow"></div>
+          <div class="flow-step action">➕ Opprett sesjon</div>
+          <div class="flow-arrow"></div>
+          <div class="flow-step wait">📋 Dashboard<br><span style="font-size:.6875rem; font-weight:400">Del 4-tegns kode</span></div>
+          <div class="flow-break"></div>
+          <div class="flow-step wait">⏳ Venter på deltakere</div>
+          <div class="flow-arrow"></div>
+          <div class="flow-step action">▶️ Start sesjon</div>
+          <div class="flow-arrow"></div>
+          <div class="flow-step wait">🗳️ Ser stemmer<br><span style="font-size:.6875rem; font-weight:400">Anonym teller</span></div>
+          <div class="flow-arrow"></div>
+          <div class="flow-step action">👁️ Vis resultater</div>
+          <div class="flow-arrow"></div>
+          <div class="flow-step check">🔁 Ny runde?</div>
+          <div class="flow-arrow"></div>
+          <div class="flow-step end">🏁 Avslutt</div>
+        </div>
+      </div>
+
+      <!-- Deltaker -->
+      <div class="flow-container" style="margin-top:1.5rem">
+        <div class="flow-title">
+          <span class="flow-role-badge deltager-badge">Deltaker</span>
+          Stemmer på oppgaver
+        </div>
+        <div class="flow-steps">
+          <div class="flow-step start">🏠 Landing</div>
+          <div class="flow-arrow"></div>
+          <div class="flow-step check">🤖 Turnstile</div>
+          <div class="flow-arrow"></div>
+          <div class="flow-step">✍️ Navn + rolle</div>
+          <div class="flow-arrow"></div>
+          <div class="flow-step action">🔑 Skriv inn kode</div>
+          <div class="flow-arrow"></div>
+          <div class="flow-step wait">⏳ Venter på<br><span style="font-size:.6875rem; font-weight:400">fasilitator</span></div>
+          <div class="flow-break"></div>
+          <div class="flow-step action">🗳️ Velg størrelse<br><span style="font-size:.6875rem; font-weight:400">+ verdi</span></div>
+          <div class="flow-arrow"></div>
+          <div class="flow-step">✅ Stem avgitt</div>
+          <div class="flow-arrow"></div>
+          <div class="flow-step wait">⏳ Venter på reveal</div>
+          <div class="flow-arrow"></div>
+          <div class="flow-step action">🎊 Se resultater</div>
+          <div class="flow-arrow"></div>
+          <div class="flow-step check">🔁 Ny runde?</div>
+        </div>
+      </div>
+
+      <div class="callout info" style="margin-top:1.25rem">
+        <span class="callout-icon">💡</span>
+        <p>Sesjonstilstand (<code>started</code>, <code>votes_revealed</code>, <code>current_round</code>) propageres via Supabase Realtime til alle tilkoblede klienter – ingen polling, ingen manuell refresh nødvendig.</p>
+      </div>
+    </div>
+
+    <!-- ============================================================
+         § 6 – KOMPONENTARKITEKTUR
+    ============================================================ -->
+    <div class="section">
+      <div class="section-label"><span class="label-num">6</span> Komponentarkitektur</div>
+      <h2>Komponenttre</h2>
+      <p>Landing lastes eager for rask TTI. De tre andre sidene er lazy-importert med <code>React.lazy()</code> og wrappet i <code>lazyWithRetry</code> for chunk-feil-håndtering etter deploy.</p>
+
+      <div class="component-tree">
+<span class="tree-root">App.tsx</span>  <span class="tree-comment">// BrowserRouter + ChunkErrorBoundary + Suspense</span>
+├── <span class="tree-page">Landing.tsx</span>  <span class="tree-comment">// Eager – captcha + rollevalg</span>
+│   └── <span class="tree-component">TurnstileGate</span>  <span class="tree-comment">// @marsidev/react-turnstile</span>
+│
+├── <span class="tree-page">DeltagerJoin.tsx</span>  <span class="tree-comment">// Lazy – 4-tegns kode-input</span>
+│   └── <span class="tree-component">NavyPageLayout</span>  <span class="tree-comment">// Navy-topp + varm-grå bunn</span>
+│
+├── <span class="tree-page">Vote.tsx</span>  <span class="tree-comment">// Lazy – state-maskin for deltakere</span>
+│   ├── <span class="tree-component">VoteWaiting</span>  <span class="tree-comment">// Venter på at fasilitator starter</span>
+│   ├── <span class="tree-component">VoteForm</span>  <span class="tree-comment">// Stemmeformular (størrelse + verdi)</span>
+│   ├── <span class="tree-component">VoteAwaitReveal</span>  <span class="tree-comment">// Stem avgitt – venter på reveal</span>
+│   └── <span class="tree-component">VoteResults</span>  <span class="tree-comment">// Resultater + konfetti</span>
+│       ├── <span class="tree-leaf">PriorityMatrix</span>  <span class="tree-comment">// Innsats/verdi-kvadrant</span>
+│       └── <span class="tree-leaf">SpreadOMeter</span>  <span class="tree-comment">// Havbølge-visualisering av spredning</span>
+│
+└── <span class="tree-page">Dashboard.tsx</span>  <span class="tree-comment">// Lazy – fasilitatorkontrollpanel</span>
+    ├── <span class="tree-component">PreStartPanel</span>  <span class="tree-comment">// Deltakerliste + Start-knapp</span>
+    └── <span class="tree-component">VotesPanel</span>  <span class="tree-comment">// Stemmestatus + reveal/neste runde</span>
+        ├── <span class="tree-leaf">PriorityMatrix</span>
+        └── <span class="tree-leaf">SpreadOMeter</span>
+
+<span class="tree-comment">// Delte komponenter (brukt på tvers av sider):</span>
+<span class="tree-leaf">NavyPageLayout</span>  <span class="tree-comment">// Navy-topp (24px avrunding) + varm-grå innhold</span>
+<span class="tree-leaf">AppLogo</span>  <span class="tree-comment">// SVG-logo, size-prop</span>
+<span class="tree-leaf">ChunkErrorBoundary</span>  <span class="tree-comment">// Class component, fanger chunk-lastfeil</span>
+      </div>
+
+      <div class="callout info" style="margin-top:1.25rem">
+        <span class="callout-icon">🏗️</span>
+        <p><strong>NavyPageLayout:</strong> Felles layout-komponent for alle deltaker-sider. Props: <code>roleLabel</code>, <code>onBack?</code>, <code>headerRight?</code> (runde-badge), <code>navyContent</code> (innhold i navy-seksjonen), <code>children</code> (varm-grå bunn). Eliminerer gjentagelse av navy-topp-mønsteret på tvers av fem sider.</p>
+      </div>
+    </div>
+
+    <!-- ============================================================
+         § 7 – REALTIME-ARKITEKTUR
+    ============================================================ -->
+    <div class="section">
+      <div class="section-label"><span class="label-num">7</span> Realtime</div>
+      <h2>Supabase Realtime-arkitektur</h2>
+      <p>Appen bruker tre uavhengige Supabase Realtime-kanaler basert på Postgres Changes. Alle klienter abonnerer, og sesjonstilstand propageres øyeblikkelig uten polling.</p>
+
+      <div class="realtime-channels">
+        <div class="channel-card">
+          <div class="channel-name">session-watch:{id}</div>
+          <div class="channel-desc">Lytter på oppdateringer til sesjonen: <code>started</code>, <code>votes_revealed</code>, <code>current_round</code>, <code>status</code>, <code>consensus_streak</code>. Brukt av <code>useSession</code>.</div>
+          <div class="channel-events">
+            <span class="event-pill update">UPDATE</span>
+          </div>
+        </div>
+        <div class="channel-card">
+          <div class="channel-name">participants:{id}</div>
+          <div class="channel-desc">Lytter på nye deltakere og navneendringer. Brukt av <code>useRealtimeParticipants</code>. Vises i fasilitatorens Dashboard.</div>
+          <div class="channel-events">
+            <span class="event-pill insert">INSERT</span>
+            <span class="event-pill update">UPDATE</span>
+          </div>
+        </div>
+        <div class="channel-card">
+          <div class="channel-name">votes:{id}:{round}</div>
+          <div class="channel-desc">Lytter på nye stemmer for aktuell runde. Tilkoblet per sesjon+runde, resettes ved ny runde. Brukt av <code>useRealtimeVotes</code>.</div>
+          <div class="channel-events">
+            <span class="event-pill insert">INSERT</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="callout success" style="margin-top:1.25rem">
+        <span class="callout-icon">✅</span>
+        <p><strong>Subscribe-then-fetch-mønster:</strong> Alle realtime-hooks abonnerer <em>først</em> og henter initial data <em>etter</em> at subscription er bekreftet (<code>status === 'SUBSCRIBED'</code>). Dette eliminerer race conditions der hendelser kan gå tapt mellom fetch og subscription-oppstart.</p>
+      </div>
+
+      <div class="callout info" style="margin-top:.75rem">
+        <span class="callout-icon">ℹ️</span>
+        <p><strong>Ingen fallback-polling.</strong> Med <code>REPLICA IDENTITY FULL</code> på plass er polling fjernet – det sparte batteri og nettverkstrafikk unødvendig. Duplikat-guard i INSERT-handlers (<code>id</code>-sjekk) håndterer sjeldne race conditions ved re-subscribe.</p>
+      </div>
+    </div>
+
+    <!-- ============================================================
+         § 8 – SIKKERHET
+    ============================================================ -->
+    <div class="section">
+      <div class="section-label"><span class="label-num">8</span> Sikkerhet</div>
+      <h2>Sikkerhetsarkitektur</h2>
+
+      <div class="security-grid">
+        <div class="security-card">
+          <span class="sec-icon">🤖</span>
+          <h4>Cloudflare Turnstile</h4>
+          <p>Alle brukere må bestå Turnstile-sjekk ved landing. Token verifiseres server-side via Vercel serverless function – secret key er aldri eksponert til nettleseren (ingen <code>VITE_</code>-prefix).</p>
+          <p class="sec-note">Rate limiting: maks 10 forsøk/minutt per IP (in-memory per function instance). Graceful degradation er fjernet bevisst – nettverksfeil mot Cloudflare blokkerer videre tilgang.</p>
+        </div>
+        <div class="security-card">
+          <span class="sec-icon">🔒</span>
+          <h4>Supabase RLS – operasjonsspesifikke policyer</h4>
+          <p>Migrasjon 005 erstattet åpne <code>ALL</code>-policyer med operasjonsbegrensede regler: ingen kan DELETE sesjoner/deltakere, og stemmer er INSERT-only (kan ikke endres etter avgivelse).</p>
+          <p class="sec-note">Uten auth kan ikke RLS knyttes til individuelle brukere – person-spesifikk kontroll håndteres av app-logikk via participant-ID lagret i sessionStorage.</p>
+        </div>
+        <div class="security-card">
+          <span class="sec-icon">🆔</span>
+          <h4>SessionStorage-identitet</h4>
+          <p>Deltaker-ID og sesjon-ID lagres i <code>sessionStorage</code> (ikke localStorage). Data lever kun i fanen – ingen persistens mellom nettleserøkter. Gjenoppretting ved refresh skjer via DB-oppslag.</p>
+          <p class="sec-note">Bevisst valg for intern MVP: ingen auth/login reduserer friksjon betraktelig for korte planleggingsseanser.</p>
+        </div>
+        <div class="security-card">
+          <span class="sec-icon">⚠️</span>
+          <h4>Ingen autentisering – bevisst valg</h4>
+          <p>Appen er designet for internt bruk i Gjensidige uten inlogging. Enkelheten prioriteres over streng tilgangskontroll – en deltaker med riktig join_code kan delta.</p>
+          <p class="sec-note">join_code er 4 tegn fra 30 mulige tegn → 810.000 kombinasjoner. Ikke kryptografisk sterk, men tilstrekkelig for kortlevde interne sesjoner.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============================================================
+         § 9 – PWA-FUNKSJONALITET
+    ============================================================ -->
+    <div class="section">
+      <div class="section-label"><span class="label-num">9</span> PWA</div>
+      <h2>Progressive Web App-funksjonalitet</h2>
+      <p>Appen er en fullverdig PWA – installerbar på mobil, fungerer offline for cachet innhold, og holder skjermen aktiv under avstemning.</p>
+
+      <div class="pwa-grid">
+        <div class="pwa-feature">
+          <span class="pf-icon">⚙️</span>
+          <h4>Service Worker (Workbox)</h4>
+          <p><code>registerType: 'autoUpdate'</code> med <code>skipWaiting + clientsClaim</code>. Ny Service Worker aktiveres umiddelbart etter deploy. Alle statiske assets pre-cachet; JS-chunks håndteres med NetworkFirst (1 dag TTL) for å alltid laste ferskeste kode.</p>
+        </div>
+        <div class="pwa-feature">
+          <span class="pf-icon">📋</span>
+          <h4>App Manifest</h4>
+          <p>Navn: <em>Estimat – Planning Poker</em>. Display: <code>standalone</code>. Orientering: portrait. Theme color: <code>#0B1D3A</code> (navy). Ikoner: 192×192, 512×512 og maskable 512×512. Generert med <code>sharp</code> fra SVG-kilde.</p>
+        </div>
+        <div class="pwa-feature">
+          <span class="pf-icon">💡</span>
+          <h4>Screen Wake Lock</h4>
+          <p>Aktivert på Vote-siden (alltid) og Dashboard-siden (kun aktivt sesjon-view). Re-acquirer automatisk ved tab-bytte via <code>visibilitychange</code>. Feiler stille – ingen krasj ved manglende API-støtte.</p>
+        </div>
+        <div class="pwa-feature">
+          <span class="pf-icon">🔄</span>
+          <h4>Chunk-feil-håndtering</h4>
+          <p><code>lazyWithRetry</code>: ved chunk-lastfeil → sjekker sessionStorage, reloader én gang, og kaster videre ved gjentatte feil. <code>ChunkErrorBoundary</code> (class component) fanger feil som slipper gjennom og tvinger reload. Forhindrer hvit skjerm etter deploy.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============================================================
+         § 10 – CI/CD
+    ============================================================ -->
+    <div class="section">
+      <div class="section-label"><span class="label-num">10</span> CI/CD</div>
+      <h2>Pipeline – GitHub Actions + Vercel</h2>
+      <p>Alle push og pull requests til <code>main</code> kjører quality-jobben. Vercel deployments trigges automatisk ved merge til main.</p>
+
+      <div class="pipeline">
+        <div class="pipeline-step">
+          <span class="ps-icon">📦</span>
+          <div class="ps-name">Install</div>
+          <div class="ps-cmd">npm ci</div>
+        </div>
+        <div class="pipeline-step">
+          <span class="ps-icon">🔍</span>
+          <div class="ps-name">Lint</div>
+          <div class="ps-cmd">eslint src/</div>
+        </div>
+        <div class="pipeline-step">
+          <span class="ps-icon">📘</span>
+          <div class="ps-name">Typecheck</div>
+          <div class="ps-cmd">tsc --noEmit</div>
+        </div>
+        <div class="pipeline-step">
+          <span class="ps-icon">🧪</span>
+          <div class="ps-name">Test</div>
+          <div class="ps-cmd">vitest --run</div>
+        </div>
+        <div class="pipeline-step success">
+          <span class="ps-icon">🏗️</span>
+          <div class="ps-name">Build</div>
+          <div class="ps-cmd">tsc -b &amp;&amp; vite build</div>
+        </div>
+        <div class="pipeline-step success">
+          <span class="ps-icon">🚀</span>
+          <div class="ps-name">Deploy</div>
+          <div class="ps-cmd">Vercel auto</div>
+        </div>
+      </div>
+
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:1rem; margin-top:1.25rem;">
+        <div class="callout info" style="margin-top:0">
+          <span class="callout-icon">🔧</span>
+          <p><strong>GitHub Actions:</strong> <code>ubuntu-latest</code>, Node.js 20, npm cache. Sekvensielle steg – lint og typecheck stopper pipeline tidlig ved feil.</p>
+        </div>
+        <div class="callout success" style="margin-top:0">
+          <span class="callout-icon">▲</span>
+          <p><strong>Vercel:</strong> Zero-config deploy. Serverless function <code>api/verify-turnstile.ts</code> bygges separat med <code>tsconfig.api.json</code> (CommonJS, Node-modul-resolusjon).</p>
+        </div>
+      </div>
+
+      <div class="callout info" style="margin-top:.75rem">
+        <span class="callout-icon">🧪</span>
+        <p><strong>Testsuite:</strong> 189 tester fordelt på 15 testfiler. Vitest med jsdom-miljø. Dekker: alle hooks (<code>useSession</code>, <code>useRealtimeVotes</code>, <code>useRealtimeParticipants</code>, <code>useWakeLock</code>, <code>useConfetti</code>), alle sider og komponenter, hjelpefunksjoner (<code>calculateMatrix</code>, <code>calculateRange</code>, <code>generateJoinCode</code>).</p>
+      </div>
+    </div>
+
+    <!-- ============================================================
+         § 11 – PROSJEKTSTRUKTUR
+    ============================================================ -->
+    <div class="section">
+      <div class="section-label"><span class="label-num">11</span> Prosjektstruktur</div>
+      <h2>Mappestruktur</h2>
+
+      <div class="project-structure">
+        <div class="struct-group">
+          <h4>📁 src/pages/</h4>
+          <div class="struct-item">
+            <span class="struct-path">Landing.tsx</span>
+            <span class="struct-desc">Landingsside med Turnstile og rollevalg</span>
+          </div>
+          <div class="struct-item">
+            <span class="struct-path">DeltagerJoin.tsx</span>
+            <span class="struct-desc">Deltaker-innmelding med kode-input</span>
+          </div>
+          <div class="struct-item">
+            <span class="struct-path">Vote.tsx</span>
+            <span class="struct-desc">State-maskin for deltaker-stemmeflyt</span>
+          </div>
+          <div class="struct-item">
+            <span class="struct-path">Dashboard.tsx</span>
+            <span class="struct-desc">Fasilitatorkontrollpanel</span>
+          </div>
+
+          <h4 style="margin-top:1rem">📁 src/components/vote/</h4>
+          <div class="struct-item">
+            <span class="struct-path">VoteWaiting.tsx</span>
+            <span class="struct-desc">Ventevisning (fasilitator ikke startet)</span>
+          </div>
+          <div class="struct-item">
+            <span class="struct-path">VoteForm.tsx</span>
+            <span class="struct-desc">Stemmeformular</span>
+          </div>
+          <div class="struct-item">
+            <span class="struct-path">VoteAwaitReveal.tsx</span>
+            <span class="struct-desc">Venter på at fasilitator avslører</span>
+          </div>
+          <div class="struct-item">
+            <span class="struct-path">VoteResults.tsx</span>
+            <span class="struct-desc">Resultatvisning med konfetti</span>
+          </div>
+
+          <h4 style="margin-top:1rem">📁 src/components/dashboard/</h4>
+          <div class="struct-item">
+            <span class="struct-path">PreStartPanel.tsx</span>
+            <span class="struct-desc">Deltakerliste og Start-knapp</span>
+          </div>
+          <div class="struct-item">
+            <span class="struct-path">VotesPanel.tsx</span>
+            <span class="struct-desc">Stemme-status og reveal/neste runde</span>
+          </div>
+        </div>
+
+        <div class="struct-group">
+          <h4>📁 src/lib/</h4>
+          <div class="struct-item">
+            <span class="struct-path">types.ts</span>
+            <span class="struct-desc">App-typer og re-eksport av DB-typer</span>
+          </div>
+          <div class="struct-item">
+            <span class="struct-path">database.types.ts</span>
+            <span class="struct-desc">Genererte Supabase-typer</span>
+          </div>
+          <div class="struct-item">
+            <span class="struct-path">supabase.ts</span>
+            <span class="struct-desc">Supabase-klientinstans</span>
+          </div>
+          <div class="struct-item">
+            <span class="struct-path">constants.ts</span>
+            <span class="struct-desc">SIZES, VALUES, JOIN_CODE_CHARS</span>
+          </div>
+          <div class="struct-item">
+            <span class="struct-path">joinCode.ts</span>
+            <span class="struct-desc">generateJoinCode() – 4 tegn, A-Z/2-9</span>
+          </div>
+          <div class="struct-item">
+            <span class="struct-path">utils.ts</span>
+            <span class="struct-desc">avatarColor(), initials()</span>
+          </div>
+          <div class="struct-item">
+            <span class="struct-path">priorityMatrix.ts</span>
+            <span class="struct-desc">calculateMatrix() – innsats/verdi-scoring</span>
+          </div>
+          <div class="struct-item">
+            <span class="struct-path">spreadOMeter.ts</span>
+            <span class="struct-desc">calculateRange(), rangeToSeaState()</span>
+          </div>
+
+          <h4 style="margin-top:1rem">📁 src/hooks/</h4>
+          <div class="struct-item">
+            <span class="struct-path">useSession.ts</span>
+            <span class="struct-desc">Sesjonshåndtering, realtime, sessionStorage</span>
+          </div>
+          <div class="struct-item">
+            <span class="struct-path">useRealtimeVotes.ts</span>
+            <span class="struct-desc">Sanntid-stemmer for aktuell runde</span>
+          </div>
+          <div class="struct-item">
+            <span class="struct-path">useRealtimeParticipants.ts</span>
+            <span class="struct-desc">Sanntid-deltakerliste</span>
+          </div>
+          <div class="struct-item">
+            <span class="struct-path">useWakeLock.ts</span>
+            <span class="struct-desc">Screen Wake Lock API</span>
+          </div>
+          <div class="struct-item">
+            <span class="struct-path">useConfetti.ts</span>
+            <span class="struct-desc">Canvas-konfetti ved konsensus</span>
+          </div>
+
+          <h4 style="margin-top:1rem">📁 api/ / supabase/ / .github/</h4>
+          <div class="struct-item">
+            <span class="struct-path">api/verify-turnstile.ts</span>
+            <span class="struct-desc">Vercel serverless – Turnstile-verifisering</span>
+          </div>
+          <div class="struct-item">
+            <span class="struct-path">supabase/migrations/</span>
+            <span class="struct-desc">7 SQL-migrasjoner (001–007)</span>
+          </div>
+          <div class="struct-item">
+            <span class="struct-path">.github/workflows/ci.yml</span>
+            <span class="struct-desc">GitHub Actions CI-pipeline</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============================================================
+         FOOTER
+    ============================================================ -->
+    <div class="doc-footer">
+      <p>Estimat – Planning Poker · Gjensidige Builders · Juni 2026</p>
+      <p style="margin-top:.25rem">Arkitekturdokumentasjon generert av Jobs (AI Assistant) · Kodebase: <code>github.com/Slopsbox/estimator</code></p>
+    </div>
+
+  </div><!-- /page-wrapper -->
+</body>
+</html>
