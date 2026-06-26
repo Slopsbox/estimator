@@ -16,13 +16,6 @@ export function LandingPage() {
 
   const handleVerified = async (token: string) => {
     setVerifyError(false);
-
-    // Bypass-token fra TurnstileGate ved nettverksfeil (QUIC-problemer e.l.)
-    if (token === 'bypass-network-error') {
-      setVerified(true);
-      return;
-    }
-
     try {
       const res = await fetch('/api/verify-turnstile', {
         method: 'POST',
