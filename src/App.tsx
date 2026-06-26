@@ -2,10 +2,38 @@ import { Suspense, lazy } from 'react';
 import { BrowserRouter, Route, Routes } from 'react-router-dom';
 import { LandingPage } from './pages/Landing';
 import { AppLogo } from './components/AppLogo';
+import { ChunkErrorBoundary } from './components/ChunkErrorBoundary';
 
-const DeltagerJoinPage = lazy(() => import('./pages/DeltagerJoin').then((m) => ({ default: m.DeltagerJoinPage })));
-const VotePage = lazy(() => import('./pages/Vote').then((m) => ({ default: m.VotePage })));
-const DashboardPage = lazy(() => import('./pages/Dashboard').then((m) => ({ default: m.DashboardPage })));
+function lazyWithRetry<T extends React.ComponentType<unknown>>(
+  importFn: () => Promise<{ default: T }>,
+) {
+  return lazy(async () => {
+    try {
+      return await importFn();
+    } catch (error) {
+      // Chunk-feil etter deploy – reload én gang
+      const hasReloaded = sessionStorage.getItem('chunk-reload');
+      if (!hasReloaded) {
+        sessionStorage.setItem('chunk-reload', '1');
+        window.location.reload();
+        // Return dummy mens reload skjer
+        return { default: (() => null) as unknown as T };
+      }
+      sessionStorage.removeItem('chunk-reload');
+      throw error;
+    }
+  });
+}
+
+const DeltagerJoinPage = lazyWithRetry(() =>
+  import('./pages/DeltagerJoin').then((m) => ({ default: m.DeltagerJoinPage })),
+);
+const VotePage = lazyWithRetry(() =>
+  import('./pages/Vote').then((m) => ({ default: m.VotePage })),
+);
+const DashboardPage = lazyWithRetry(() =>
+  import('./pages/Dashboard').then((m) => ({ default: m.DashboardPage })),
+);
 
 function LoadingScreen() {
   return (
@@ -25,14 +53,16 @@ function LoadingScreen() {
 export function App() {
   return (
     <BrowserRouter>
-      <Suspense fallback={<LoadingScreen />}>
-        <Routes>
-          <Route path="/" element={<LandingPage />} />
-          <Route path="/join" element={<DeltagerJoinPage />} />
-          <Route path="/vote" element={<VotePage />} />
-          <Route path="/dashboard" element={<DashboardPage />} />
-        </Routes>
-      </Suspense>
+      <ChunkErrorBoundary>
+        <Suspense fallback={<LoadingScreen />}>
+          <Routes>
+            <Route path="/" element={<LandingPage />} />
+            <Route path="/join" element={<DeltagerJoinPage />} />
+            <Route path="/vote" element={<VotePage />} />
+            <Route path="/dashboard" element={<DashboardPage />} />
+          </Routes>
+        </Suspense>
+      </ChunkErrorBoundary>
     </BrowserRouter>
   );
 }

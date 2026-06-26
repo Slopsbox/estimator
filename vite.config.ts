@@ -41,6 +41,23 @@ export default defineConfig({
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
         navigateFallback: 'index.html',
         navigateFallbackDenylist: [/^\/api/],
+        // Ikke pre-cache JS-chunks – la dem hentes on-demand med network-first
+        runtimeCaching: [
+          {
+            urlPattern: /\.js$/,
+            handler: 'NetworkFirst',
+            options: {
+              cacheName: 'js-chunks',
+              expiration: {
+                maxEntries: 50,
+                maxAgeSeconds: 60 * 60 * 24, // 1 dag
+              },
+            },
+          },
+        ],
+        // Hopp over waiting – aktiver ny SW umiddelbart
+        skipWaiting: true,
+        clientsClaim: true,
       },
     }),
   ],
