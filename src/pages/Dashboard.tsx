@@ -415,6 +415,7 @@ function ActiveDashboardView({
                 totalCount={totalCount}
                 actionLoading={actionLoading}
                 consensusStreak={session.consensus_streak}
+                sessionId={session.id}
                 onReveal={handleReveal}
                 onNextRound={handleNextRound}
               />

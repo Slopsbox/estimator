@@ -252,6 +252,45 @@ describe('useRealtimeParticipants', () => {
 
     expect(chainable.removeChannel).toHaveBeenCalledWith(channelMock);
   });
+
+  it('re-fetcher deltakere ved online-event (visibility refetch)', async () => {
+    const initialParticipants = [makeParticipant({ id: 'participant-001' })];
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    chainable.then.mockImplementation((cb: (r: any) => void) => {
+      cb({ data: initialParticipants, error: null });
+      return Promise.resolve();
+    });
+
+    const { result } = renderHook(() => useRealtimeParticipants(SESSION_ID));
+
+    act(() => {
+      channelMock._triggerSubscribed();
+    });
+
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false);
+    });
+
+    // Oppdater mock til å returnere en ekstra deltaker ved re-fetch
+    const updatedParticipants = [
+      makeParticipant({ id: 'participant-001' }),
+      makeParticipant({ id: 'participant-002', name: 'Kari' }),
+    ];
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    chainable.then.mockImplementation((cb: (r: any) => void) => {
+      cb({ data: updatedParticipants, error: null });
+      return Promise.resolve();
+    });
+
+    // Simuler online-event → trigger re-fetch
+    act(() => {
+      window.dispatchEvent(new Event('online'));
+    });
+
+    await waitFor(() => {
+      expect(result.current.participants).toHaveLength(2);
+    });
+  });
 });
 
 export {};

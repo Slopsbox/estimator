@@ -255,6 +255,42 @@ describe('useRealtimeVotes', () => {
 
     expect(chainable.removeChannel).toHaveBeenCalledWith(channelMock);
   });
+
+  it('re-fetcher stemmer ved online-event (visibility refetch)', async () => {
+    const initialVotes = [makeVote({ id: 'vote-001' })];
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    chainable.then.mockImplementation((cb: (r: any) => void) => {
+      cb({ data: initialVotes, error: null });
+      return Promise.resolve();
+    });
+
+    const { result } = renderHook(() => useRealtimeVotes(SESSION_ID, CURRENT_ROUND));
+
+    act(() => {
+      channelMock._triggerSubscribed();
+    });
+
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false);
+    });
+
+    // Oppdater mock til å returnere en ekstra stemme ved re-fetch
+    const updatedVotes = [makeVote({ id: 'vote-001' }), makeVote({ id: 'vote-002' })];
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    chainable.then.mockImplementation((cb: (r: any) => void) => {
+      cb({ data: updatedVotes, error: null });
+      return Promise.resolve();
+    });
+
+    // Simuler online-event → trigger re-fetch
+    act(() => {
+      window.dispatchEvent(new Event('online'));
+    });
+
+    await waitFor(() => {
+      expect(result.current.votes).toHaveLength(2);
+    });
+  });
 });
 
 export {};

@@ -2,26 +2,52 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { generateJoinCode } from '../lib/joinCode';
 import { supabase } from '../lib/supabase';
 import type { LocalParticipant, ParticipantRole, Session } from '../lib/types';
+import { useVisibilityRefetch } from './useVisibilityRefetch';
 
-const STORAGE_KEY = 'estimering_participant';
+const STORAGE_KEY_PREFIX = 'estimat_session_';
+
+function getStorageKey(sessionId: string): string {
+  return `${STORAGE_KEY_PREFIX}${sessionId}`;
+}
 
 function readFromStorage(): LocalParticipant | null {
-  try {
-    const raw = sessionStorage.getItem(STORAGE_KEY);
-    if (!raw) return null;
-    return JSON.parse(raw) as LocalParticipant;
-  } catch {
-    sessionStorage.removeItem(STORAGE_KEY);
-    return null;
+  // Iterer over localStorage og finn nøkler som starter med prefix
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i);
+    if (key?.startsWith(STORAGE_KEY_PREFIX)) {
+      try {
+        const data = JSON.parse(localStorage.getItem(key) ?? '') as LocalParticipant;
+        return data;
+      } catch {
+        localStorage.removeItem(key!);
+      }
+    }
   }
+  return null;
 }
 
 function writeToStorage(local: LocalParticipant): void {
-  sessionStorage.setItem(STORAGE_KEY, JSON.stringify(local));
+  // Rydd opp gamle sesjoner først
+  clearOldStorage(local.sessionId);
+  localStorage.setItem(getStorageKey(local.sessionId), JSON.stringify(local));
 }
 
 function clearStorage(): void {
-  sessionStorage.removeItem(STORAGE_KEY);
+  for (let i = localStorage.length - 1; i >= 0; i--) {
+    const key = localStorage.key(i);
+    if (key?.startsWith(STORAGE_KEY_PREFIX)) {
+      localStorage.removeItem(key);
+    }
+  }
+}
+
+function clearOldStorage(keepSessionId: string): void {
+  for (let i = localStorage.length - 1; i >= 0; i--) {
+    const key = localStorage.key(i);
+    if (key?.startsWith(STORAGE_KEY_PREFIX) && key !== getStorageKey(keepSessionId)) {
+      localStorage.removeItem(key);
+    }
+  }
 }
 
 /**
@@ -29,8 +55,9 @@ function clearStorage(): void {
  *
  * - Fasilitator: oppretter ny sesjon med join_code
  * - Deltaker: finner sesjon via join_code og kobler til
- * - Lagrer participant_id i sessionStorage for å overleve refresh
+ * - Lagrer participant_id i localStorage (med session-scope) for å overleve refresh
  * - Abonnerer på realtime-oppdateringer på sessions-tabellen (inkl. votes_revealed)
+ * - Re-fetcher sesjonstate ved tab-bytte/nettverksgjenoppretting (useVisibilityRefetch)
  */
 export function useSession() {
   const [session, setSession] = useState<Session | null>(null);
@@ -44,7 +71,7 @@ export function useSession() {
   // Ref for å unngå dobbel gjenoppretting
   const restoredRef = useRef(false);
 
-  /** Gjenopprett sesjon fra sessionStorage ved refresh */
+  /** Gjenopprett sesjon fra localStorage ved refresh */
   useEffect(() => {
     if (restoredRef.current) return;
     restoredRef.current = true;
@@ -77,8 +104,24 @@ export function useSession() {
       });
   }, []);
 
-  /** Lytt på sesjonsendringer (ny runde, status, votes_revealed, started) */
+  /** Re-fetch sesjon fra DB ved tab-bytte eller nettverksgjenoppretting */
   const sessionId = session?.id ?? null;
+
+  const refetchSession = useCallback(async () => {
+    if (!sessionId) return;
+    const { data } = await supabase
+      .from('sessions')
+      .select('*')
+      .eq('id', sessionId)
+      .single();
+    if (data) {
+      setSession(data);
+    }
+  }, [sessionId]);
+
+  useVisibilityRefetch(refetchSession);
+
+  /** Lytt på sesjonsendringer (ny runde, status, votes_revealed, started) */
   useEffect(() => {
     if (!sessionId) return;
 
@@ -186,7 +229,7 @@ export function useSession() {
 
   /**
    * Join sesjon via join_code som deltaker.
-   * Tar navn som parameter – registrerer deltaker med riktig navn med én gang.
+   * Tar navn som parameter – gjenbruker eksisterende deltaker ved duplikat (upsert-logikk).
    */
   const joinSession = useCallback(async (code: string, name: string): Promise<boolean> => {
     setLoading(true);
@@ -212,7 +255,31 @@ export function useSession() {
       return false;
     }
 
-    // Sjekk om deltaker allerede er med (ved navn-kollisjon, ikke aktuelt her)
+    // Sjekk om deltaker med samme navn allerede finnes i sesjonen (upsert-logikk)
+    const { data: existing } = await supabase
+      .from('participants')
+      .select('*')
+      .eq('session_id', sessionData.id)
+      .eq('name', trimmedName)
+      .single();
+
+    if (existing) {
+      // Gjenbruk eksisterende deltaker – unngår duplikat-rad
+      const local: LocalParticipant = {
+        participantId: existing.id,
+        sessionId: sessionData.id,
+        name: trimmedName,
+        role: existing.role as ParticipantRole,
+      };
+      // Lagre navn i localStorage for fremtidige runder
+      localStorage.setItem(`${STORAGE_KEY_PREFIX}vote_name`, trimmedName);
+      writeToStorage(local);
+      setLocalParticipant(local);
+      setSession(sessionData);
+      setLoading(false);
+      return true;
+    }
+
     // Registrer ny deltaker
     const { data: participantData, error: participantError } = await supabase
       .from('participants')
@@ -238,8 +305,8 @@ export function useSession() {
       role: 'participant',
     };
 
-    // Lagre navn i sessionStorage for fremtidige runder
-    sessionStorage.setItem('estimering_vote_name', trimmedName);
+    // Lagre navn i localStorage for fremtidige runder
+    localStorage.setItem(`${STORAGE_KEY_PREFIX}vote_name`, trimmedName);
 
     writeToStorage(local);
     setLocalParticipant(local);

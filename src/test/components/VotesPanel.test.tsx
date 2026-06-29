@@ -1,8 +1,31 @@
-import { describe, expect, it, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { VotesPanel } from '../../components/dashboard/VotesPanel';
 import type { Participant, Vote } from '../../lib/types';
+
+// ── Supabase-mock for cleanup-logikk ─────────────────────────
+// vi.hoisted() sikrer at disse er tilgjengelige i vi.mock()-factory
+const { mockDeleteFn } = vi.hoisted(() => {
+  const mockDeleteFn = vi.fn().mockResolvedValue({ error: null });
+  return { mockDeleteFn };
+});
+
+vi.mock('../../lib/supabase', () => ({
+  supabase: {
+    from: vi.fn().mockImplementation(() => ({
+      select: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockReturnThis(),
+      order: vi.fn().mockReturnThis(),
+      delete: vi.fn().mockReturnValue({ in: mockDeleteFn }),
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      then: vi.fn().mockImplementation((cb: (r: any) => void) => {
+        cb({ data: [], error: null });
+        return Promise.resolve();
+      }),
+    })),
+  },
+}));
 
 // ── Hjelpere ────────────────────────────────────────────────
 
@@ -32,6 +55,7 @@ const defaultProps = {
   totalCount: 0,
   actionLoading: false,
   consensusStreak: 0,
+  sessionId: 'sess-1',
   onReveal: vi.fn(),
   onNextRound: vi.fn(),
 };
@@ -39,6 +63,9 @@ const defaultProps = {
 // ── VotesPanel ─────────────────────────────────────────────
 
 describe('VotesPanel', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
   it('viser "Ingen deltakere ennå" når lista er tom', () => {
     render(<VotesPanel {...defaultProps} />);
     expect(screen.getByText('Ingen deltakere ennå.')).toBeInTheDocument();
@@ -254,5 +281,66 @@ describe('VotesPanel', () => {
       />,
     );
     expect(screen.queryByText(/runder med konsensus/)).not.toBeInTheDocument();
+  });
+
+  it('viser IKKE rydd-opp-knapp når ingen duplikater', () => {
+    const p = [
+      makeParticipant('1', 'Ola'),
+      makeParticipant('2', 'Kari'),
+    ];
+    render(<VotesPanel {...defaultProps} participants={p} totalCount={2} />);
+    expect(screen.queryByRole('button', { name: /rydd opp/i })).not.toBeInTheDocument();
+  });
+
+  it('viser rydd-opp-knapp med riktig antall når duplikater finnes', () => {
+    // Lag to deltakere med samme navn (duplikat)
+    const now = new Date();
+    const earlier = new Date(now.getTime() - 10000).toISOString();
+    const later = now.toISOString();
+    const p: Participant[] = [
+      { id: '1', session_id: 'sess-1', name: 'Ola', role: 'participant', joined_at: earlier },
+      { id: '2', session_id: 'sess-1', name: 'Ola', role: 'participant', joined_at: later },
+    ];
+    render(<VotesPanel {...defaultProps} participants={p} totalCount={2} />);
+    // aria-label er "Fjern 1 duplikat"
+    expect(screen.getByRole('button', { name: /fjern 1 duplikat/i })).toBeInTheDocument();
+    // teksten i knappen er "Rydd opp (1 duplikat)"
+    expect(screen.getByText(/Rydd opp \(1 duplikat\)/)).toBeInTheDocument();
+  });
+
+  it('klikk på rydd-opp-knapp kaller supabase for å slette duplikater', async () => {
+    const user = userEvent.setup();
+    const now = new Date();
+    const earlier = new Date(now.getTime() - 10000).toISOString();
+    const later = now.toISOString();
+    const p: Participant[] = [
+      { id: '1', session_id: 'sess-1', name: 'Ola', role: 'participant', joined_at: earlier },
+      { id: '2', session_id: 'sess-1', name: 'Ola', role: 'participant', joined_at: later },
+    ];
+
+    const { supabase } = await import('../../lib/supabase');
+    // Mock fra returnerer deltakerne for cleanup-fetchen
+    vi.mocked(supabase.from).mockImplementation(() => ({
+      select: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockReturnThis(),
+      order: vi.fn().mockReturnThis(),
+      delete: vi.fn().mockReturnValue({ in: mockDeleteFn }),
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      then: vi.fn().mockImplementation((cb: (r: any) => void) => {
+        cb({ data: p, error: null });
+        return Promise.resolve();
+      }),
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any));
+
+    render(<VotesPanel {...defaultProps} participants={p} totalCount={2} />);
+
+    // aria-label er "Fjern 1 duplikat"
+    const cleanupBtn = screen.getByRole('button', { name: /fjern 1 duplikat/i });
+    await user.click(cleanupBtn);
+
+    await waitFor(() => {
+      expect(mockDeleteFn).toHaveBeenCalled();
+    });
   });
 });

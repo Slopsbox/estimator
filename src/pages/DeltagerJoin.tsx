@@ -15,7 +15,7 @@ export function DeltagerJoinPage() {
   const { joinSession, loading } = useSession();
 
   const [name, setName] = useState(() => {
-    return sessionStorage.getItem('estimering_vote_name') ?? '';
+    return localStorage.getItem('estimat_session_vote_name') ?? '';
   });
   const [nameError, setNameError] = useState<string | null>(null);
 

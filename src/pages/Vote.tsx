@@ -24,8 +24,8 @@ export function VotePage() {
   const { triggerConfetti } = useConfetti();
   useWakeLock(); // Holder skjermen våken under estimering
 
-  // Navn hentes fra sessionStorage (satt ved join)
-  const name = sessionStorage.getItem('estimering_vote_name') ?? localParticipant?.name ?? '';
+  // Navn hentes fra localStorage (satt ved join)
+  const name = localStorage.getItem('estimat_session_vote_name') ?? localParticipant?.name ?? '';
 
   const [selectedSize, setSelectedSize] = useState<Size | null>(null);
   const [selectedValue, setSelectedValue] = useState<Value | null>(null);

@@ -41,6 +41,7 @@ describe('DeltagerJoinPage', () => {
     mockJoinSession.mockReset();
     mockNavigate.mockReset();
     sessionStorage.clear();
+    localStorage.clear();
   });
 
   it('viser heading, undertekst og rollestempel', () => {
@@ -207,8 +208,8 @@ describe('DeltagerJoinPage', () => {
     expect(mockJoinSession).not.toHaveBeenCalled();
   });
 
-  it('forhåndsfyller navn fra sessionStorage', () => {
-    sessionStorage.setItem('estimering_vote_name', 'Kari');
+  it('forhåndsfyller navn fra localStorage', () => {
+    localStorage.setItem('estimat_session_vote_name', 'Kari');
     render(
       <MemoryRouter>
         <DeltagerJoinPage />
@@ -233,7 +234,7 @@ describe('DeltagerJoinPage', () => {
 
   it('knapp er disabled ved loading selv om canSubmit er true', () => {
     mockLoading = true;
-    sessionStorage.setItem('estimering_vote_name', 'Ola');
+    localStorage.setItem('estimat_session_vote_name', 'Ola');
     render(
       <MemoryRouter>
         <DeltagerJoinPage />
