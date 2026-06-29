@@ -1,5 +1,6 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { VoteWaiting } from '../../components/vote/VoteWaiting';
 import { VoteAwaitReveal } from '../../components/vote/VoteAwaitReveal';
 import { VoteResults } from '../../components/vote/VoteResults';
@@ -140,6 +141,88 @@ describe('VoteAwaitReveal', () => {
   it('viser "Deltager" header-label', () => {
     render(<VoteAwaitReveal name="Ola" selectedSize="m" selectedValue="gold" />);
     expect(screen.getByText('Deltager')).toBeInTheDocument();
+  });
+
+  // ── Amalieknappen ──────────────────────────────────────────
+
+  it('viser Amalieknappen når hasUsedAmalie=false og onAmalie er gitt', () => {
+    render(
+      <VoteAwaitReveal
+        name="Ola"
+        selectedSize="m"
+        selectedValue="gold"
+        hasUsedAmalie={false}
+        onAmalie={vi.fn()}
+      />,
+    );
+    expect(screen.getByRole('button', { name: /amalieknappen/i })).toBeInTheDocument();
+  });
+
+  it('viser IKKE Amalieknappen når hasUsedAmalie=true', () => {
+    render(
+      <VoteAwaitReveal
+        name="Ola"
+        selectedSize="m"
+        selectedValue="gold"
+        hasUsedAmalie={true}
+        onAmalie={vi.fn()}
+      />,
+    );
+    expect(screen.queryByRole('button', { name: /amalieknappen/i })).not.toBeInTheDocument();
+  });
+
+  it('viser IKKE Amalieknappen når onAmalie ikke er gitt (default ingen re-estimering)', () => {
+    render(
+      <VoteAwaitReveal
+        name="Ola"
+        selectedSize="m"
+        selectedValue="gold"
+        hasUsedAmalie={false}
+      />,
+    );
+    expect(screen.queryByRole('button', { name: /amalieknappen/i })).not.toBeInTheDocument();
+  });
+
+  it('kaller onAmalie ved klikk på Amalieknappen', async () => {
+    const user = userEvent.setup();
+    const onAmalie = vi.fn();
+    render(
+      <VoteAwaitReveal
+        name="Ola"
+        selectedSize="m"
+        selectedValue="gold"
+        hasUsedAmalie={false}
+        onAmalie={onAmalie}
+      />,
+    );
+    await user.click(screen.getByRole('button', { name: /amalieknappen/i }));
+    expect(onAmalie).toHaveBeenCalledTimes(1);
+  });
+
+  it('viser hjelpetekst "Endre stemmen din (1 gang per runde)" ved Amalieknappen', () => {
+    render(
+      <VoteAwaitReveal
+        name="Ola"
+        selectedSize="m"
+        selectedValue="gold"
+        hasUsedAmalie={false}
+        onAmalie={vi.fn()}
+      />,
+    );
+    expect(screen.getByText(/Endre stemmen din \(1 gang per runde\)/)).toBeInTheDocument();
+  });
+
+  it('skjuler hjelpeteksten når hasUsedAmalie=true', () => {
+    render(
+      <VoteAwaitReveal
+        name="Ola"
+        selectedSize="m"
+        selectedValue="gold"
+        hasUsedAmalie={true}
+        onAmalie={vi.fn()}
+      />,
+    );
+    expect(screen.queryByText(/Endre stemmen din/)).not.toBeInTheDocument();
   });
 });
 

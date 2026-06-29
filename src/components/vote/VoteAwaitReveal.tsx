@@ -7,13 +7,25 @@ interface VoteAwaitRevealProps {
   selectedSize: Size;
   selectedValue: Value;
   currentRound?: number;
+  hasUsedAmalie?: boolean;
+  onAmalie?: () => void;
 }
 
 /**
  * State B – Venter på avsløring: deltaker har stemt, fasilitator avslører snart.
  * Navy-topp-mønster: #0B1D3A øverst, #F5F4F0 bunn.
+ *
+ * Amalieknappen: lar deltakere re-estimere én gang per runde (FØR avsløring).
+ * Vises kun når hasUsedAmalie=false. Skjules automatisk etter bruk.
  */
-export function VoteAwaitReveal({ name, selectedSize, selectedValue, currentRound }: VoteAwaitRevealProps) {
+export function VoteAwaitReveal({
+  name,
+  selectedSize,
+  selectedValue,
+  currentRound,
+  hasUsedAmalie = false,
+  onAmalie,
+}: VoteAwaitRevealProps) {
   const myVoteEmoji = VALUE_MEDAL[selectedValue];
   const valueLabel = VALUES.find((v) => v.key === selectedValue)?.label ?? '';
 
@@ -81,6 +93,46 @@ export function VoteAwaitReveal({ name, selectedSize, selectedValue, currentRoun
             </span>
           </div>
         </div>
+
+        {/* Amalieknappen – vises kun én gang per runde, kun FØR avsløring */}
+        {!hasUsedAmalie && onAmalie && (
+          <div className="text-center">
+            <button
+              type="button"
+              onClick={onAmalie}
+              aria-label="Amalieknappen – endre stemmen din (1 gang per runde)"
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 6,
+                padding: '8px 16px',
+                border: '1.5px solid var(--color-neutral-200, #E2E0DC)',
+                borderRadius: 'var(--radius-md, 8px)',
+                background: 'transparent',
+                color: 'var(--color-neutral-500, #6B7280)',
+                fontSize: 14,
+                fontWeight: 500,
+                cursor: 'pointer',
+                transition: 'background 0.15s, border-color 0.15s',
+              }}
+              onMouseEnter={(e) => {
+                (e.currentTarget as HTMLButtonElement).style.background = '#F5F4F0';
+                (e.currentTarget as HTMLButtonElement).style.borderColor = '#9E9B96';
+              }}
+              onMouseLeave={(e) => {
+                (e.currentTarget as HTMLButtonElement).style.background = 'transparent';
+                (e.currentTarget as HTMLButtonElement).style.borderColor = 'var(--color-neutral-200, #E2E0DC)';
+              }}
+            >
+              ↩️ Amalieknappen
+            </button>
+            <p
+              style={{ fontSize: 12, color: '#9E9B96', marginTop: 4 }}
+            >
+              Endre stemmen din (1 gang per runde)
+            </p>
+          </div>
+        )}
 
         {/* Pulserende status-tekst */}
         <p

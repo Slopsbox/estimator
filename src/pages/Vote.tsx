@@ -30,6 +30,7 @@ export function VotePage() {
   const [selectedSize, setSelectedSize] = useState<Size | null>(null);
   const [selectedValue, setSelectedValue] = useState<Value | null>(null);
   const [hasVoted, setHasVoted] = useState(false);
+  const [hasUsedAmalie, setHasUsedAmalie] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
 
@@ -66,6 +67,7 @@ export function VotePage() {
       setSelectedSize(null);
       setSelectedValue(null);
       setHasVoted(false);
+      setHasUsedAmalie(false);
       setSubmitError(null);
       confettiTriggeredRef.current = false;
     }
@@ -115,6 +117,27 @@ export function VotePage() {
     // Realtime (INSERT) fanger opp stemmen automatisk innen noen ms
   };
 
+  /**
+   * Amalieknappen – slett stemme og la deltaker re-estimere (én gang per runde).
+   * Sletter stemmen fra DB og nullstiller lokal state.
+   * Forutsetter at migrasjon 009_allow_vote_delete.sql er kjørt i Supabase.
+   */
+  const handleAmalie = async () => {
+    if (!session || !localParticipant || hasUsedAmalie || revealed) return;
+
+    await supabase
+      .from('votes')
+      .delete()
+      .eq('participant_id', localParticipant.participantId)
+      .eq('session_id', session.id)
+      .eq('round', session.current_round);
+
+    setHasVoted(false);
+    setHasUsedAmalie(true);
+    setSelectedSize(null);
+    setSelectedValue(null);
+  };
+
   // ── State W: Venter på fasilitator ─────────────────────────
   if (session && !session.started) {
     return <VoteWaiting session={session} name={name} />;
@@ -146,6 +169,8 @@ export function VotePage() {
         selectedSize={selectedSize!}
         selectedValue={selectedValue!}
         currentRound={session?.current_round}
+        hasUsedAmalie={hasUsedAmalie}
+        onAmalie={handleAmalie}
       />
     );
   }
