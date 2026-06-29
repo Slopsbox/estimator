@@ -117,7 +117,11 @@ function SizeButton({ sizeKey, label, isSelected, submitting, onSelect, onInfo }
     onLongPress: useCallback(() => onInfo(sizeKey), [onInfo, sizeKey]),
   });
 
-  const scale = isPressed ? 1 + progress * 0.08 : 1;
+  const background = isPressed
+    ? `linear-gradient(to top, var(--color-red-100) ${progress * 100}%, white ${progress * 100}%)`
+    : isSelected
+      ? '#C8002D'
+      : 'white';
 
   return (
     <button
@@ -133,13 +137,11 @@ function SizeButton({ sizeKey, label, isSelected, submitting, onSelect, onInfo }
       style={{
         borderRadius: 8,
         border: `1.5px solid ${isSelected ? 'transparent' : '#E2E0DC'}`,
-        background: isSelected ? '#C8002D' : '#fff',
+        background,
         color: isSelected ? '#fff' : '#0B1D3A',
         boxShadow: isSelected ? '0 4px 12px rgba(200,0,45,.25)' : 'none',
-        transform: `scale(${scale.toFixed(4)})`,
-        transition: isPressed ? 'none' : 'transform 200ms ease, background 150ms, border-color 150ms',
+        transition: isPressed ? 'none' : 'background 150ms, border-color 150ms',
         cursor: submitting ? 'not-allowed' : 'pointer',
-        willChange: 'transform',
         userSelect: 'none',
         WebkitUserSelect: 'none',
         touchAction: 'none',
@@ -179,7 +181,11 @@ function ValueButton({
     onLongPress: useCallback(() => onInfo(valueKey), [onInfo, valueKey]),
   });
 
-  const scale = isPressed ? 1 + progress * 0.08 : 1;
+  const background = isPressed
+    ? `linear-gradient(to top, var(--color-navy-50) ${progress * 100}%, white ${progress * 100}%)`
+    : isSelected
+      ? '#FFE5EA'
+      : 'white';
 
   return (
     <button
@@ -196,12 +202,10 @@ function ValueButton({
         minHeight: 100,
         borderRadius: 12,
         border: `1.5px solid ${isSelected ? '#C8002D' : '#E2E0DC'}`,
-        background: isSelected ? '#FFE5EA' : '#fff',
+        background,
         boxShadow: isSelected ? '0 2px 10px rgba(200,0,45,.20)' : 'none',
-        transform: `scale(${scale.toFixed(4)})`,
-        transition: isPressed ? 'none' : 'transform 200ms ease, background 150ms, border-color 150ms',
+        transition: isPressed ? 'none' : 'background 150ms, border-color 150ms',
         cursor: submitting ? 'not-allowed' : 'pointer',
-        willChange: 'transform',
         userSelect: 'none',
         WebkitUserSelect: 'none',
         touchAction: 'none',
@@ -349,7 +353,7 @@ export function VoteForm({
               fontSize: 11,
               color: 'var(--color-neutral-400, #9E9B96)',
               textAlign: 'center',
-              margin: '-8px 0 0',
+              marginTop: 4,
             }}
           >
             Hold inne for beskrivelse
