@@ -217,8 +217,8 @@ describe('VotePage – stemmeform (session.started === true)', () => {
     renderVote();
 
     expect(screen.getByText('Din stemme')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /xs/i })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /gull/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /størrelse XS/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /verdi gull/i })).toBeInTheDocument();
   });
 
   it('Stem-knappen er disabled inntil størrelse og verdi er valgt', () => {
@@ -269,8 +269,8 @@ describe('VotePage – Amalieknappen', () => {
     renderVote();
 
     // Velg størrelse og verdi i VoteForm
-    await user.click(screen.getByRole('button', { name: /^m$/i }));
-    await user.click(screen.getByRole('button', { name: /gull/i }));
+    await user.click(screen.getByRole('button', { name: /størrelse M/i }));
+    await user.click(screen.getByRole('button', { name: /verdi gull/i }));
     await user.click(screen.getByRole('button', { name: /stem/i }));
 
     // Nå er vi i State B – VoteAwaitReveal
@@ -285,8 +285,8 @@ describe('VotePage – Amalieknappen', () => {
     renderVote();
 
     // Gå til State B
-    await user.click(screen.getByRole('button', { name: /^m$/i }));
-    await user.click(screen.getByRole('button', { name: /gull/i }));
+    await user.click(screen.getByRole('button', { name: /størrelse M/i }));
+    await user.click(screen.getByRole('button', { name: /verdi gull/i }));
     await user.click(screen.getByRole('button', { name: /stem/i }));
 
     await waitFor(() => {
@@ -309,8 +309,8 @@ describe('VotePage – Amalieknappen', () => {
     renderVote();
 
     // Gå til State B
-    await user.click(screen.getByRole('button', { name: /^m$/i }));
-    await user.click(screen.getByRole('button', { name: /gull/i }));
+    await user.click(screen.getByRole('button', { name: /størrelse M/i }));
+    await user.click(screen.getByRole('button', { name: /verdi gull/i }));
     await user.click(screen.getByRole('button', { name: /stem/i }));
 
     await waitFor(() => {
@@ -327,8 +327,8 @@ describe('VotePage – Amalieknappen', () => {
       expect(screen.getByText('Din stemme')).toBeInTheDocument();
     });
 
-    await user.click(screen.getByRole('button', { name: /^m$/i }));
-    await user.click(screen.getByRole('button', { name: /gull/i }));
+    await user.click(screen.getByRole('button', { name: /størrelse M/i }));
+    await user.click(screen.getByRole('button', { name: /verdi gull/i }));
     await user.click(screen.getByRole('button', { name: /stem/i }));
 
     // Tilbake i State B – Amalieknappen skal nå være borte
