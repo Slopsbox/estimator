@@ -175,6 +175,154 @@ describe('useRealtimeVotes', () => {
     expect(result.current.votes[1].id).toBe('vote-002');
   });
 
+  it('fjerner stemme fra state ved realtime DELETE-event', async () => {
+    const initialVote = makeVote({ id: 'vote-001', participant_id: 'participant-001' });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    chainable.then.mockImplementation((cb: (r: any) => void) => {
+      cb({ data: [initialVote], error: null });
+      return Promise.resolve();
+    });
+
+    const { result } = renderHook(() => useRealtimeVotes(SESSION_ID, CURRENT_ROUND));
+
+    act(() => {
+      channelMock._triggerSubscribed();
+    });
+
+    await waitFor(() => {
+      expect(result.current.votes).toHaveLength(1);
+    });
+
+    // Hent DELETE-handler fra channel.on() og simuler sletting
+    const onCalls = channelMock.on.mock.calls as Array<[string, unknown, (payload: { old: { id: string; participant_id?: string } }) => void]>;
+    const deleteHandler = onCalls.find(([_e, config]) =>
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (config as any)?.event === 'DELETE'
+    );
+    expect(deleteHandler).toBeDefined();
+    const handler = deleteHandler![2];
+
+    act(() => {
+      handler({ old: { id: 'vote-001', participant_id: 'participant-001' } });
+    });
+
+    expect(result.current.votes).toHaveLength(0);
+  });
+
+  it('trackes deltaker i deletedParticipantIds ved DELETE-event', async () => {
+    const initialVote = makeVote({ id: 'vote-001', participant_id: 'participant-001' });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    chainable.then.mockImplementation((cb: (r: any) => void) => {
+      cb({ data: [initialVote], error: null });
+      return Promise.resolve();
+    });
+
+    const { result } = renderHook(() => useRealtimeVotes(SESSION_ID, CURRENT_ROUND));
+
+    act(() => {
+      channelMock._triggerSubscribed();
+    });
+
+    await waitFor(() => {
+      expect(result.current.votes).toHaveLength(1);
+    });
+
+    // Verifiser at deltaker IKKE er i deletedParticipantIds ennå
+    expect(result.current.deletedParticipantIds.has('participant-001')).toBe(false);
+
+    const onCalls = channelMock.on.mock.calls as Array<[string, unknown, (payload: { old: { id: string; participant_id?: string } }) => void]>;
+    const deleteHandler = onCalls.find(([_e, config]) =>
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (config as any)?.event === 'DELETE'
+    );
+    const handler = deleteHandler![2];
+
+    act(() => {
+      handler({ old: { id: 'vote-001', participant_id: 'participant-001' } });
+    });
+
+    // Deltaker skal nå være tracket som "re-estimerer"
+    expect(result.current.deletedParticipantIds.has('participant-001')).toBe(true);
+    // Stemmen er fjernet
+    expect(result.current.votes).toHaveLength(0);
+  });
+
+  it('ignorerer DELETE-event uten id', async () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    chainable.then.mockImplementation((cb: (r: any) => void) => {
+      cb({ data: [makeVote({ id: 'vote-001' })], error: null });
+      return Promise.resolve();
+    });
+
+    const { result } = renderHook(() => useRealtimeVotes(SESSION_ID, CURRENT_ROUND));
+
+    act(() => {
+      channelMock._triggerSubscribed();
+    });
+
+    await waitFor(() => {
+      expect(result.current.votes).toHaveLength(1);
+    });
+
+    const onCalls = channelMock.on.mock.calls as Array<[string, unknown, (payload: { old: Record<string, unknown> }) => void]>;
+    const deleteHandler = onCalls.find(([_e, config]) =>
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (config as any)?.event === 'DELETE'
+    );
+    const handler = deleteHandler![2];
+
+    // Send DELETE-event uten id-felt
+    act(() => {
+      handler({ old: {} });
+    });
+
+    // Stemmen skal fortsatt være i state
+    expect(result.current.votes).toHaveLength(1);
+  });
+
+  it('nullstiller deletedParticipantIds ved ny runde', async () => {
+    const initialVote = makeVote({ id: 'vote-001', participant_id: 'participant-001' });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    chainable.then.mockImplementation((cb: (r: any) => void) => {
+      cb({ data: [initialVote], error: null });
+      return Promise.resolve();
+    });
+
+    const { result, rerender } = renderHook(
+      ({ round }: { round: number }) => useRealtimeVotes(SESSION_ID, round),
+      { initialProps: { round: 1 } },
+    );
+
+    act(() => {
+      channelMock._triggerSubscribed();
+    });
+
+    await waitFor(() => {
+      expect(result.current.votes).toHaveLength(1);
+    });
+
+    // Simuler DELETE (deltaker re-estimerer)
+    const onCalls = channelMock.on.mock.calls as Array<[string, unknown, (payload: { old: { id: string; participant_id?: string } }) => void]>;
+    const deleteHandler = onCalls.find(([_e, config]) =>
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (config as any)?.event === 'DELETE'
+    );
+    const handler = deleteHandler![2];
+
+    act(() => {
+      handler({ old: { id: 'vote-001', participant_id: 'participant-001' } });
+    });
+
+    expect(result.current.deletedParticipantIds.has('participant-001')).toBe(true);
+
+    // Ny runde → reset
+    rerender({ round: 2 });
+
+    await waitFor(() => {
+      expect(result.current.deletedParticipantIds.size).toBe(0);
+    });
+  });
+
   it('unngår duplikater (samme vote id sendes to ganger)', async () => {
     const initialVotes: Vote[] = [];
     // eslint-disable-next-line @typescript-eslint/no-explicit-any

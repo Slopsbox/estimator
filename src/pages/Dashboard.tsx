@@ -25,7 +25,7 @@ export function DashboardPage() {
   const copyTimeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   const { participants } = useRealtimeParticipants(session?.id ?? null);
-  const { votes } = useRealtimeVotes(
+  const { votes, deletedParticipantIds } = useRealtimeVotes(
     session?.id ?? null,
     session?.current_round ?? 1,
     session?.votes_revealed ?? false,
@@ -212,6 +212,7 @@ export function DashboardPage() {
     voterParticipants={voterParticipants}
     participants={participants}
     votes={votes}
+    deletedParticipantIds={deletedParticipantIds}
     votedCount={votedCount}
     totalCount={totalCount}
     progressPct={progressPct}
@@ -235,6 +236,7 @@ interface ActiveDashboardViewProps {
   voterParticipants: ReturnType<typeof useRealtimeParticipants>['participants'];
   participants: ReturnType<typeof useRealtimeParticipants>['participants'];
   votes: ReturnType<typeof useRealtimeVotes>['votes'];
+  deletedParticipantIds: ReturnType<typeof useRealtimeVotes>['deletedParticipantIds'];
   votedCount: number;
   totalCount: number;
   progressPct: number;
@@ -261,6 +263,7 @@ function ActiveDashboardView({
   voterParticipants,
   participants,
   votes,
+  deletedParticipantIds,
   votedCount,
   totalCount,
   progressPct,
@@ -416,6 +419,7 @@ function ActiveDashboardView({
                 actionLoading={actionLoading}
                 consensusStreak={session.consensus_streak}
                 sessionId={session.id}
+                deletedParticipantIds={deletedParticipantIds}
                 onReveal={handleReveal}
                 onNextRound={handleNextRound}
               />

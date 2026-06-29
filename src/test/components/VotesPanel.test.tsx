@@ -283,6 +283,76 @@ describe('VotesPanel', () => {
     expect(screen.queryByText(/runder med konsensus/)).not.toBeInTheDocument();
   });
 
+  it('viser "↩️ Re-estimerer..." når deltaker er i deletedParticipantIds og ikke har stemme', () => {
+    const p = [makeParticipant('1', 'Ola')];
+    const deletedParticipantIds = new Set(['1']);
+    render(
+      <VotesPanel
+        {...defaultProps}
+        participants={p}
+        votes={[]}
+        votedCount={0}
+        totalCount={1}
+        deletedParticipantIds={deletedParticipantIds}
+      />,
+    );
+    expect(screen.getByText(/Re-estimerer\.\.\./)).toBeInTheDocument();
+    expect(screen.queryByText('Venter…')).not.toBeInTheDocument();
+  });
+
+  it('viser "Venter…" (ikke "Re-estimerer...") for deltaker som aldri har stemt', () => {
+    const p = [makeParticipant('1', 'Ola')];
+    // deletedParticipantIds er tom – deltaker har aldri stemt
+    render(
+      <VotesPanel
+        {...defaultProps}
+        participants={p}
+        votes={[]}
+        votedCount={0}
+        totalCount={1}
+        deletedParticipantIds={new Set()}
+      />,
+    );
+    expect(screen.getByText('Venter…')).toBeInTheDocument();
+    expect(screen.queryByText(/Re-estimerer\.\.\./)).not.toBeInTheDocument();
+  });
+
+  it('viser "Klar ✓" (ikke "Re-estimerer...") når deltaker har stemt på nytt etter Amalie', () => {
+    const p = [makeParticipant('1', 'Ola')];
+    const v = [makeVote('1', 'm', 'gold')];
+    // Deltaker hadde slettet stemme men har nå stemt på nytt
+    const deletedParticipantIds = new Set(['1']);
+    render(
+      <VotesPanel
+        {...defaultProps}
+        participants={p}
+        votes={v}
+        votedCount={1}
+        totalCount={1}
+        revealed={false}
+        deletedParticipantIds={deletedParticipantIds}
+      />,
+    );
+    // Stemmen vises (har stemme) → "Klar ✓", ikke "Re-estimerer..."
+    expect(screen.getByText('Klar ✓')).toBeInTheDocument();
+    expect(screen.queryByText(/Re-estimerer\.\.\./)).not.toBeInTheDocument();
+  });
+
+  it('viser "Venter…" når deletedParticipantIds er undefined (bakoverkompatibilitet)', () => {
+    const p = [makeParticipant('1', 'Ola')];
+    render(
+      <VotesPanel
+        {...defaultProps}
+        participants={p}
+        votes={[]}
+        votedCount={0}
+        totalCount={1}
+        // deletedParticipantIds er ikke oppgitt
+      />,
+    );
+    expect(screen.getByText('Venter…')).toBeInTheDocument();
+  });
+
   it('viser IKKE rydd-opp-knapp når ingen duplikater', () => {
     const p = [
       makeParticipant('1', 'Ola'),

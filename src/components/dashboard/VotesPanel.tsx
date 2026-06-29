@@ -15,6 +15,8 @@ export interface VotesPanelProps {
   actionLoading: boolean;
   consensusStreak: number;
   sessionId: string;
+  /** Deltakere som har slettet stemmen sin i denne runden (brukte Amalieknappen) */
+  deletedParticipantIds?: Set<string>;
   onReveal: () => void;
   onNextRound: () => void;
 }
@@ -35,6 +37,7 @@ export function VotesPanel({
   actionLoading,
   consensusStreak,
   sessionId,
+  deletedParticipantIds,
   onReveal,
   onNextRound,
 }: VotesPanelProps) {
@@ -220,6 +223,18 @@ export function VotesPanel({
                       Klar ✓
                     </span>
                   )
+                ) : deletedParticipantIds?.has(p.id) ? (
+                  /* Re-estimerer – hadde stemme, slettet den (Amalieknappen) */
+                  <span
+                    className="text-xs px-2 py-0.5 flex items-center gap-1"
+                    style={{
+                      background: '#F0E6FF',
+                      color: '#6B21A8',
+                      borderRadius: 'var(--radius-sm)',
+                    }}
+                  >
+                    ↩️ Re-estimerer...
+                  </span>
                 ) : (
                   /* Venter */
                   <span

@@ -5,13 +5,15 @@ import { useVisibilityRefetch } from './useVisibilityRefetch';
 
 /**
  * Abonnerer på stemmer for en sesjon og runde i sanntid.
- * Henter eksisterende stemmer og lytter på nye INSERT-events.
+ * Henter eksisterende stemmer og lytter på INSERT- og DELETE-events.
  * Resettes automatisk når currentRound endres.
  * Returnerer også revealed-state fra sessions-tabellen.
  *
  * Robusthet:
  * - Re-fetcher ved tab-bytte / nettverksgjenoppretting (useVisibilityRefetch)
  * - Re-subscribe automatisk ved CHANNEL_ERROR / TIMED_OUT (retryCount)
+ *
+ * DELETE-events krever REPLICA IDENTITY FULL på votes-tabellen (migrasjon 004).
  */
 export function useRealtimeVotes(
   sessionId: string | null,
@@ -21,6 +23,8 @@ export function useRealtimeVotes(
   const [votes, setVotes] = useState<Vote[]>([]);
   const [loading, setLoading] = useState(true);
   const [revealed, setRevealed] = useState(initialRevealed);
+  // Deltakere som hadde en stemme og deretter slettet den (brukte Amalieknappen)
+  const [deletedParticipantIds, setDeletedParticipantIds] = useState<Set<string>>(new Set());
   // retryCount inkrementeres ved channel-feil og trigger ny subscription via useEffect
   const [retryCount, setRetryCount] = useState(0);
 
@@ -38,8 +42,9 @@ export function useRealtimeVotes(
     }
 
     setLoading(true);
-    // Reset stemmer ved ny runde
+    // Reset stemmer og re-estimering-tracking ved ny runde
     setVotes([]);
+    setDeletedParticipantIds(new Set());
 
     // Hjelper: hent eksisterende stemmer for denne runden
     const fetchInitialData = () => {
@@ -79,6 +84,25 @@ export function useRealtimeVotes(
           });
         },
       )
+      .on(
+        'postgres_changes',
+        {
+          event: 'DELETE',
+          schema: 'public',
+          table: 'votes',
+          filter: `session_id=eq.${sessionId}`,
+        },
+        (payload) => {
+          const deleted = payload.old as { id: string; participant_id?: string };
+          if (deleted?.id) {
+            setVotes((prev) => prev.filter((v) => v.id !== deleted.id));
+            // Track deltakere som re-estimerer (hadde stemme → slettet)
+            if (deleted.participant_id) {
+              setDeletedParticipantIds((prev) => new Set([...prev, deleted.participant_id!]));
+            }
+          }
+        },
+      )
       .subscribe((status) => {
         if (status === 'SUBSCRIBED') {
           // Hent initial data ETTER subscription er oppe – unngår race condition
@@ -116,5 +140,5 @@ export function useRealtimeVotes(
 
   useVisibilityRefetch(refetchVotes);
 
-  return { votes, loading, revealed, setRevealed };
+  return { votes, loading, revealed, setRevealed, deletedParticipantIds };
 }

@@ -34,15 +34,20 @@ export function VoteResults({
   consensusStreak,
   currentRound,
 }: VoteResultsProps) {
+  // Dedupliser: kun siste stemme per participant (backup for race conditions ved Amalie-bruk)
+  const uniqueVotes = Array.from(
+    new Map(votes.map((v) => [v.participant_id, v])).values(),
+  );
+
   // Sorter stemmer etter størrelse.
   // DB CHECK-constraints garanterer at size/value alltid er gyldige Size/Value-verdier.
-  const sortedVotes = [...votes].sort(
+  const sortedVotes = [...uniqueVotes].sort(
     (a, b) => SIZE_ORDER[a.size as Size] - SIZE_ORDER[b.size as Size],
   );
 
   // Konsensus-deteksjon
-  const uniqueSizes = new Set(votes.map((v) => v.size));
-  const hasConsensus = votes.length > 0 && uniqueSizes.size === 1;
+  const uniqueSizes = new Set(uniqueVotes.map((v) => v.size));
+  const hasConsensus = uniqueVotes.length > 0 && uniqueSizes.size === 1;
   const consensusSize = hasConsensus ? [...uniqueSizes][0] : null;
 
   const roundBadge = currentRound !== undefined ? (
@@ -152,13 +157,13 @@ export function VoteResults({
         </div>
 
         {/* SpreadOMeter */}
-        {votes.length > 0 && (
-          <SpreadOMeter votes={votes} />
+        {uniqueVotes.length > 0 && (
+          <SpreadOMeter votes={uniqueVotes} />
         )}
 
         {/* Prioriteringsanbefaling */}
-        {votes.length > 0 && (
-          <PriorityMatrix votes={votes} />
+        {uniqueVotes.length > 0 && (
+          <PriorityMatrix votes={uniqueVotes} />
         )}
 
         {/* Din stemme-reminder */}
