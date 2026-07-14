@@ -9,6 +9,7 @@ import { useRealtimeVotes } from '../hooks/useRealtimeVotes';
 import { useSession } from '../hooks/useSession';
 import { useWakeLock } from '../hooks/useWakeLock';
 import { supabase } from '../lib/supabase';
+import { readLastUsedName } from '../lib/localStorage';
 import type { Size, Value } from '../lib/types';
 
 /**
@@ -25,7 +26,7 @@ export function VotePage() {
   useWakeLock(); // Holder skjermen våken under estimering
 
   // Navn hentes fra localStorage (satt ved join)
-  const name = localStorage.getItem('estimat_session_vote_name') ?? localParticipant?.name ?? '';
+  const name = readLastUsedName() || localParticipant?.name || '';
 
   const [selectedSize, setSelectedSize] = useState<Size | null>(null);
   const [selectedValue, setSelectedValue] = useState<Value | null>(null);
@@ -125,12 +126,17 @@ export function VotePage() {
   const handleAmalie = async () => {
     if (!session || !localParticipant || hasUsedAmalie || revealed) return;
 
-    await supabase
+    const { error: deleteError } = await supabase
       .from('votes')
       .delete()
       .eq('participant_id', localParticipant.participantId)
       .eq('session_id', session.id)
       .eq('round', session.current_round);
+
+    if (deleteError) {
+      setSubmitError('Kunne ikke endre stemmen. Prøv igjen.');
+      return;
+    }
 
     setHasVoted(false);
     setHasUsedAmalie(true);
@@ -171,6 +177,7 @@ export function VotePage() {
         currentRound={session?.current_round}
         hasUsedAmalie={hasUsedAmalie}
         onAmalie={handleAmalie}
+        error={submitError}
       />
     );
   }

@@ -3,6 +3,7 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { DeltagerJoinPage } from '../../pages/DeltagerJoin';
+import { LAST_USED_NAME_STORAGE_KEY } from '../../lib/localStorage';
 
 // Mock useSession – loading styres av mockLoading-flagg for fleksibilitet i tester
 let mockLoading = false;
@@ -122,7 +123,7 @@ describe('DeltagerJoinPage', () => {
   it('navigerer til /vote ved vellykket join, kaller joinSession med navn og kode', async () => {
     // Etter fix: bruker window.location.href i stedet for React Router navigate()
     // for å unngå race condition der en ny useSession-instans ikke har rukket å
-    // gjenopprette session fra sessionStorage før Vote.tsx redirecter til /join.
+    // gjenopprette session fra localStorage før Vote.tsx redirecter til /join.
     // jsdom støtter ikke full navigasjon, men vi kan mocke window.location.href.
     const hrefSpy = vi.spyOn(window, 'location', 'get').mockReturnValue({
       ...window.location,
@@ -209,7 +210,7 @@ describe('DeltagerJoinPage', () => {
   });
 
   it('forhåndsfyller navn fra localStorage', () => {
-    localStorage.setItem('estimat_session_vote_name', 'Kari');
+    localStorage.setItem(LAST_USED_NAME_STORAGE_KEY, 'Kari');
     render(
       <MemoryRouter>
         <DeltagerJoinPage />
@@ -234,7 +235,7 @@ describe('DeltagerJoinPage', () => {
 
   it('knapp er disabled ved loading selv om canSubmit er true', () => {
     mockLoading = true;
-    localStorage.setItem('estimat_session_vote_name', 'Ola');
+    localStorage.setItem(LAST_USED_NAME_STORAGE_KEY, 'Ola');
     render(
       <MemoryRouter>
         <DeltagerJoinPage />

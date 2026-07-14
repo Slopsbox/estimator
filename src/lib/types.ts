@@ -42,7 +42,7 @@ export type ParticipantRole = 'facilitator' | 'participant';
 // Frontend-spesifikke typer (ingen DB-ekvivalent)
 // ============================================================
 
-/** Lokal tilstand for en deltaker (lagres i sessionStorage) */
+/** Lokal tilstand for en deltaker (lagres i localStorage) */
 export interface LocalParticipant {
   participantId: string;
   sessionId: string;

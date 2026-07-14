@@ -241,6 +241,64 @@ describe('useRealtimeParticipants', () => {
     expect(result.current.participants).toHaveLength(1);
   });
 
+  it('ignorerer event fra forrige sesjon etter sessionId-bytte', () => {
+    const { result, rerender } = renderHook(
+      ({ sessionId }: { sessionId: string }) => useRealtimeParticipants(sessionId),
+      { initialProps: { sessionId: SESSION_ID } },
+    );
+
+    const firstSessionInsertHandler = channelMock.on.mock.calls.find((call: [string, { event?: string }, unknown]) =>
+      call[1].event === 'INSERT',
+    )?.[2] as ((payload: { new: Participant }) => void) | undefined;
+
+    expect(firstSessionInsertHandler).toBeDefined();
+
+    rerender({ sessionId: 'session-new' });
+
+    act(() => {
+      firstSessionInsertHandler?.({ new: makeParticipant({ id: 'participant-from-old-session' }) });
+    });
+
+    expect(result.current.participants).toEqual([]);
+  });
+
+  it('ignorerer refetch-resultat fra forrige sesjon etter sessionId-bytte', async () => {
+    const { result, rerender } = renderHook(
+      ({ sessionId }: { sessionId: string }) => useRealtimeParticipants(sessionId),
+      { initialProps: { sessionId: SESSION_ID } },
+    );
+
+    act(() => {
+      channelMock._triggerSubscribed();
+    });
+
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false);
+    });
+
+    let resolveRefetch!: (result: { data: Participant[]; error: null }) => void;
+    chainable.then.mockImplementation((resolve: (result: { data: Participant[]; error: null }) => void) => {
+      resolveRefetch = resolve;
+      return Promise.resolve();
+    });
+
+    act(() => {
+      window.dispatchEvent(new Event('online'));
+    });
+
+    await waitFor(() => {
+      expect(resolveRefetch).toBeTypeOf('function');
+    });
+
+    rerender({ sessionId: 'session-new' });
+
+    await act(async () => {
+      resolveRefetch({ data: [makeParticipant({ id: 'participant-from-old-refetch' })], error: null });
+    });
+
+    expect(result.current.participants).toEqual([]);
+  });
+
   it('cleanup: fjerner channel ved unmount', async () => {
     const { unmount } = renderHook(() => useRealtimeParticipants(SESSION_ID));
 

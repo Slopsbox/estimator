@@ -9,6 +9,7 @@ interface VoteAwaitRevealProps {
   currentRound?: number;
   hasUsedAmalie?: boolean;
   onAmalie?: () => void;
+  error?: string | null;
 }
 
 /**
@@ -25,6 +26,7 @@ export function VoteAwaitReveal({
   currentRound,
   hasUsedAmalie = false,
   onAmalie,
+  error,
 }: VoteAwaitRevealProps) {
   const myVoteEmoji = VALUE_MEDAL[selectedValue];
   const valueLabel = VALUES.find((v) => v.key === selectedValue)?.label ?? '';
@@ -133,6 +135,8 @@ export function VoteAwaitReveal({
             </p>
           </div>
         )}
+
+        {error && <p role="alert" className="text-center text-sm" style={{ color: '#C8002D' }}>{error}</p>}
 
         {/* Pulserende status-tekst */}
         <p

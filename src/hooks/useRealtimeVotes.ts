@@ -1,144 +1,66 @@
 import { useCallback, useEffect, useState } from 'react';
+import type { RealtimeChannel } from '@supabase/supabase-js';
 import { supabase } from '../lib/supabase';
 import type { Vote } from '../lib/types';
-import { useVisibilityRefetch } from './useVisibilityRefetch';
+import { useSupabaseRealtimeCollection } from './useSupabaseRealtimeCollection';
 
-/**
- * Abonnerer på stemmer for en sesjon og runde i sanntid.
- * Henter eksisterende stemmer og lytter på INSERT- og DELETE-events.
- * Resettes automatisk når currentRound endres.
- * Returnerer også revealed-state fra sessions-tabellen.
- *
- * Robusthet:
- * - Re-fetcher ved tab-bytte / nettverksgjenoppretting (useVisibilityRefetch)
- * - Re-subscribe automatisk ved CHANNEL_ERROR / TIMED_OUT (retryCount)
- *
- * DELETE-events krever REPLICA IDENTITY FULL på votes-tabellen (migrasjon 004).
- */
-export function useRealtimeVotes(
-  sessionId: string | null,
-  currentRound: number,
-  initialRevealed = false,
-) {
-  const [votes, setVotes] = useState<Vote[]>([]);
-  const [loading, setLoading] = useState(true);
+/** Abonnerer på stemmer for en sesjon og runde i sanntid. */
+export function useRealtimeVotes(sessionId: string | null, currentRound: number, initialRevealed = false) {
   const [revealed, setRevealed] = useState(initialRevealed);
-  // Deltakere som hadde en stemme og deretter slettet den (brukte Amalieknappen)
   const [deletedParticipantIds, setDeletedParticipantIds] = useState<Set<string>>(new Set());
-  // retryCount inkrementeres ved channel-feil og trigger ny subscription via useEffect
-  const [retryCount, setRetryCount] = useState(0);
 
-  // Synkroniser revealed med ekstern endring (f.eks. ved runde-reset)
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setRevealed(initialRevealed);
   }, [initialRevealed, currentRound]);
 
-  useEffect(() => {
-    if (!sessionId) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setLoading(false);
-      return;
-    }
-
-    setLoading(true);
-    // Reset stemmer og re-estimering-tracking ved ny runde
-    setVotes([]);
-    setDeletedParticipantIds(new Set());
-
-    // Hjelper: hent eksisterende stemmer for denne runden
-    const fetchInitialData = () => {
-      void supabase
-        .from('votes')
-        .select('*')
-        .eq('session_id', sessionId)
-        .eq('round', currentRound)
-        .order('created_at', { ascending: true })
-        .then(({ data, error }) => {
-          if (!error && data) {
-            setVotes(data);
-          }
-          setLoading(false);
-        });
-    };
-
-    // Subscribe først – hent initial data ETTER subscription er bekreftet
-    const channel = supabase
-      .channel(`votes:${sessionId}:${currentRound}:${retryCount}`)
-      .on(
-        'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'votes',
-          filter: `session_id=eq.${sessionId}`,
-        },
-        (payload) => {
-          const newVote = payload.new as Vote;
-          // Filtrer på gjeldende runde
-          if (newVote.round !== currentRound) return;
-          setVotes((prev) => {
-            // Unngå duplikater
-            if (prev.some((v) => v.id === newVote.id)) return prev;
-            return [...prev, newVote];
-          });
-        },
-      )
-      .on(
-        'postgres_changes',
-        {
-          event: 'DELETE',
-          schema: 'public',
-          table: 'votes',
-          filter: `session_id=eq.${sessionId}`,
-        },
-        (payload) => {
-          const deleted = payload.old as { id: string; participant_id?: string };
-          if (deleted?.id) {
-            setVotes((prev) => prev.filter((v) => v.id !== deleted.id));
-            // Track deltakere som re-estimerer (hadde stemme → slettet)
-            if (deleted.participant_id) {
-              setDeletedParticipantIds((prev) => new Set([...prev, deleted.participant_id!]));
-            }
-          }
-        },
-      )
-      .subscribe((status) => {
-        if (status === 'SUBSCRIBED') {
-          // Hent initial data ETTER subscription er oppe – unngår race condition
-          fetchInitialData();
-        }
-        if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
-          // Re-subscribe etter kort delay (trigger ny useEffect via retryCount)
-          setTimeout(() => {
-            void supabase.removeChannel(channel);
-            setRetryCount((c) => c + 1);
-          }, 2000);
-        }
-      });
-
-    return () => {
-      void supabase.removeChannel(channel);
-    };
-  }, [sessionId, currentRound, retryCount]);
-
-  // Re-fetch stemmer ved tab-bytte / nettverksgjenoppretting
-  const refetchVotes = useCallback(() => {
-    if (!sessionId) return;
-    void supabase
+  const fetchCollection = useCallback(async () => {
+    return supabase
       .from('votes')
       .select('*')
-      .eq('session_id', sessionId)
+      .eq('session_id', sessionId ?? '')
       .eq('round', currentRound)
-      .order('created_at', { ascending: true })
-      .then(({ data, error }) => {
-        if (!error && data) {
-          setVotes(data);
+      .order('created_at', { ascending: true });
+  }, [sessionId, currentRound]);
+
+  const configureSubscription = useCallback((
+    channel: RealtimeChannel,
+    setVotes: React.Dispatch<React.SetStateAction<Vote[]>>,
+    isCurrent: () => boolean,
+  ) => {
+    return channel
+      .on('postgres_changes', {
+        event: 'INSERT', schema: 'public', table: 'votes', filter: `session_id=eq.${sessionId}`,
+       }, (payload) => {
+         if (!isCurrent()) return;
+         const vote = payload.new as Vote;
+        if (vote.round !== currentRound) return;
+        setVotes((current) => current.some((item) => item.id === vote.id) ? current : [...current, vote]);
+      })
+      .on('postgres_changes', {
+        event: 'DELETE', schema: 'public', table: 'votes', filter: `session_id=eq.${sessionId}`,
+       }, (payload) => {
+         if (!isCurrent()) return;
+         const deleted = payload.old as { id?: string; participant_id?: string };
+        if (!deleted.id) return;
+        setVotes((current) => current.filter((item) => item.id !== deleted.id));
+        if (deleted.participant_id) {
+          setDeletedParticipantIds((current) => new Set([...current, deleted.participant_id!]));
         }
       });
   }, [sessionId, currentRound]);
 
-  useVisibilityRefetch(refetchVotes);
+  const { items: votes, loading, error } = useSupabaseRealtimeCollection({
+    sessionId,
+    channelName: `votes:${sessionId}:${currentRound}`,
+    fetchCollection,
+    configureSubscription,
+  });
 
-  return { votes, loading, revealed, setRevealed, deletedParticipantIds };
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setDeletedParticipantIds(new Set());
+  }, [sessionId, currentRound]);
+
+  return { votes, loading, error, revealed, setRevealed, deletedParticipantIds };
 }

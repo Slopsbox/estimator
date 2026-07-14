@@ -23,10 +23,10 @@ let mockLoading = false;
 let mockError: string | null = null;
 
 const mockCreateSession = vi.fn();
-const mockStartSession = vi.fn();
-const mockRevealVotes = vi.fn();
-const mockNextRound = vi.fn();
-const mockEndSession = vi.fn();
+const mockStartSession = vi.fn<() => Promise<{ ok: true } | { ok: false; message: string }>>();
+const mockRevealVotes = vi.fn<() => Promise<{ ok: true } | { ok: false; message: string }>>();
+const mockNextRound = vi.fn<() => Promise<{ ok: true } | { ok: false; message: string }>>();
+const mockEndSession = vi.fn<() => Promise<{ ok: true } | { ok: false; message: string }>>();
 const mockLogout = vi.fn();
 
 vi.mock('../../hooks/useSession', () => ({
@@ -134,9 +134,13 @@ beforeEach(() => {
 
   mockCreateSession.mockReset();
   mockStartSession.mockReset();
+  mockStartSession.mockResolvedValue({ ok: true });
   mockRevealVotes.mockReset();
+  mockRevealVotes.mockResolvedValue({ ok: true });
   mockNextRound.mockReset();
+  mockNextRound.mockResolvedValue({ ok: true });
   mockEndSession.mockReset();
+  mockEndSession.mockResolvedValue({ ok: true });
   mockLogout.mockReset();
   mockNavigate.mockReset();
 });
@@ -229,13 +233,23 @@ describe('DashboardPage – pre-start (session.started === false)', () => {
 
   it('7. "Start sesjon"-knapp kaller startSession', async () => {
     const user = userEvent.setup();
-    mockStartSession.mockResolvedValue(undefined);
 
     renderDashboard();
 
     await user.click(screen.getByRole('button', { name: /start sesjon/i }));
 
     expect(mockStartSession).toHaveBeenCalledTimes(1);
+  });
+
+  it('viser feilmeldingen fra mislykket start av sesjon', async () => {
+    const user = userEvent.setup();
+    mockStartSession.mockResolvedValue({ ok: false, message: 'Kunne ikke starte sesjonen. Prøv igjen.' });
+
+    renderDashboard();
+
+    await user.click(screen.getByRole('button', { name: /start sesjon/i }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Kunne ikke starte sesjonen. Prøv igjen.');
   });
 });
 
@@ -258,7 +272,6 @@ describe('DashboardPage – etter start (session.started === true)', () => {
 
   it('9. "Vis resultater"-knapp kaller revealVotes', async () => {
     const user = userEvent.setup();
-    mockRevealVotes.mockResolvedValue(undefined);
 
     renderDashboard();
 
@@ -282,7 +295,6 @@ describe('DashboardPage – etter start (session.started === true)', () => {
   it('11. "Ny runde"-knapp kaller nextRound (etter reveal)', async () => {
     const user = userEvent.setup();
     mockSession = { ...BASE_SESSION, started: true, votes_revealed: true };
-    mockNextRound.mockResolvedValue(undefined);
 
     renderDashboard();
 
@@ -305,7 +317,7 @@ describe('DashboardPage – avslutt', () => {
 
   it('12. "Avslutt"-knapp kaller endSession etter confirm', async () => {
     const user = userEvent.setup();
-    mockEndSession.mockResolvedValue(undefined);
+    mockEndSession.mockResolvedValue({ ok: true });
 
     // Mock window.confirm til å returnere true
     const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
@@ -318,6 +330,20 @@ describe('DashboardPage – avslutt', () => {
       expect(mockEndSession).toHaveBeenCalledTimes(1);
     });
 
+    confirmSpy.mockRestore();
+  });
+
+  it('logger ikke ut eller navigerer når avslutting av sesjon feiler', async () => {
+    const user = userEvent.setup();
+    mockEndSession.mockResolvedValue({ ok: false, message: 'Kunne ikke avslutte sesjonen. Prøv igjen.' });
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
+
+    renderDashboard();
+    await user.click(screen.getByRole('button', { name: /avslutt/i }));
+
+    await waitFor(() => expect(mockEndSession).toHaveBeenCalledTimes(1));
+    expect(mockLogout).not.toHaveBeenCalled();
+    expect(mockNavigate).not.toHaveBeenCalled();
     confirmSpy.mockRestore();
   });
 

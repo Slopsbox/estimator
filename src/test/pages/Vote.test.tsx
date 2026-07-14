@@ -3,6 +3,7 @@ import { render, screen, waitFor, act } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { VotePage } from '../../pages/Vote';
+import { LAST_USED_NAME_STORAGE_KEY } from '../../lib/localStorage';
 
 // ── Mock: useConfetti ──────────────────────────────────────────────────────────
 vi.mock('../../hooks/useConfetti', () => ({
@@ -160,7 +161,7 @@ describe('VotePage – venteskjerm (session.started === false)', () => {
       name: 'Ola',
       role: 'participant',
     };
-    sessionStorage.setItem('estimering_vote_name', 'Ola');
+    localStorage.setItem(LAST_USED_NAME_STORAGE_KEY, 'Ola');
 
     renderVote();
 
@@ -183,7 +184,7 @@ describe('VotePage – venteskjerm (session.started === false)', () => {
       name: 'Kari',
       role: 'participant',
     };
-    sessionStorage.setItem('estimering_vote_name', 'Kari');
+    localStorage.setItem(LAST_USED_NAME_STORAGE_KEY, 'Kari');
 
     renderVote();
 
@@ -196,7 +197,7 @@ describe('VotePage – stemmeform (session.started === true)', () => {
   beforeEach(() => {
     mockInitialized = true;
     mockNavigate.mockReset();
-    sessionStorage.setItem('estimering_vote_name', 'Ola');
+    localStorage.setItem(LAST_USED_NAME_STORAGE_KEY, 'Ola');
     mockSession = {
       id: 'ses-1',
       status: 'active',
@@ -247,6 +248,10 @@ describe('VotePage – Amalieknappen', () => {
     mockInitialized = true;
     mockNavigate.mockReset();
     mockDeleteChain.eq.mockClear();
+    mockDeleteChain.then.mockImplementation((cb: (v: { error: null }) => void) => {
+      cb({ error: null });
+      return Promise.resolve({ error: null });
+    });
     // Sett opp aktiv sesjon
     mockSession = {
       id: 'ses-1',
@@ -336,5 +341,25 @@ describe('VotePage – Amalieknappen', () => {
       expect(screen.getByText('Stemme registrert!')).toBeInTheDocument();
     });
     expect(screen.queryByRole('button', { name: /amalieknappen/i })).not.toBeInTheDocument();
+  });
+
+  it('beholder den registrerte stemmen og viser feil når sletting feiler', async () => {
+    const user = userEvent.setup();
+    mockDeleteChain.then.mockImplementation((cb: (v: { error: { code: string } }) => void) => {
+      cb({ error: { code: '42501' } });
+      return Promise.resolve({ error: { code: '42501' } });
+    });
+    renderVote();
+
+    await user.click(screen.getByRole('button', { name: /størrelse M/i }));
+    await user.click(screen.getByRole('button', { name: /verdi gull/i }));
+    await user.click(screen.getByRole('button', { name: /stem/i }));
+    await waitFor(() => expect(screen.getByText('Stemme registrert!')).toBeInTheDocument());
+
+    await user.click(screen.getByRole('button', { name: /amalieknappen/i }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Kunne ikke endre stemmen. Prøv igjen.');
+    expect(screen.getByText('Stemme registrert!')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /amalieknappen/i })).toBeInTheDocument();
   });
 });

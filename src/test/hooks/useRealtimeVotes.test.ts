@@ -404,6 +404,20 @@ describe('useRealtimeVotes', () => {
     expect(chainable.removeChannel).toHaveBeenCalledWith(channelMock);
   });
 
+  it('kjører ikke reconnect-timer etter unmount', () => {
+    vi.useFakeTimers();
+    const { unmount } = renderHook(() => useRealtimeVotes(SESSION_ID, CURRENT_ROUND));
+
+    act(() => {
+      channelMock._getSubscribeCb()?.('CHANNEL_ERROR');
+    });
+    unmount();
+    act(() => vi.advanceTimersByTime(2000));
+
+    expect(chainable.channel).toHaveBeenCalledTimes(1);
+    vi.useRealTimers();
+  });
+
   it('re-fetcher stemmer ved online-event (visibility refetch)', async () => {
     const initialVotes = [makeVote({ id: 'vote-001' })];
     // eslint-disable-next-line @typescript-eslint/no-explicit-any

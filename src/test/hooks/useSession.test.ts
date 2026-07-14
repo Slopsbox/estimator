@@ -47,6 +47,7 @@ vi.mock('../../lib/joinCode', () => ({ generateJoinCode: vi.fn() }));
 
 import { useSession } from '../../hooks/useSession';
 import { generateJoinCode } from '../../lib/joinCode';
+import { LAST_USED_NAME_STORAGE_KEY, LOCAL_PARTICIPANT_STORAGE_KEY } from '../../lib/localStorage';
 
 const mockGenerateJoinCode = vi.mocked(generateJoinCode);
 
@@ -174,8 +175,7 @@ describe('useSession', () => {
       expect(result.current.session).toEqual(MOCK_SESSION);
       expect(result.current.localParticipant?.participantId).toBe(MOCK_PARTICIPANT.id);
 
-      // localStorage er skrevet (nøkkel: estimat_session_<sessionId>)
-      const stored = localStorage.getItem(`estimat_session_${MOCK_SESSION.id}`);
+       const stored = localStorage.getItem(LOCAL_PARTICIPANT_STORAGE_KEY);
       expect(stored).not.toBeNull();
       const parsed = JSON.parse(stored!);
       expect(parsed.sessionId).toBe(MOCK_SESSION.id);
@@ -256,8 +256,7 @@ describe('useSession', () => {
       expect(result.current.session).toEqual(memberSession);
       expect(result.current.localParticipant?.role).toBe('participant');
 
-      // localStorage er skrevet (nøkkel: estimat_session_<sessionId>)
-      const stored = localStorage.getItem(`estimat_session_${memberSession.id}`);
+       const stored = localStorage.getItem(LOCAL_PARTICIPANT_STORAGE_KEY);
       expect(stored).not.toBeNull();
       const parsed = JSON.parse(stored!);
       expect(parsed.name).toBe('Kari Nordmann');
@@ -324,6 +323,38 @@ describe('useSession', () => {
   // -------------------------------------------------------
 
   describe('gjenoppretting fra localStorage', () => {
+    it('fjerner korrupt deltakerdata og fullfører initialisering', async () => {
+      localStorage.setItem(LOCAL_PARTICIPANT_STORAGE_KEY, '{ugyldig json');
+
+      const { result } = renderHook(() => useSession());
+
+      await waitFor(() => expect(result.current.initialized).toBe(true));
+      expect(result.current.localParticipant).toBeNull();
+      expect(localStorage.getItem(LOCAL_PARTICIPANT_STORAGE_KEY)).toBeNull();
+    });
+
+    it('fjerner deltakerdata med ugyldig objektform', async () => {
+      localStorage.setItem(LOCAL_PARTICIPANT_STORAGE_KEY, JSON.stringify({ participantId: 'p-1' }));
+
+      const { result } = renderHook(() => useSession());
+
+      await waitFor(() => expect(result.current.initialized).toBe(true));
+      expect(localStorage.getItem(LOCAL_PARTICIPANT_STORAGE_KEY)).toBeNull();
+    });
+
+    it('fjerner deltakerdata med tomme ID-er', async () => {
+      localStorage.setItem(LOCAL_PARTICIPANT_STORAGE_KEY, JSON.stringify({
+        participantId: '  ',
+        sessionId: '',
+        name: 'Ola Nordmann',
+        role: 'facilitator',
+      }));
+
+      const { result } = renderHook(() => useSession());
+
+      await waitFor(() => expect(result.current.initialized).toBe(true));
+      expect(localStorage.getItem(LOCAL_PARTICIPANT_STORAGE_KEY)).toBeNull();
+    });
     it('gjenoppretter sesjon fra DB når localStorage har data', async () => {
       const localData = {
         participantId: MOCK_PARTICIPANT.id,
@@ -331,7 +362,7 @@ describe('useSession', () => {
         name: 'Ola Nordmann',
         role: 'facilitator',
       };
-      localStorage.setItem(`estimat_session_${MOCK_SESSION.id}`, JSON.stringify(localData));
+      localStorage.setItem(LOCAL_PARTICIPANT_STORAGE_KEY, JSON.stringify(localData));
 
       chainable.single.mockResolvedValueOnce({ data: MOCK_SESSION, error: null });
 
@@ -352,7 +383,7 @@ describe('useSession', () => {
         name: 'Ola Nordmann',
         role: 'facilitator',
       };
-      localStorage.setItem(`estimat_session_${MOCK_SESSION.id}`, JSON.stringify(localData));
+      localStorage.setItem(LOCAL_PARTICIPANT_STORAGE_KEY, JSON.stringify(localData));
 
       chainable.single.mockResolvedValueOnce({
         data: null,
@@ -367,7 +398,7 @@ describe('useSession', () => {
 
       expect(result.current.session).toBeNull();
       expect(result.current.localParticipant).toBeNull();
-      expect(localStorage.getItem(`estimat_session_${MOCK_SESSION.id}`)).toBeNull();
+      expect(localStorage.getItem(LOCAL_PARTICIPANT_STORAGE_KEY)).toBeNull();
     });
 
     it('initialized blir true selv uten localStorage', async () => {
@@ -400,6 +431,25 @@ describe('useSession', () => {
 
       expect(chainable.update).toHaveBeenCalledWith({ started: true });
       expect(chainable.eq).toHaveBeenCalledWith('id', MOCK_SESSION.id);
+    });
+
+    it('fjerner feilmeldingen når en retry lykkes', async () => {
+      const { result } = renderHook(() => useSession());
+      await setupCreatedSession(result);
+
+      chainable.eq.mockResolvedValueOnce({ error: { code: '42501' } });
+      await act(async () => {
+        await result.current.startSession();
+      });
+
+      expect(result.current.error).toBe('Kunne ikke starte sesjonen. Prøv igjen.');
+
+      chainable.eq.mockResolvedValueOnce({ error: null });
+      await act(async () => {
+        await result.current.startSession();
+      });
+
+      expect(result.current.error).toBeNull();
     });
   });
 
@@ -510,6 +560,20 @@ describe('useSession', () => {
       expect(chainable.update).toHaveBeenCalledWith({ status: 'completed' });
       expect(chainable.eq).toHaveBeenCalledWith('id', MOCK_SESSION.id);
     });
+
+    it('returnerer feilresultat og setter feilmelding når avslutting feiler', async () => {
+      const { result } = renderHook(() => useSession());
+      await setupCreatedSession(result);
+      chainable.eq.mockResolvedValue({ error: { code: '42501' } });
+
+      let mutationResult: Awaited<ReturnType<typeof result.current.endSession>> | undefined;
+      await act(async () => {
+        mutationResult = await result.current.endSession();
+      });
+
+      expect(mutationResult).toEqual({ ok: false, message: 'Kunne ikke avslutte sesjonen. Prøv igjen.' });
+      expect(result.current.error).toBe('Kunne ikke avslutte sesjonen. Prøv igjen.');
+    });
   });
 
   // -------------------------------------------------------
@@ -517,12 +581,21 @@ describe('useSession', () => {
   // -------------------------------------------------------
 
   describe('logout', () => {
+    it('beholder navnecachen når deltakerdata ryddes', async () => {
+      localStorage.setItem(LAST_USED_NAME_STORAGE_KEY, 'Kari');
+      const { result } = renderHook(() => useSession());
+      await setupCreatedSession(result);
+
+      act(() => result.current.logout());
+
+      expect(localStorage.getItem(LAST_USED_NAME_STORAGE_KEY)).toBe('Kari');
+    });
     it('rydder localStorage og nullstiller state', async () => {
       const { result } = renderHook(() => useSession());
       await setupCreatedSession(result);
 
       expect(result.current.session).not.toBeNull();
-      expect(localStorage.getItem(`estimat_session_${MOCK_SESSION.id}`)).not.toBeNull();
+      expect(localStorage.getItem(LOCAL_PARTICIPANT_STORAGE_KEY)).not.toBeNull();
 
       act(() => {
         result.current.logout();
@@ -530,7 +603,7 @@ describe('useSession', () => {
 
       expect(result.current.session).toBeNull();
       expect(result.current.localParticipant).toBeNull();
-      expect(localStorage.getItem(`estimat_session_${MOCK_SESSION.id}`)).toBeNull();
+      expect(localStorage.getItem(LOCAL_PARTICIPANT_STORAGE_KEY)).toBeNull();
     });
   });
 
@@ -546,7 +619,7 @@ describe('useSession', () => {
         name: 'Ola Nordmann',
         role: 'facilitator',
       };
-      localStorage.setItem(`estimat_session_${MOCK_SESSION.id}`, JSON.stringify(localData));
+      localStorage.setItem(LOCAL_PARTICIPANT_STORAGE_KEY, JSON.stringify(localData));
 
       // Delay DB-fetch for å observere initialized=false
       let resolveDbFetch!: (val: { data: typeof MOCK_SESSION; error: null }) => void;

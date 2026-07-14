@@ -19,6 +19,7 @@ export function DashboardPage() {
   const [nameError, setNameError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
   const [codeCopied, setCodeCopied] = useState(false);
 
   // Ref for å rydde setTimeout og unngå state-oppdatering etter unmount
@@ -69,29 +70,40 @@ export function DashboardPage() {
   }, [nameInput, createSession]);
 
   const handleStartSession = useCallback(async () => {
+    setActionError(null);
     setActionLoading(true);
-    await startSession();
+    const result = await startSession();
     setActionLoading(false);
+    if (!result.ok) setActionError(result.message);
   }, [startSession]);
 
   const handleNextRound = useCallback(async () => {
+    setActionError(null);
     setActionLoading(true);
-    await nextRound();
+    const result = await nextRound();
     setActionLoading(false);
+    if (!result.ok) setActionError(result.message);
   }, [nextRound]);
 
   const handleReveal = useCallback(async () => {
+    setActionError(null);
     setActionLoading(true);
-    await revealVotes(votes);
+    const result = await revealVotes(votes);
     setActionLoading(false);
+    if (!result.ok) setActionError(result.message);
   }, [revealVotes, votes]);
 
   const handleEndSession = useCallback(async () => {
     const confirmed = window.confirm('Er du sikker på at du vil avslutte sesjonen?');
     if (!confirmed) return;
+    setActionError(null);
     setActionLoading(true);
-    await endSession();
+    const result = await endSession();
     setActionLoading(false);
+    if (!result.ok) {
+      setActionError(result.message);
+      return;
+    }
     logout();
     navigate('/');
   }, [endSession, logout, navigate]);
@@ -218,6 +230,7 @@ export function DashboardPage() {
     progressPct={progressPct}
     sessionStarted={sessionStarted}
     actionLoading={actionLoading}
+    error={actionError ?? error}
     codeCopied={codeCopied}
     joinCodeDots={joinCodeDots}
     handleEndSession={handleEndSession}
@@ -242,6 +255,7 @@ interface ActiveDashboardViewProps {
   progressPct: number;
   sessionStarted: boolean;
   actionLoading: boolean;
+  error: string | null;
   codeCopied: boolean;
   joinCodeDots: { color: string }[];
   handleEndSession: () => void;
@@ -269,6 +283,7 @@ function ActiveDashboardView({
   progressPct,
   sessionStarted,
   actionLoading,
+  error,
   codeCopied,
   joinCodeDots,
   handleEndSession,
@@ -352,7 +367,8 @@ function ActiveDashboardView({
         </div>
       )}
 
-      <div className="flex-1 px-4 py-4 space-y-4 overflow-y-auto">
+       <div className="flex-1 px-4 py-4 space-y-4 overflow-y-auto">
+        {error && <p role="alert" className="text-sm" style={{ color: 'var(--color-danger)' }}>{error}</p>}
         {/* Sesjonskode-kort */}
         <div
           className="px-5 py-4 space-y-1"

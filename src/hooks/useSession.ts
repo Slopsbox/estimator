@@ -1,54 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { generateJoinCode } from '../lib/joinCode';
+import { clearLocalParticipant, readLocalParticipant, writeLastUsedName, writeLocalParticipant } from '../lib/localStorage';
 import { supabase } from '../lib/supabase';
 import type { LocalParticipant, ParticipantRole, Session } from '../lib/types';
 import { useVisibilityRefetch } from './useVisibilityRefetch';
 
-const STORAGE_KEY_PREFIX = 'estimat_session_';
-
-function getStorageKey(sessionId: string): string {
-  return `${STORAGE_KEY_PREFIX}${sessionId}`;
-}
-
-function readFromStorage(): LocalParticipant | null {
-  // Iterer over localStorage og finn nøkler som starter med prefix
-  for (let i = 0; i < localStorage.length; i++) {
-    const key = localStorage.key(i);
-    if (key?.startsWith(STORAGE_KEY_PREFIX)) {
-      try {
-        const data = JSON.parse(localStorage.getItem(key) ?? '') as LocalParticipant;
-        return data;
-      } catch {
-        localStorage.removeItem(key!);
-      }
-    }
-  }
-  return null;
-}
-
-function writeToStorage(local: LocalParticipant): void {
-  // Rydd opp gamle sesjoner først
-  clearOldStorage(local.sessionId);
-  localStorage.setItem(getStorageKey(local.sessionId), JSON.stringify(local));
-}
-
-function clearStorage(): void {
-  for (let i = localStorage.length - 1; i >= 0; i--) {
-    const key = localStorage.key(i);
-    if (key?.startsWith(STORAGE_KEY_PREFIX)) {
-      localStorage.removeItem(key);
-    }
-  }
-}
-
-function clearOldStorage(keepSessionId: string): void {
-  for (let i = localStorage.length - 1; i >= 0; i--) {
-    const key = localStorage.key(i);
-    if (key?.startsWith(STORAGE_KEY_PREFIX) && key !== getStorageKey(keepSessionId)) {
-      localStorage.removeItem(key);
-    }
-  }
-}
+export type MutationResult = { ok: true } | { ok: false; message: string };
 
 /**
  * Håndterer sesjonshåndtering for estimeringsappen.
@@ -76,7 +33,7 @@ export function useSession() {
     if (restoredRef.current) return;
     restoredRef.current = true;
 
-    const local = readFromStorage();
+    const local = readLocalParticipant();
     if (!local) {
       // Ingen lagret data – vi er ferdig med gjenoppretting
       // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -94,7 +51,7 @@ export function useSession() {
       .single()
       .then(({ data, error: err }) => {
         if (err || !data) {
-          clearStorage();
+          clearLocalParticipant();
           setLocalParticipant(null);
         } else {
           setSession(data);
@@ -220,7 +177,7 @@ export function useSession() {
       role: 'facilitator',
     };
 
-    writeToStorage(local);
+    writeLocalParticipant(local);
     setLocalParticipant(local);
     setSession(sessionData);
     setLoading(false);
@@ -272,8 +229,8 @@ export function useSession() {
         role: existing.role as ParticipantRole,
       };
       // Lagre navn i localStorage for fremtidige runder
-      localStorage.setItem(`${STORAGE_KEY_PREFIX}vote_name`, trimmedName);
-      writeToStorage(local);
+      writeLastUsedName(trimmedName);
+      writeLocalParticipant(local);
       setLocalParticipant(local);
       setSession(sessionData);
       setLoading(false);
@@ -306,9 +263,9 @@ export function useSession() {
     };
 
     // Lagre navn i localStorage for fremtidige runder
-    localStorage.setItem(`${STORAGE_KEY_PREFIX}vote_name`, trimmedName);
+    writeLastUsedName(trimmedName);
 
-    writeToStorage(local);
+    writeLocalParticipant(local);
     setLocalParticipant(local);
     setSession(sessionData);
     setLoading(false);
@@ -319,7 +276,7 @@ export function useSession() {
    * Oppdater deltaker-navn etter join (brukes i Vote-siden).
    */
   const updateParticipantName = useCallback(async (name: string): Promise<boolean> => {
-    const local = readFromStorage();
+    const local = readLocalParticipant();
     if (!local) return false;
 
     const { error: err } = await supabase
@@ -330,7 +287,7 @@ export function useSession() {
     if (err) return false;
 
     const updated: LocalParticipant = { ...local, name };
-    writeToStorage(updated);
+    writeLocalParticipant(updated);
     setLocalParticipant(updated);
     return true;
   }, []);
@@ -338,8 +295,9 @@ export function useSession() {
   /**
    * Start sesjon (fasilitator) – setter started = true.
    */
-  const startSession = useCallback(async (): Promise<void> => {
-    if (!session) return;
+  const startSession = useCallback(async (): Promise<MutationResult> => {
+    setError(null);
+    if (!session) return { ok: false, message: 'Ingen aktiv sesjon.' };
 
     const { error: err } = await supabase
       .from('sessions')
@@ -347,8 +305,11 @@ export function useSession() {
       .eq('id', session.id);
 
     if (err) {
-      setError('Kunne ikke starte sesjonen. Prøv igjen.');
+      const message = 'Kunne ikke starte sesjonen. Prøv igjen.';
+      setError(message);
+      return { ok: false, message };
     }
+    return { ok: true };
   }, [session]);
 
   /**
@@ -357,8 +318,9 @@ export function useSession() {
    *   - Konsensus (alle stemte likt): streak + 1
    *   - Ikke konsensus: streak nullstilles til 0
    */
-  const revealVotes = useCallback(async (currentVotes: Array<{ size: string }>): Promise<void> => {
-    if (!session) return;
+  const revealVotes = useCallback(async (currentVotes: Array<{ size: string }>): Promise<MutationResult> => {
+    setError(null);
+    if (!session) return { ok: false, message: 'Ingen aktiv sesjon.' };
 
     const uniqueSizes = new Set(currentVotes.map((v) => v.size));
     const isConsensus = currentVotes.length > 0 && uniqueSizes.size === 1;
@@ -372,15 +334,19 @@ export function useSession() {
       .eq('id', session.id);
 
     if (err) {
-      setError('Kunne ikke avsløre stemmer. Prøv igjen.');
+      const message = 'Kunne ikke avsløre stemmer. Prøv igjen.';
+      setError(message);
+      return { ok: false, message };
     }
+    return { ok: true };
   }, [session]);
 
   /**
    * Inkrementér rundenummer og nullstill reveal (fasilitator).
    */
-  const nextRound = useCallback(async (): Promise<void> => {
-    if (!session) return;
+  const nextRound = useCallback(async (): Promise<MutationResult> => {
+    setError(null);
+    if (!session) return { ok: false, message: 'Ingen aktiv sesjon.' };
 
     const { error: err } = await supabase
       .from('sessions')
@@ -391,13 +357,17 @@ export function useSession() {
       .eq('id', session.id);
 
     if (err) {
-      setError('Kunne ikke starte ny runde. Prøv igjen.');
+      const message = 'Kunne ikke starte ny runde. Prøv igjen.';
+      setError(message);
+      return { ok: false, message };
     }
+    return { ok: true };
   }, [session]);
 
   /** Avslutt sesjon (fasilitator) */
-  const endSession = useCallback(async (): Promise<void> => {
-    if (!session) return;
+  const endSession = useCallback(async (): Promise<MutationResult> => {
+    setError(null);
+    if (!session) return { ok: false, message: 'Ingen aktiv sesjon.' };
 
     const { error: err } = await supabase
       .from('sessions')
@@ -405,13 +375,16 @@ export function useSession() {
       .eq('id', session.id);
 
     if (err) {
-      setError('Kunne ikke avslutte sesjonen. Prøv igjen.');
+      const message = 'Kunne ikke avslutte sesjonen. Prøv igjen.';
+      setError(message);
+      return { ok: false, message };
     }
+    return { ok: true };
   }, [session]);
 
   /** Logg ut (fjern lagret deltaker-info) */
   const logout = useCallback((): void => {
-    clearStorage();
+    clearLocalParticipant();
     setLocalParticipant(null);
     setSession(null);
   }, []);
