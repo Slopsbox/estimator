@@ -1,177 +1,27 @@
 import { useCallback, useEffect, useRef, useState, type PropsWithChildren } from 'react';
 import type { RealtimeChannel } from '@supabase/supabase-js';
-import {
-  clearCreateRequestId,
-  clearSessionPointer,
-  getOrCreateCreateRequestId,
-  readSessionPointer,
-  writeLastUsedName,
-  writeSessionPointer,
-} from '../lib/localStorage';
-import { ensureAnonymousIdentity, supabase } from '../lib/supabase';
+import { sessionServices } from '../app/sessionServices';
 import type {
   LocalParticipant,
-  Participant,
-  ParticipantRole,
   RoomActivityType,
   RoundParticipant,
   Session,
   SessionPointer,
-  Size,
-  Value,
   Vote,
   VoteSubmission,
 } from '../lib/types';
+import type { RoomMembershipSnapshot } from '../rooms/services/roomMembershipService';
 import { SessionContext, type ConnectionState, type JoinResult, type MutationResult, type RestoreStatus, type SessionContextValue } from './sessionContext';
 
 const GENERIC_RESTORE_ERROR = 'Kunne ikke koble til sesjonen. Vi prøver igjen.';
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-function isNullableString(value: unknown): value is string | null {
-  return typeof value === 'string' || value === null;
-}
-
-function isRole(value: unknown): value is ParticipantRole {
-  return value === 'facilitator' || value === 'participant';
-}
-
-function isActivityType(value: unknown): value is RoomActivityType {
-  return value === 'estimation' || value === 'health_check';
-}
-
-function isSize(value: unknown): value is Size {
-  return value === 'xs' || value === 's' || value === 'm' || value === 'l' || value === 'xl';
-}
-
-function isValue(value: unknown): value is Value {
-  return value === 'gold' || value === 'silver' || value === 'bronze';
-}
-
-function parseSession(value: unknown): Session | null {
-  if (!isRecord(value)) return null;
-  if (
-    typeof value.id !== 'string' || typeof value.created_at !== 'string'
-    || typeof value.current_round !== 'number' || !isNullableString(value.join_code)
-    || typeof value.started !== 'boolean' || typeof value.status !== 'string'
-    || typeof value.votes_revealed !== 'boolean' || typeof value.consensus_streak !== 'number'
-  ) return null;
-  return {
-    id: value.id,
-    created_at: value.created_at,
-    current_round: value.current_round,
-    join_code: value.join_code,
-    started: value.started,
-    status: value.status,
-    votes_revealed: value.votes_revealed,
-    consensus_streak: value.consensus_streak,
-  };
-}
-
-function parseParticipant(value: unknown): Participant | null {
-  if (!isRecord(value)) return null;
-  if (
-    typeof value.id !== 'string' || typeof value.joined_at !== 'string'
-    || typeof value.name !== 'string' || !isRole(value.role)
-    || typeof value.session_id !== 'string' || !isNullableString(value.left_at)
-  ) return null;
-  return {
-    id: value.id,
-    joined_at: value.joined_at,
-    name: value.name,
-    role: value.role,
-    session_id: value.session_id,
-    left_at: value.left_at,
-  };
-}
-
-function parseVote(value: unknown): Vote | null {
-  if (value === null || value === undefined) return null;
-  if (!isRecord(value)) return null;
-  if (
-    typeof value.id !== 'string' || typeof value.created_at !== 'string'
-    || typeof value.participant_id !== 'string' || typeof value.round !== 'number'
-    || typeof value.session_id !== 'string' || !isSize(value.size) || !isValue(value.value)
-  ) return null;
-  return {
-    id: value.id,
-    created_at: value.created_at,
-    participant_id: value.participant_id,
-    round: value.round,
-    session_id: value.session_id,
-    size: value.size,
-    value: value.value,
-  };
-}
-
-function parseRoundParticipant(value: unknown): RoundParticipant | null {
-  if (value === null || value === undefined) return null;
-  if (!isRecord(value)) return null;
-  if (
-    typeof value.joined_at !== 'string' || typeof value.participant_id !== 'string'
-    || typeof value.reestimate_used !== 'boolean' || typeof value.round !== 'number'
-    || typeof value.session_id !== 'string'
-  ) return null;
-  return {
-    joined_at: value.joined_at,
-    participant_id: value.participant_id,
-    reestimate_used: value.reestimate_used,
-    round: value.round,
-    session_id: value.session_id,
-  };
-}
-
-function localFromParticipant(participant: Participant): LocalParticipant {
-  return {
-    participantId: participant.id,
-    sessionId: participant.session_id,
-    name: participant.name,
-    role: participant.role as ParticipantRole,
-  };
-}
-
-function pointerFromParticipant(participant: Participant, activityType: RoomActivityType): SessionPointer {
-  return { version: 2, activityType, ...localFromParticipant(participant) };
-}
-
-function parseMembershipPayload(value: unknown) {
-  if (!isRecord(value) || (value.status !== 'ok' && value.status !== 'active_session_exists')) return null;
-  if (!isRecord(value.session)) return null;
-  const session = parseSession(value.session);
-  const participant = parseParticipant(value.participant);
-  const roundParticipant = parseRoundParticipant(value.round_participant);
-  const sessionValue = value.session;
-  const hasEnvelopeActivityType = Object.prototype.hasOwnProperty.call(value, 'activity_type');
-  const hasSessionActivityType = Object.prototype.hasOwnProperty.call(sessionValue, 'activity_type');
-  const envelopeActivityType = value.activity_type;
-  const sessionActivityType = sessionValue.activity_type;
-  if (
-    (hasEnvelopeActivityType && !isActivityType(envelopeActivityType))
-    || (hasSessionActivityType && !isActivityType(sessionActivityType))
-    || (hasEnvelopeActivityType && hasSessionActivityType && envelopeActivityType !== sessionActivityType)
-  ) return null;
-  const activityType = hasEnvelopeActivityType
-    ? envelopeActivityType as RoomActivityType
-    : hasSessionActivityType
-      ? sessionActivityType as RoomActivityType
-      : 'estimation';
-  if (!session || !participant || participant.session_id !== session.id) return null;
-  if (roundParticipant && (
-    roundParticipant.session_id !== session.id
-    || roundParticipant.participant_id !== participant.id
-    || roundParticipant.round !== session.current_round
-  )) return null;
-  return { session, participant, roundParticipant, activityType };
-}
+const { roomMembership, estimation, storage, realtime } = sessionServices;
 
 export function SessionProvider({ children }: PropsWithChildren) {
-  const [pointer, setPointer] = useState<SessionPointer | null>(readSessionPointer);
+  const [pointer, setPointer] = useState<SessionPointer | null>(storage.readSessionPointer);
   const [session, setSession] = useState<Session | null>(null);
-  const [activityType, setActivityType] = useState<RoomActivityType | null>(() => readSessionPointer()?.activityType ?? null);
+  const [activityType, setActivityType] = useState<RoomActivityType | null>(() => storage.readSessionPointer()?.activityType ?? null);
   const [localParticipant, setLocalParticipant] = useState<LocalParticipant | null>(() => {
-    const initial = readSessionPointer();
+    const initial = storage.readSessionPointer();
     if (!initial) return null;
     return {
       participantId: initial.participantId,
@@ -195,7 +45,7 @@ export function SessionProvider({ children }: PropsWithChildren) {
   const clearAppSession = useCallback((status: RestoreStatus = 'ready') => {
     generationRef.current += 1;
     restoreRequestedRef.current = false;
-    clearSessionPointer();
+    storage.clearSessionPointer();
     setPointer(null);
     setSession(null);
     setActivityType(null);
@@ -208,7 +58,7 @@ export function SessionProvider({ children }: PropsWithChildren) {
   }, []);
 
   const restore = useCallback(async () => {
-    const activePointer = readSessionPointer();
+    const activePointer = storage.readSessionPointer();
     if (!activePointer) {
       setRestoreStatus('ready');
       setConnectionState('idle');
@@ -222,30 +72,20 @@ export function SessionProvider({ children }: PropsWithChildren) {
     const attempt = (async () => {
       setConnectionState('connecting');
       try {
-        await ensureAnonymousIdentity();
-        const result = await supabase.rpc('restore_session', { p_session_id: activePointer.sessionId });
+        const result = await roomMembership.restore(activePointer.sessionId);
         if (generation !== generationRef.current) return;
-        if (result.error || !isRecord(result.data)) throw new Error('restore_failed');
-        if (result.data.status === 'membership_missing' || result.data.status === 'session_completed') {
+        if (!result.ok && (result.reason === 'membership_missing' || result.reason === 'session_completed')) {
           clearAppSession('invalid');
           return;
         }
-        const payload = parseMembershipPayload(result.data);
-        if (!payload) throw new Error('invalid_restore_payload');
-        const vote = parseVote(result.data.vote);
-        if (vote && (
-          vote.session_id !== payload.session.id
-          || vote.participant_id !== payload.participant.id
-          || vote.round !== payload.session.current_round
-        )) throw new Error('invalid_restore_vote_scope');
-        const authoritativePointer = pointerFromParticipant(payload.participant, payload.activityType);
-        writeSessionPointer(authoritativePointer);
-        setPointer(authoritativePointer);
-        setSession(payload.session);
-        setActivityType(payload.activityType);
-        setLocalParticipant(localFromParticipant(payload.participant));
-        setOwnVote(vote);
-        setRoundParticipant(payload.roundParticipant);
+        if (!result.ok) throw new Error('restore_failed');
+        roomMembership.persist(result.snapshot);
+        setPointer(result.snapshot.pointer);
+        setSession(result.snapshot.session);
+        setActivityType(result.snapshot.activityType);
+        setLocalParticipant(result.snapshot.localParticipant);
+        setOwnVote(result.snapshot.ownVote);
+        setRoundParticipant(result.snapshot.roundParticipant);
         setError(null);
         setRestoreStatus('ready');
         setConnectionState('connected');
@@ -257,7 +97,7 @@ export function SessionProvider({ children }: PropsWithChildren) {
       }
     })().finally(() => {
       if (restoreInFlightRef.current === attempt) restoreInFlightRef.current = null;
-      const latestPointer = readSessionPointer();
+      const latestPointer = storage.readSessionPointer();
       const shouldRestoreAgain = restoreRequestedRef.current
         && generation === generationRef.current
         && latestPointer?.sessionId === activePointer.sessionId
@@ -296,15 +136,16 @@ export function SessionProvider({ children }: PropsWithChildren) {
     const connect = () => {
       if (!active || generation !== generationRef.current) return;
       setConnectionState('connecting');
-      channel = supabase
+      let retired = false;
+      const currentChannel = realtime
         .channel(`session:${sessionId}:session-watch:${generation}`, { config: { private: true } })
         .on('postgres_changes', {
           event: 'UPDATE', schema: 'public', table: 'sessions', filter: `id=eq.${sessionId}`,
         }, () => {
-          if (active && generation === generationRef.current) void restore();
+          if (active && !retired && channel === currentChannel && generation === generationRef.current) void restore();
         })
         .subscribe((status) => {
-          if (!active || generation !== generationRef.current) return;
+          if (!active || retired || channel !== currentChannel || generation !== generationRef.current) return;
           if (status === 'SUBSCRIBED') {
             setConnectionState('connected');
             if (firstSubscription) {
@@ -319,34 +160,32 @@ export function SessionProvider({ children }: PropsWithChildren) {
             setRestoreStatus((current) => current === 'initializing' ? 'reconnecting' : current);
             if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
             retryTimerRef.current = setTimeout(() => {
-              if (!active || generation !== generationRef.current) return;
-              void supabase.removeChannel(channel);
+              if (!active || retired || channel !== currentChannel || generation !== generationRef.current) return;
+              retired = true;
+              void realtime.removeChannel(currentChannel);
               connect();
             }, 2000);
           }
         });
+      channel = currentChannel;
     };
     connect();
     return () => {
       active = false;
       if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
-      if (channel) void supabase.removeChannel(channel);
+      if (channel) void realtime.removeChannel(channel);
     };
   }, [pointer?.sessionId, restore]);
 
-  const applyMembership = useCallback((payload: ReturnType<typeof parseMembershipPayload>) => {
-    if (!payload) return false;
-    const authoritativePointer = pointerFromParticipant(payload.participant, payload.activityType);
-    writeSessionPointer(authoritativePointer);
-    setPointer(authoritativePointer);
-    setSession(payload.session);
-    setActivityType(payload.activityType);
-    setLocalParticipant(localFromParticipant(payload.participant));
+  const applyMembership = useCallback((snapshot: RoomMembershipSnapshot) => {
+    setPointer(snapshot.pointer);
+    setSession(snapshot.session);
+    setActivityType(snapshot.activityType);
+    setLocalParticipant(snapshot.localParticipant);
     setOwnVote(null);
-    setRoundParticipant(payload.roundParticipant);
+    setRoundParticipant(snapshot.roundParticipant);
     setRestoreStatus('ready');
     setError(null);
-    return true;
   }, []);
 
   const createSession = useCallback(async (name: string): Promise<Session | null> => {
@@ -355,17 +194,12 @@ export function SessionProvider({ children }: PropsWithChildren) {
     setLoading(true);
     setError(null);
     try {
-      await ensureAnonymousIdentity();
-      const requestId = getOrCreateCreateRequestId();
-      const result = await supabase.rpc('create_session', {
-        p_request_id: requestId,
-        p_facilitator_name: name.trim(),
-      });
+      const result = await roomMembership.create(name, storage.getOrCreateCreateRequestId());
       if (generation !== generationRef.current) return null;
-      const payload = result.error ? null : parseMembershipPayload(result.data);
-      if (!payload || !applyMembership(payload)) throw new Error('create_failed');
-      clearCreateRequestId();
-      return payload.session;
+      if (!result.ok) throw new Error('create_failed');
+      roomMembership.persist(result.snapshot, { clearCreateRequestId: true });
+      applyMembership(result.snapshot);
+      return result.snapshot.session;
     } catch {
       if (generation === generationRef.current) setError('Kunne ikke opprette sesjon. Prøv igjen.');
       return null;
@@ -380,19 +214,15 @@ export function SessionProvider({ children }: PropsWithChildren) {
     setLoading(true);
     setError(null);
     try {
-      await ensureAnonymousIdentity();
-      const result = await supabase.rpc('join_session', {
-        p_join_code: code.trim().toUpperCase(),
-        p_name: name.trim(),
-      });
+      const result = await roomMembership.join(code, name);
       if (generation !== generationRef.current) return { ok: false, reason: 'transient' };
-      if (result.error || !isRecord(result.data)) throw new Error('join_failed');
-      if (result.data.status === 'session_not_found') return { ok: false, reason: 'session_not_found' };
-      if (result.data.status === 'role_conflict') return { ok: false, reason: 'role_conflict' };
-      const payload = parseMembershipPayload(result.data);
-      if (!payload || !applyMembership(payload)) throw new Error('invalid_join_payload');
-      writeLastUsedName(payload.participant.name);
-      return { ok: true, activityType: payload.activityType };
+      if (!result.ok && (result.reason === 'session_not_found' || result.reason === 'role_conflict')) {
+        return { ok: false, reason: result.reason };
+      }
+      if (!result.ok) throw new Error('join_failed');
+      roomMembership.persist(result.snapshot, { rememberName: true });
+      applyMembership(result.snapshot);
+      return { ok: true, activityType: result.snapshot.activityType };
     } catch {
       if (generation === generationRef.current) setError('Kunne ikke koble til sesjonen. Prøv igjen.');
       return { ok: false, reason: 'transient' };
@@ -402,22 +232,16 @@ export function SessionProvider({ children }: PropsWithChildren) {
   }, [applyMembership]);
 
   const sessionMutation = useCallback(async (
-    rpc: 'start_session' | 'reveal_votes' | 'next_round' | 'end_session',
+    operation: 'start' | 'reveal' | 'next' | 'end',
     message: string,
   ): Promise<MutationResult> => {
     if (!session) return { ok: false, message: 'Ingen aktiv sesjon.' };
     setError(null);
     const generation = generationRef.current;
     try {
-      await ensureAnonymousIdentity();
-      const result = await supabase.rpc(rpc, { p_session_id: session.id });
-      if (generation !== generationRef.current || result.error || !isRecord(result.data)) throw new Error('mutation_failed');
-      const validStatus = result.data.status === 'ok'
-        || (rpc === 'reveal_votes' && result.data.status === 'already_revealed');
-      if (!validStatus) throw new Error('invalid_mutation_payload');
-      const updated = parseSession(result.data.session);
-      if (!updated || updated.id !== session.id) throw new Error('invalid_mutation_session');
-      setSession(updated);
+      const result = await estimation[operation](session.id);
+      if (generation !== generationRef.current || !result.ok) throw new Error('mutation_failed');
+      setSession(result.session);
       return { ok: true };
     } catch {
       if (generation === generationRef.current) setError(message);
@@ -425,20 +249,17 @@ export function SessionProvider({ children }: PropsWithChildren) {
     }
   }, [session]);
 
-  const startSession = useCallback(() => sessionMutation('start_session', 'Kunne ikke starte sesjonen. Prøv igjen.'), [sessionMutation]);
-  const revealVotes = useCallback(() => sessionMutation('reveal_votes', 'Kunne ikke avsløre stemmer. Prøv igjen.'), [sessionMutation]);
-  const nextRound = useCallback(() => sessionMutation('next_round', 'Kunne ikke starte ny runde. Prøv igjen.'), [sessionMutation]);
-  const endSession = useCallback(() => sessionMutation('end_session', 'Kunne ikke avslutte sesjonen. Prøv igjen.'), [sessionMutation]);
+  const startSession = useCallback(() => sessionMutation('start', 'Kunne ikke starte sesjonen. Prøv igjen.'), [sessionMutation]);
+  const revealVotes = useCallback(() => sessionMutation('reveal', 'Kunne ikke avsløre stemmer. Prøv igjen.'), [sessionMutation]);
+  const nextRound = useCallback(() => sessionMutation('next', 'Kunne ikke starte ny runde. Prøv igjen.'), [sessionMutation]);
+  const endSession = useCallback(() => sessionMutation('end', 'Kunne ikke avslutte sesjonen. Prøv igjen.'), [sessionMutation]);
 
   const leaveSession = useCallback(async (): Promise<MutationResult> => {
     if (!session) return { ok: false, message: 'Ingen aktiv sesjon.' };
     const generation = generationRef.current;
     try {
-      await ensureAnonymousIdentity();
-      const result = await supabase.rpc('leave_session', { p_session_id: session.id });
-      if (generation !== generationRef.current || result.error || !isRecord(result.data) || result.data.status !== 'ok') {
-        throw new Error('leave_failed');
-      }
+      const result = await roomMembership.leave(session.id);
+      if (generation !== generationRef.current || !result.ok) throw new Error('leave_failed');
       clearAppSession('ready');
       return { ok: true };
     } catch {
@@ -451,65 +272,34 @@ export function SessionProvider({ children }: PropsWithChildren) {
   const claimRound = useCallback(async (): Promise<MutationResult> => {
     if (!session || !localParticipant) return { ok: false, message: 'Ingen aktiv sesjon.' };
     const generation = generationRef.current;
-    try {
-      await ensureAnonymousIdentity();
-    } catch {
-      return { ok: false, message: 'Kunne ikke klargjøre runden. Prøv igjen.' };
-    }
-    const result = await supabase.rpc('claim_round', { p_session_id: session.id });
+    const result = await estimation.claim(session, localParticipant);
     if (generation !== generationRef.current) return { ok: false, message: 'Sesjonen er ikke lenger aktiv.' };
-    const payload = !result.error && isRecord(result.data) && result.data.status === 'ok'
-      ? parseRoundParticipant(result.data.round_participant) : null;
-    if (!payload || payload.session_id !== session.id || payload.round !== session.current_round
-      || payload.participant_id !== localParticipant.participantId) {
+    if (!result.ok) {
       return { ok: false, message: 'Kunne ikke klargjøre runden. Prøv igjen.' };
     }
-    setRoundParticipant(payload);
+    setRoundParticipant(result.roundParticipant);
     return { ok: true };
   }, [localParticipant, session]);
 
   const castVote = useCallback(async (vote: VoteSubmission): Promise<MutationResult> => {
     if (!session || !localParticipant || !roundParticipant) return { ok: false, message: 'Ingen aktiv sesjon.' };
     const generation = generationRef.current;
-    try {
-      await ensureAnonymousIdentity();
-    } catch {
-      return { ok: false, message: 'Kunne ikke registrere stemme. Prøv igjen.' };
-    }
-    const result = await supabase.rpc('cast_vote', {
-      p_session_id: session.id,
-      p_round: session.current_round,
-      p_size: vote.size,
-      p_value: vote.value,
-    });
-    const returnedVote = !result.error && isRecord(result.data)
-      && (result.data.status === 'ok' || result.data.status === 'duplicate')
-      ? parseVote(result.data.vote) : null;
+    const result = await estimation.cast(session, localParticipant, vote);
     if (generation !== generationRef.current) return { ok: false, message: 'Sesjonen er ikke lenger aktiv.' };
-    if (!returnedVote || returnedVote.session_id !== session.id
-      || returnedVote.participant_id !== localParticipant.participantId
-      || returnedVote.round !== session.current_round) {
-      void restore();
+    if (!result.ok) {
+      if (result.reason !== 'identity') void restore();
       return { ok: false, message: 'Kunne ikke registrere stemme. Prøv igjen.' };
     }
-    setOwnVote(returnedVote);
+    setOwnVote(result.vote);
     return { ok: true };
   }, [localParticipant, restore, roundParticipant, session]);
 
   const retractVote = useCallback(async (): Promise<MutationResult> => {
     if (!session || !roundParticipant) return { ok: false, message: 'Ingen aktiv stemme.' };
     const generation = generationRef.current;
-    try {
-      await ensureAnonymousIdentity();
-    } catch {
-      return { ok: false, message: 'Kunne ikke endre stemmen. Prøv igjen.' };
-    }
-    const result = await supabase.rpc('retract_vote', {
-      p_session_id: session.id,
-      p_round: session.current_round,
-    });
+    const result = await estimation.retract(session);
     if (generation !== generationRef.current) return { ok: false, message: 'Sesjonen er ikke lenger aktiv.' };
-    if (result.error || !isRecord(result.data) || result.data.status !== 'ok') {
+    if (!result.ok) {
       return { ok: false, message: 'Kunne ikke endre stemmen. Prøv igjen.' };
     }
     setOwnVote(null);

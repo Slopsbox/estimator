@@ -3,7 +3,13 @@ import { createElement, type PropsWithChildren } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { CREATE_REQUEST_ID_STORAGE_KEY, LOCAL_PARTICIPANT_STORAGE_KEY } from '../../lib/localStorage';
 
-const { rpcMock, ensureIdentityMock, channelMock, removeChannelMock } = vi.hoisted(() => {
+const {
+  roomMocks,
+  estimationMocks,
+  storageMocks,
+  channelMock,
+  removeChannelMock,
+} = vi.hoisted(() => {
   let subscription: ((status: string) => void) | undefined;
   const channelMock = {
     on: vi.fn().mockReturnThis(),
@@ -14,22 +20,35 @@ const { rpcMock, ensureIdentityMock, channelMock, removeChannelMock } = vi.hoist
     trigger: (status: string) => subscription?.(status),
   };
   return {
-    rpcMock: vi.fn(),
-    ensureIdentityMock: vi.fn(),
+    roomMocks: {
+      create: vi.fn(), join: vi.fn(), restore: vi.fn(), leave: vi.fn(), persist: vi.fn(),
+    },
+    estimationMocks: {
+      start: vi.fn(), reveal: vi.fn(), next: vi.fn(), end: vi.fn(),
+      claim: vi.fn(), cast: vi.fn(), retract: vi.fn(),
+    },
+    storageMocks: {
+      readSessionPointer: vi.fn(), writeSessionPointer: vi.fn(), clearSessionPointer: vi.fn(),
+      getOrCreateCreateRequestId: vi.fn(), clearCreateRequestId: vi.fn(), writeLastUsedName: vi.fn(),
+    },
     channelMock,
     removeChannelMock: vi.fn(),
   };
 });
 
-vi.mock('../../lib/supabase', () => ({
-  ensureAnonymousIdentity: ensureIdentityMock,
-  supabase: {
-    rpc: rpcMock,
-    channel: vi.fn(() => channelMock),
-    removeChannel: removeChannelMock,
+vi.mock('../../app/sessionServices', () => ({
+  sessionServices: {
+    roomMembership: roomMocks,
+    estimation: estimationMocks,
+    storage: storageMocks,
+    realtime: {
+      channel: vi.fn(() => channelMock),
+      removeChannel: removeChannelMock,
+    },
   },
 }));
 
+import { sessionServices } from '../../app/sessionServices';
 import { SessionProvider } from '../../hooks/SessionProvider';
 import { useSession } from '../../hooks/useSession';
 
@@ -38,39 +57,74 @@ const SESSION = {
   join_code: 'ABCD', votes_revealed: false, started: true, consensus_streak: 0,
 };
 const PARTICIPANT = {
-  id: 'participant-1', session_id: 'session-1', name: 'Kari', role: 'participant',
+  id: 'participant-1', session_id: SESSION.id, name: 'Kari', role: 'participant' as const,
   joined_at: '2026-01-01T00:00:00Z', left_at: null,
 };
+const LOCAL_PARTICIPANT = {
+  participantId: PARTICIPANT.id, sessionId: SESSION.id, name: PARTICIPANT.name, role: PARTICIPANT.role,
+};
 const ROUND_PARTICIPANT = {
-  session_id: 'session-1', round: 1, participant_id: 'participant-1',
+  session_id: SESSION.id, round: 1, participant_id: PARTICIPANT.id,
   joined_at: '2026-01-01T00:00:00Z', reestimate_used: false,
 };
 const VOTE = {
-  id: 'vote-1', session_id: 'session-1', participant_id: 'participant-1', round: 1,
-  size: 'm', value: 'gold', created_at: '2026-01-01T00:00:00Z',
+  id: 'vote-1', session_id: SESSION.id, participant_id: PARTICIPANT.id, round: 1,
+  size: 'm' as const, value: 'gold' as const, created_at: '2026-01-01T00:00:00Z',
 };
 
-function wrapper({ children }: PropsWithChildren) {
-  return createElement(SessionProvider, null, children);
+function pointer(activityType: 'estimation' | 'health_check' = 'estimation') {
+  return { version: 2 as const, activityType, ...LOCAL_PARTICIPANT };
+}
+
+function snapshot(activityType: 'estimation' | 'health_check' = 'estimation') {
+  return {
+    session: SESSION,
+    participant: PARTICIPANT,
+    localParticipant: LOCAL_PARTICIPANT,
+    pointer: pointer(activityType),
+    activityType,
+    ownVote: VOTE,
+    roundParticipant: ROUND_PARTICIPANT,
+  };
 }
 
 function storePointer() {
-  localStorage.setItem(LOCAL_PARTICIPANT_STORAGE_KEY, JSON.stringify({
-    version: 2, activityType: 'estimation', sessionId: SESSION.id, participantId: PARTICIPANT.id,
-    name: 'Cached name', role: 'participant',
-  }));
+  localStorage.setItem(LOCAL_PARTICIPANT_STORAGE_KEY, JSON.stringify(pointer()));
 }
 
-function okRestore() {
-  return { data: { status: 'ok', session: SESSION, participant: PARTICIPANT, vote: VOTE, round_participant: ROUND_PARTICIPANT }, error: null };
+function wrapper({ children }: PropsWithChildren) {
+  return createElement(SessionProvider, null, children);
 }
 
 describe('SessionProvider', () => {
   beforeEach(() => {
     localStorage.clear();
     vi.clearAllMocks();
-    ensureIdentityMock.mockResolvedValue({ id: 'user-1' });
-    rpcMock.mockResolvedValue({ data: null, error: null });
+    storageMocks.readSessionPointer.mockImplementation(() => {
+      const stored = localStorage.getItem(LOCAL_PARTICIPANT_STORAGE_KEY);
+      return stored ? JSON.parse(stored) : null;
+    });
+    storageMocks.writeSessionPointer.mockImplementation((value) => {
+      localStorage.setItem(LOCAL_PARTICIPANT_STORAGE_KEY, JSON.stringify(value));
+    });
+    storageMocks.clearSessionPointer.mockImplementation(() => {
+      localStorage.removeItem(LOCAL_PARTICIPANT_STORAGE_KEY);
+    });
+    storageMocks.getOrCreateCreateRequestId.mockImplementation(() => {
+      const existing = localStorage.getItem(CREATE_REQUEST_ID_STORAGE_KEY);
+      if (existing) return existing;
+      localStorage.setItem(CREATE_REQUEST_ID_STORAGE_KEY, 'request-1');
+      return 'request-1';
+    });
+    storageMocks.clearCreateRequestId.mockImplementation(() => {
+      localStorage.removeItem(CREATE_REQUEST_ID_STORAGE_KEY);
+    });
+    roomMocks.persist.mockImplementation((value, options) => {
+      storageMocks.writeSessionPointer(value.pointer);
+      if (options?.clearCreateRequestId) storageMocks.clearCreateRequestId();
+      if (options?.rememberName) storageMocks.writeLastUsedName(value.participant.name);
+    });
+    roomMocks.restore.mockResolvedValue({ ok: false, reason: 'rpc' });
     channelMock.on.mockReturnThis();
     channelMock.subscribe.mockImplementation((callback: (status: string) => void) => {
       channelMock.trigger = (status: string) => callback(status);
@@ -83,383 +137,363 @@ describe('SessionProvider', () => {
     expect(() => renderHook(() => useSession())).toThrow('useSession må brukes innenfor SessionProvider');
   });
 
-  it('gjenoppretter autoritativ session, participant, vote og round membership', async () => {
+  it('gjenoppretter og persisterer autoritativt snapshot', async () => {
     storePointer();
-    rpcMock.mockResolvedValueOnce(okRestore());
-    const { result } = renderHook(() => useSession(), { wrapper });
+    roomMocks.restore.mockResolvedValueOnce({ ok: true, snapshot: snapshot('health_check') });
 
+    const { result } = renderHook(() => useSession(), { wrapper });
     await waitFor(() => expect(result.current.restoreStatus).toBe('ready'));
 
-    expect(result.current.session).toEqual(SESSION);
-    expect(result.current.localParticipant?.name).toBe('Kari');
-    expect(result.current.ownVote).toEqual(VOTE);
-    expect(result.current.roundParticipant).toEqual(ROUND_PARTICIPANT);
-    expect(result.current.activityType).toBe('estimation');
-  });
-
-  it('bruker estimation når activity_type mangler i hele membership-payloaden', async () => {
-    storePointer();
-    rpcMock.mockResolvedValueOnce(okRestore());
-    const { result } = renderHook(() => useSession(), { wrapper });
-
-    await waitFor(() => expect(result.current.restoreStatus).toBe('ready'));
-
-    expect(result.current.activityType).toBe('estimation');
-  });
-
-  it.each([
-    ['envelope', { activity_type: 'health_check', session: SESSION }],
-    ['session', { session: { ...SESSION, activity_type: 'health_check' } }],
-  ])('leser eksplisitt activity_type fra %s', async (_source, overrides) => {
-    storePointer();
-    rpcMock.mockResolvedValueOnce({
-      ...okRestore(),
-      data: { ...okRestore().data, ...overrides },
-    });
-    const { result } = renderHook(() => useSession(), { wrapper });
-
-    await waitFor(() => expect(result.current.restoreStatus).toBe('ready'));
-
-    expect(result.current.activityType).toBe('health_check');
-  });
-
-  it.each([
-    ['konflikt', { activity_type: 'estimation', session: { ...SESSION, activity_type: 'health_check' } }],
-    ['ukjent envelope-verdi', { activity_type: 'retro', session: SESSION }],
-    ['ukjent session-verdi', { session: { ...SESSION, activity_type: 'retro' } }],
-  ])('avviser activity_type ved %s', async (_scenario, overrides) => {
-    storePointer();
-    rpcMock.mockResolvedValueOnce({
-      ...okRestore(),
-      data: { ...okRestore().data, ...overrides },
-    });
-    const { result } = renderHook(() => useSession(), { wrapper });
-
-    await waitFor(() => expect(result.current.restoreStatus).toBe('reconnecting'));
-
-    expect(result.current.session).toBeNull();
-  });
-
-  it('restore lar serverens activity type overstyre pointer-cache', async () => {
-    localStorage.setItem(LOCAL_PARTICIPANT_STORAGE_KEY, JSON.stringify({
-      version: 2, activityType: 'estimation', sessionId: SESSION.id, participantId: PARTICIPANT.id,
-      name: 'Cached name', role: 'participant', updatedAt: new Date().toISOString(),
-    }));
-    rpcMock.mockResolvedValueOnce({
-      ...okRestore(),
-      data: { ...okRestore().data, activity_type: 'health_check' },
-    });
-    const { result } = renderHook(() => useSession(), { wrapper });
-
-    await waitFor(() => expect(result.current.restoreStatus).toBe('ready'));
-
-    expect(result.current.activityType).toBe('health_check');
-    expect(JSON.parse(localStorage.getItem(LOCAL_PARTICIPANT_STORAGE_KEY)!)).toMatchObject({
-      version: 2,
+    expect(roomMocks.restore).toHaveBeenCalledWith(SESSION.id);
+    expect(roomMocks.persist).toHaveBeenCalledWith(snapshot('health_check'));
+    expect(result.current).toMatchObject({
+      session: SESSION,
       activityType: 'health_check',
+      localParticipant: LOCAL_PARTICIPANT,
+      ownVote: VOTE,
+      roundParticipant: ROUND_PARTICIPANT,
+      connectionState: 'connected',
     });
   });
 
   it('starter restore uten å vente på SUBSCRIBED', async () => {
     storePointer();
     channelMock.subscribe.mockImplementation(() => channelMock);
-    rpcMock.mockResolvedValueOnce(okRestore());
+    roomMocks.restore.mockResolvedValueOnce({ ok: true, snapshot: snapshot() });
 
     const { result } = renderHook(() => useSession(), { wrapper });
 
     await waitFor(() => expect(result.current.restoreStatus).toBe('ready'));
-    expect(result.current.session).toEqual(SESSION);
-    expect((await import('../../lib/supabase')).supabase.channel).toHaveBeenCalledWith('session:session-1:session-watch:0', {
+    expect(sessionServices.realtime.channel).toHaveBeenCalledWith('session:session-1:session-watch:0', {
       config: { private: true },
     });
   });
 
-  it('beholder pointer og cached identity ved transient restore-feil', async () => {
+  it('beholder cached identity og viser norsk feil ved transient restore-feil', async () => {
     storePointer();
-    rpcMock.mockResolvedValueOnce({ data: null, error: { code: 'PGRST000' } });
     const { result } = renderHook(() => useSession(), { wrapper });
 
     await waitFor(() => expect(result.current.restoreStatus).toBe('reconnecting'));
 
-    expect(result.current.localParticipant?.name).toBe('Cached name');
+    expect(result.current.localParticipant).toEqual(LOCAL_PARTICIPANT);
+    expect(result.current.error).toBe('Kunne ikke koble til sesjonen. Vi prøver igjen.');
     expect(localStorage.getItem(LOCAL_PARTICIPANT_STORAGE_KEY)).not.toBeNull();
   });
 
-  it.each(['membership_missing', 'session_completed'])('rydder pointer ved %s', async (status) => {
+  it.each(['membership_missing', 'session_completed'] as const)('rydder lokal state ved %s', async (reason) => {
     storePointer();
-    rpcMock.mockResolvedValueOnce({ data: { status }, error: null });
+    roomMocks.restore.mockResolvedValueOnce({ ok: false, reason });
     const { result } = renderHook(() => useSession(), { wrapper });
 
     await waitFor(() => expect(result.current.restoreStatus).toBe('invalid'));
 
     expect(result.current.localParticipant).toBeNull();
-    expect(localStorage.getItem(LOCAL_PARTICIPANT_STORAGE_KEY)).toBeNull();
+    expect(storageMocks.clearSessionPointer).toHaveBeenCalledOnce();
   });
 
-  it('retry på online lykkes etter transient feil', async () => {
+  it('retryer restore ved online-event', async () => {
     storePointer();
-    rpcMock.mockResolvedValueOnce({ data: null, error: { code: 'network' } }).mockResolvedValueOnce(okRestore());
+    roomMocks.restore
+      .mockResolvedValueOnce({ ok: false, reason: 'rpc' })
+      .mockResolvedValueOnce({ ok: true, snapshot: snapshot() });
     const { result } = renderHook(() => useSession(), { wrapper });
     await waitFor(() => expect(result.current.restoreStatus).toBe('reconnecting'));
 
     act(() => window.dispatchEvent(new Event('online')));
 
     await waitFor(() => expect(result.current.restoreStatus).toBe('ready'));
-    expect(result.current.ownVote).toEqual(VOTE);
+    expect(roomMocks.restore).toHaveBeenCalledTimes(2);
   });
 
-  it('kjører en ny restore når session-event kommer under pågående restore', async () => {
+  it('coalescer session-event under pågående restore til ett nytt kall', async () => {
     storePointer();
     channelMock.subscribe.mockImplementation(() => channelMock);
-    const staleSession = { ...SESSION, current_round: 1 };
-    const currentSession = { ...SESSION, current_round: 2 };
-    let resolveFirst!: (value: ReturnType<typeof okRestore>) => void;
-    rpcMock
+    let resolveFirst!: (value: { ok: true; snapshot: ReturnType<typeof snapshot> }) => void;
+    roomMocks.restore
       .mockReturnValueOnce(new Promise((resolve) => { resolveFirst = resolve; }))
       .mockResolvedValueOnce({
-        data: {
-          ...okRestore().data,
-          session: currentSession,
-          vote: null,
-          round_participant: { ...ROUND_PARTICIPANT, round: 2 },
-        },
-        error: null,
+        ok: true,
+        snapshot: { ...snapshot(), session: { ...SESSION, current_round: 2 } },
       });
     const { result } = renderHook(() => useSession(), { wrapper });
-    await waitFor(() => expect(rpcMock).toHaveBeenCalledTimes(1));
-    const updateHandler = channelMock.on.mock.calls.find((call) => call[1].event === 'UPDATE')?.[2] as (() => void) | undefined;
+    await waitFor(() => expect(roomMocks.restore).toHaveBeenCalledTimes(1));
+    const updateHandler = channelMock.on.mock.calls.find((call) => call[1].event === 'UPDATE')?.[2];
 
     act(() => updateHandler?.());
-    await act(async () => resolveFirst({
-      data: { ...okRestore().data, session: staleSession },
-      error: null,
-    }));
+    await act(async () => resolveFirst({ ok: true, snapshot: snapshot() }));
 
-    await waitFor(() => expect(rpcMock).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(roomMocks.restore).toHaveBeenCalledTimes(2));
     await waitFor(() => expect(result.current.session?.current_round).toBe(2));
   });
 
-  it('ignorerer stale restore etter logout', async () => {
+  it('ignorerer stale restore etter logout uten storage-commit', async () => {
     storePointer();
-    let resolveRestore!: (value: ReturnType<typeof okRestore>) => void;
-    rpcMock.mockReturnValueOnce(new Promise((resolve) => { resolveRestore = resolve; }));
+    let resolveRestore!: (value: { ok: true; snapshot: ReturnType<typeof snapshot> }) => void;
+    roomMocks.restore.mockReturnValueOnce(new Promise((resolve) => { resolveRestore = resolve; }));
     const { result } = renderHook(() => useSession(), { wrapper });
-    await waitFor(() => expect(ensureIdentityMock).toHaveBeenCalled());
+    await waitFor(() => expect(roomMocks.restore).toHaveBeenCalledOnce());
 
     act(() => result.current.logout());
-    await act(async () => resolveRestore(okRestore()));
+    await act(async () => resolveRestore({ ok: true, snapshot: snapshot() }));
 
     expect(result.current.session).toBeNull();
-    expect(result.current.localParticipant).toBeNull();
+    expect(roomMocks.persist).not.toHaveBeenCalled();
   });
 
-  it('create bruker stabil request-ID og rydder den bare ved bekreftet suksess', async () => {
-    const createPayload = { status: 'ok', session: SESSION, participant: { ...PARTICIPANT, role: 'facilitator' }, round_participant: ROUND_PARTICIPANT };
-    rpcMock.mockResolvedValueOnce({ data: null, error: { code: 'network' } });
+  it('create committer pointer og request-ID bare etter current suksess', async () => {
+    roomMocks.create.mockResolvedValueOnce({ ok: true, snapshot: snapshot() });
     const { result } = renderHook(() => useSession(), { wrapper });
-    await waitFor(() => expect(result.current.restoreStatus).toBe('ready'));
 
     await act(async () => { await result.current.createSession('Ola'); });
-    const firstRequest = rpcMock.mock.calls.find((call) => call[0] === 'create_session')?.[1].p_request_id;
-    rpcMock.mockResolvedValueOnce({ data: createPayload, error: null });
-    await act(async () => { await result.current.createSession('Ola'); });
 
-    const createCalls = rpcMock.mock.calls.filter((call) => call[0] === 'create_session');
-    expect(createCalls[1][1].p_request_id).toBe(firstRequest);
-    expect(result.current.session).toEqual(SESSION);
-    expect(result.current.activityType).toBe('estimation');
+    expect(roomMocks.create).toHaveBeenCalledWith('Ola', 'request-1');
+    expect(roomMocks.persist).toHaveBeenCalledWith(snapshot(), { clearCreateRequestId: true });
     expect(localStorage.getItem(CREATE_REQUEST_ID_STORAGE_KEY)).toBeNull();
+    expect(result.current.session).toEqual(SESSION);
   });
 
-  it('join skiller ugyldig kode fra transient feil', async () => {
+  it('stale create skriver ikke pointer eller rydder request-ID', async () => {
+    let resolveCreate!: (value: { ok: true; snapshot: ReturnType<typeof snapshot> }) => void;
+    roomMocks.create.mockReturnValueOnce(new Promise((resolve) => { resolveCreate = resolve; }));
     const { result } = renderHook(() => useSession(), { wrapper });
-    await waitFor(() => expect(result.current.restoreStatus).toBe('ready'));
-    rpcMock.mockResolvedValueOnce({ data: { status: 'session_not_found' }, error: null });
-    let invalidResult: Awaited<ReturnType<typeof result.current.joinSession>> | undefined;
-    await act(async () => { invalidResult = await result.current.joinSession('ZZZZ', 'Kari'); });
-    expect(invalidResult).toEqual({ ok: false, reason: 'session_not_found' });
-    rpcMock.mockResolvedValueOnce({ data: null, error: { code: 'network' } });
-    let transientResult: Awaited<ReturnType<typeof result.current.joinSession>> | undefined;
-    await act(async () => { transientResult = await result.current.joinSession('ABCD', 'Kari'); });
-    expect(transientResult).toEqual({ ok: false, reason: 'transient' });
-  });
+    let createPromise!: Promise<unknown>;
 
-  it('join returnerer eksplisitt rolle-konflikt', async () => {
-    const { result } = renderHook(() => useSession(), { wrapper });
-    await waitFor(() => expect(result.current.restoreStatus).toBe('ready'));
-    rpcMock.mockResolvedValueOnce({ data: { status: 'role_conflict' }, error: null });
-
-    let joinResult: Awaited<ReturnType<typeof result.current.joinSession>> | undefined;
-    await act(async () => { joinResult = await result.current.joinSession('ABCD', 'Kari'); });
-
-    expect(joinResult).toEqual({ ok: false, reason: 'role_conflict' });
-  });
-
-  it('join returnerer og lagrer autoritativ activity type', async () => {
-    const { result } = renderHook(() => useSession(), { wrapper });
-    await waitFor(() => expect(result.current.restoreStatus).toBe('ready'));
-    rpcMock.mockResolvedValueOnce({
-      data: { ...okRestore().data, activity_type: 'health_check' },
-      error: null,
+    act(() => {
+      createPromise = result.current.createSession('Ola');
+      result.current.logout();
+    });
+    await act(async () => {
+      resolveCreate({ ok: true, snapshot: snapshot() });
+      await createPromise;
     });
 
-    let joinResult: Awaited<ReturnType<typeof result.current.joinSession>> | undefined;
-    await act(async () => { joinResult = await result.current.joinSession('ABCD', 'Kari'); });
-
-    expect(joinResult).toEqual({ ok: true, activityType: 'health_check' });
-    expect(result.current.activityType).toBe('health_check');
+    expect(roomMocks.persist).not.toHaveBeenCalled();
+    expect(localStorage.getItem(CREATE_REQUEST_ID_STORAGE_KEY)).toBe('request-1');
   });
 
-  it('cast duplicate er idempotent suksess og oppdaterer ownVote', async () => {
-    storePointer();
-    rpcMock.mockResolvedValueOnce(okRestore());
+  it.each(['session_not_found', 'role_conflict'] as const)('bevarer offentlig join-resultat for %s', async (reason) => {
+    roomMocks.join.mockResolvedValueOnce({ ok: false, reason });
     const { result } = renderHook(() => useSession(), { wrapper });
-    await waitFor(() => expect(result.current.restoreStatus).toBe('ready'));
-    rpcMock.mockResolvedValueOnce({ data: { status: 'duplicate', vote: VOTE }, error: null });
 
-    let castResult: Awaited<ReturnType<typeof result.current.castVote>> | undefined;
-    await act(async () => { castResult = await result.current.castVote({ size: 'm', value: 'gold' }); });
-    expect(castResult).toEqual({ ok: true });
-    expect(result.current.ownVote).toEqual(VOTE);
+    await expect(act(() => result.current.joinSession('ABCD', 'Kari')))
+      .resolves.toEqual({ ok: false, reason });
+    expect(result.current.error).toBeNull();
+  });
+
+  it('join committer snapshot og returnerer activity type', async () => {
+    roomMocks.join.mockResolvedValueOnce({ ok: true, snapshot: snapshot('health_check') });
+    const { result } = renderHook(() => useSession(), { wrapper });
+
+    let joined;
+    await act(async () => { joined = await result.current.joinSession('ABCD', 'Kari'); });
+
+    expect(joined).toEqual({ ok: true, activityType: 'health_check' });
+    expect(roomMocks.persist).toHaveBeenCalledWith(snapshot('health_check'), { rememberName: true });
+  });
+
+  it('stale join etter logout lagrer verken pointer eller navn', async () => {
+    let resolveJoin!: (value: { ok: true; snapshot: ReturnType<typeof snapshot> }) => void;
+    roomMocks.join.mockReturnValueOnce(new Promise((resolve) => { resolveJoin = resolve; }));
+    const { result } = renderHook(() => useSession(), { wrapper });
+    let joinPromise!: Promise<unknown>;
+
+    act(() => {
+      joinPromise = result.current.joinSession('ABCD', 'Kari');
+      result.current.logout();
+    });
+    await act(async () => {
+      resolveJoin({ ok: true, snapshot: snapshot('health_check') });
+      await joinPromise;
+    });
+
+    expect(roomMocks.persist).not.toHaveBeenCalled();
+    expect(storageMocks.writeLastUsedName).not.toHaveBeenCalled();
+    expect(result.current.session).toBeNull();
+  });
+
+  it('join-feil bevarer offentlig transient-resultat og norsk melding', async () => {
+    roomMocks.join.mockResolvedValueOnce({ ok: false, reason: 'rpc' });
+    const { result } = renderHook(() => useSession(), { wrapper });
+
+    let joined;
+    await act(async () => { joined = await result.current.joinSession('ABCD', 'Kari'); });
+
+    expect(joined).toEqual({ ok: false, reason: 'transient' });
+    expect(result.current.error).toBe('Kunne ikke koble til sesjonen. Prøv igjen.');
   });
 
   it.each([
-    ['startSession', 'start_session'],
-    ['revealVotes', 'reveal_votes'],
-    ['nextRound', 'next_round'],
-    ['endSession', 'end_session'],
-  ] as const)('%s bruker RPC og setter returnert session', async (method, rpcName) => {
+    ['startSession', 'start', 'Kunne ikke starte sesjonen. Prøv igjen.'],
+    ['revealVotes', 'reveal', 'Kunne ikke avsløre stemmer. Prøv igjen.'],
+    ['nextRound', 'next', 'Kunne ikke starte ny runde. Prøv igjen.'],
+    ['endSession', 'end', 'Kunne ikke avslutte sesjonen. Prøv igjen.'],
+  ] as const)('%s bruker estimation service og anvender returnert Session', async (method, serviceMethod, message) => {
     storePointer();
-    rpcMock.mockResolvedValueOnce(okRestore());
+    roomMocks.restore.mockResolvedValueOnce({ ok: true, snapshot: snapshot() });
     const { result } = renderHook(() => useSession(), { wrapper });
     await waitFor(() => expect(result.current.restoreStatus).toBe('ready'));
-    const updated = { ...SESSION, current_round: 2, votes_revealed: true };
-    rpcMock.mockResolvedValueOnce({ data: { status: 'ok', session: updated }, error: null });
+    const updated = { ...SESSION, current_round: 2 };
+    estimationMocks[serviceMethod].mockResolvedValueOnce({ ok: true, session: updated });
 
-    let mutationResult: { ok: boolean } | undefined;
-    await act(async () => { mutationResult = await result.current[method](); });
-
-    expect(mutationResult).toEqual({ ok: true });
-    expect(rpcMock).toHaveBeenLastCalledWith(rpcName, { p_session_id: SESSION.id });
+    await act(async () => { await result.current[method](); });
     expect(result.current.session).toEqual(updated);
+
+    estimationMocks[serviceMethod].mockResolvedValueOnce({ ok: false, reason: 'malformed' });
+    await act(async () => { await result.current[method](); });
+    expect(result.current.error).toBe(message);
   });
 
-  it('claimRound bruker RPC og setter roundParticipant', async () => {
+  it('claim, cast og retract anvender validerte service-resultater', async () => {
     storePointer();
-    rpcMock.mockResolvedValueOnce(okRestore());
+    roomMocks.restore.mockResolvedValueOnce({ ok: true, snapshot: snapshot() });
     const { result } = renderHook(() => useSession(), { wrapper });
     await waitFor(() => expect(result.current.restoreStatus).toBe('ready'));
-    const claimed = { ...ROUND_PARTICIPANT };
-    rpcMock.mockResolvedValueOnce({ data: { status: 'ok', round_participant: claimed }, error: null });
+    estimationMocks.claim.mockResolvedValueOnce({ ok: true, roundParticipant: ROUND_PARTICIPANT });
+    estimationMocks.cast.mockResolvedValueOnce({ ok: true, vote: VOTE });
+    estimationMocks.retract.mockResolvedValueOnce({ ok: true });
 
-    let claimResult: { ok: boolean } | undefined;
-    await act(async () => { claimResult = await result.current.claimRound(); });
+    await act(async () => { await result.current.claimRound(); });
+    await act(async () => { await result.current.castVote({ size: 'm', value: 'gold' }); });
+    await act(async () => { await result.current.retractVote(); });
 
-    expect(claimResult).toEqual({ ok: true });
-    expect(rpcMock).toHaveBeenLastCalledWith('claim_round', { p_session_id: SESSION.id });
-    expect(result.current.roundParticipant).toEqual(claimed);
+    expect(estimationMocks.claim).toHaveBeenCalledWith(SESSION, LOCAL_PARTICIPANT);
+    expect(estimationMocks.cast).toHaveBeenCalledWith(SESSION, LOCAL_PARTICIPANT, { size: 'm', value: 'gold' });
+    expect(result.current.ownVote).toBeNull();
+    expect(result.current.roundParticipant?.reestimate_used).toBe(true);
   });
 
-  it('avviser malformed og cross-scope RPC payloads', async () => {
+  it('cast identity-feil beholder gammel atferd uten restore-retry', async () => {
     storePointer();
-    rpcMock.mockResolvedValueOnce(okRestore());
+    roomMocks.restore.mockResolvedValueOnce({ ok: true, snapshot: snapshot() });
     const { result } = renderHook(() => useSession(), { wrapper });
     await waitFor(() => expect(result.current.restoreStatus).toBe('ready'));
+    estimationMocks.cast.mockResolvedValueOnce({ ok: false, reason: 'identity' });
 
-    rpcMock.mockResolvedValueOnce({ data: { status: 'ok', session: { ...SESSION, id: 'other-session' } }, error: null });
-    let startResult: Awaited<ReturnType<typeof result.current.startSession>> | undefined;
-    await act(async () => { startResult = await result.current.startSession(); });
-    expect(startResult).toEqual({
-      ok: false,
-      message: 'Kunne ikke starte sesjonen. Prøv igjen.',
-    });
+    await act(async () => { await result.current.castVote({ size: 'm', value: 'gold' }); });
 
-    rpcMock.mockResolvedValueOnce({ data: { status: 'ok', round_participant: { ...ROUND_PARTICIPANT, participant_id: 'other' } }, error: null });
-    let claimResult: Awaited<ReturnType<typeof result.current.claimRound>> | undefined;
-    await act(async () => { claimResult = await result.current.claimRound(); });
-    expect(claimResult).toEqual({
-      ok: false,
-      message: 'Kunne ikke klargjøre runden. Prøv igjen.',
-    });
-
-    rpcMock.mockResolvedValueOnce({ data: { status: 'ok', vote: { ...VOTE, round: 2 } }, error: null });
-    let castResult: Awaited<ReturnType<typeof result.current.castVote>> | undefined;
-    await act(async () => { castResult = await result.current.castVote({ size: 'm', value: 'gold' }); });
-    expect(castResult).toEqual({
-      ok: false,
-      message: 'Kunne ikke registrere stemme. Prøv igjen.',
-    });
+    expect(roomMocks.restore).toHaveBeenCalledTimes(1);
   });
 
-  it.each(['claimRound', 'castVote', 'retractVote'] as const)('ignorerer stale %s-svar etter logout', async (method) => {
+  it.each(['claim', 'cast', 'retract'] as const)('ignorerer stale %s-resultat etter logout', async (operation) => {
     storePointer();
-    rpcMock.mockResolvedValueOnce(okRestore());
+    roomMocks.restore.mockResolvedValueOnce({ ok: true, snapshot: snapshot() });
     const { result } = renderHook(() => useSession(), { wrapper });
     await waitFor(() => expect(result.current.restoreStatus).toBe('ready'));
-    let resolveMutation!: (value: { data: Record<string, unknown>; error: null }) => void;
-    rpcMock.mockReturnValueOnce(new Promise((resolve) => { resolveMutation = resolve; }));
+    let resolveMutation!: (value: unknown) => void;
+    estimationMocks[operation].mockReturnValueOnce(new Promise((resolve) => { resolveMutation = resolve; }));
 
-    let mutation: Promise<unknown>;
-    await act(async () => {
-      mutation = method === 'castVote'
-        ? result.current.castVote({ size: 'm', value: 'gold' })
-        : result.current[method]();
+    let mutation!: Promise<unknown>;
+    act(() => {
+      mutation = operation === 'claim'
+        ? result.current.claimRound()
+        : operation === 'cast'
+          ? result.current.castVote({ size: 'm', value: 'gold' })
+          : result.current.retractVote();
       result.current.logout();
-      resolveMutation({
-        data: method === 'claimRound'
-          ? { status: 'ok', round_participant: ROUND_PARTICIPANT }
-          : method === 'castVote'
-            ? { status: 'ok', vote: VOTE }
-            : { status: 'ok' },
-        error: null,
-      });
-      await mutation!;
+      resolveMutation(operation === 'claim'
+        ? { ok: true, roundParticipant: ROUND_PARTICIPANT }
+        : operation === 'cast'
+          ? { ok: true, vote: VOTE }
+          : { ok: true });
     });
+    await act(async () => { await mutation; });
 
     expect(result.current.session).toBeNull();
     expect(result.current.ownVote).toBeNull();
     expect(result.current.roundParticipant).toBeNull();
   });
 
-  it('retract nuller vote og markerer reestimate brukt', async () => {
+  it('leave rydder lokal state først etter current service-suksess', async () => {
     storePointer();
-    rpcMock.mockResolvedValueOnce(okRestore());
+    roomMocks.restore.mockResolvedValueOnce({ ok: true, snapshot: snapshot() });
     const { result } = renderHook(() => useSession(), { wrapper });
     await waitFor(() => expect(result.current.restoreStatus).toBe('ready'));
-    rpcMock.mockResolvedValueOnce({ data: { status: 'ok' }, error: null });
+    roomMocks.leave.mockResolvedValueOnce({ ok: true });
 
-    let retractResult: Awaited<ReturnType<typeof result.current.retractVote>> | undefined;
-    await act(async () => { retractResult = await result.current.retractVote(); });
-    expect(retractResult).toEqual({ ok: true });
-    expect(result.current.ownVote).toBeNull();
-    expect(result.current.roundParticipant?.reestimate_used).toBe(true);
-  });
-
-  it('refetcher restore når session-kanalen blir SUBSCRIBED', async () => {
-    storePointer();
-    rpcMock.mockResolvedValue(okRestore());
-    renderHook(() => useSession(), { wrapper });
-    await waitFor(() => expect(rpcMock).toHaveBeenCalledTimes(1));
-
-    act(() => channelMock.trigger('SUBSCRIBED'));
-
-    await waitFor(() => expect(rpcMock).toHaveBeenCalledTimes(2));
-  });
-
-  it('leaveSession kaller RPC og rydder app-state uten auth signOut', async () => {
-    storePointer();
-    rpcMock.mockResolvedValueOnce(okRestore());
-    const { result } = renderHook(() => useSession(), { wrapper });
-    await waitFor(() => expect(result.current.restoreStatus).toBe('ready'));
-    rpcMock.mockResolvedValueOnce({ data: { status: 'ok' }, error: null });
-
-    let leaveResult: Awaited<ReturnType<typeof result.current.leaveSession>> | undefined;
+    let leaveResult;
     await act(async () => { leaveResult = await result.current.leaveSession(); });
 
     expect(leaveResult).toEqual({ ok: true });
-    expect(rpcMock).toHaveBeenLastCalledWith('leave_session', { p_session_id: SESSION.id });
+    expect(roomMocks.leave).toHaveBeenCalledWith(SESSION.id);
     expect(result.current.session).toBeNull();
-    expect(result.current.activityType).toBeNull();
-    expect(localStorage.getItem(LOCAL_PARTICIPANT_STORAGE_KEY)).toBeNull();
+    expect(storageMocks.clearSessionPointer).toHaveBeenCalledOnce();
+  });
+
+  it('refetcher ved reconnectet realtime-kanal', async () => {
+    storePointer();
+    roomMocks.restore.mockResolvedValue({ ok: true, snapshot: snapshot() });
+    renderHook(() => useSession(), { wrapper });
+    await waitFor(() => expect(roomMocks.restore).toHaveBeenCalledTimes(1));
+
+    act(() => channelMock.trigger('SUBSCRIBED'));
+
+    await waitFor(() => expect(roomMocks.restore).toHaveBeenCalledTimes(2));
+  });
+
+  it.each(['CHANNEL_ERROR', 'TIMED_OUT', 'CLOSED'] as const)(
+    'rydder gammel kanal og reconnecter etter %s',
+    async (status) => {
+      vi.useFakeTimers();
+      try {
+        storePointer();
+        roomMocks.restore.mockResolvedValue({ ok: true, snapshot: snapshot() });
+        const { result } = renderHook(() => useSession(), { wrapper });
+        await act(async () => { await Promise.resolve(); });
+
+        act(() => channelMock.trigger(status));
+        expect(result.current.connectionState).toBe('disconnected');
+
+        await act(async () => {
+          vi.advanceTimersByTime(2000);
+          await Promise.resolve();
+        });
+
+        expect(removeChannelMock).toHaveBeenCalledWith(channelMock);
+        expect(sessionServices.realtime.channel).toHaveBeenCalledTimes(2);
+      } finally {
+        vi.useRealTimers();
+      }
+    },
+  );
+
+  it('starter ikke en ny retry når programmatisk channel-fjerning utløser CLOSED', async () => {
+    vi.useFakeTimers();
+    try {
+      storePointer();
+      roomMocks.restore.mockResolvedValue({ ok: true, snapshot: snapshot() });
+      removeChannelMock.mockImplementation(async () => {
+        channelMock.trigger('CLOSED');
+      });
+      renderHook(() => useSession(), { wrapper });
+      await act(async () => { await Promise.resolve(); });
+
+      act(() => channelMock.trigger('CHANNEL_ERROR'));
+      await act(async () => {
+        vi.advanceTimersByTime(2000);
+        await Promise.resolve();
+      });
+
+      expect(sessionServices.realtime.channel).toHaveBeenCalledTimes(2);
+
+      await act(async () => {
+        vi.advanceTimersByTime(10000);
+        await Promise.resolve();
+      });
+
+      expect(sessionServices.realtime.channel).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('fjerner realtime-kanalen ved unmount', async () => {
+    storePointer();
+    roomMocks.restore.mockResolvedValue({ ok: true, snapshot: snapshot() });
+    const { unmount } = renderHook(() => useSession(), { wrapper });
+    await waitFor(() => expect(sessionServices.realtime.channel).toHaveBeenCalledOnce());
+
+    unmount();
+
+    expect(removeChannelMock).toHaveBeenCalledWith(channelMock);
   });
 });
