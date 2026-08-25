@@ -52,7 +52,7 @@ describe('useRealtimeRoundParticipants', () => {
     await waitFor(() => expect(result.current.roundParticipants).toEqual([row()]));
     expect(db.eq).toHaveBeenCalledWith('session_id', 'session-1');
     expect(db.eq).toHaveBeenCalledWith('round', 1);
-    expect(db.channel).toHaveBeenCalledWith('round-participants:session-1:1:0', { config: { private: true } });
+    expect(db.channel).toHaveBeenCalledWith('session:session-1:round:1:0', { config: { private: true } });
   });
 
   it('replayer roster-events som skjer mens initial fetch er in-flight', async () => {

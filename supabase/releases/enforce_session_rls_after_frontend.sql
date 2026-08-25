@@ -72,10 +72,32 @@ as $function$
     );
 $function$;
 
+create or replace function private.can_access_presence_topic(p_topic text)
+returns boolean
+language sql
+stable
+security definer
+set search_path = pg_catalog
+as $function$
+  select auth.uid() is not null
+    and exists (
+      select 1
+        from public.participants p
+       where p.user_id = auth.uid()
+         and p.left_at is null
+         and (
+           p_topic = 'session:' || p.session_id::text
+           or p_topic like 'session:' || p.session_id::text || ':%'
+         )
+    );
+$function$;
+
 revoke execute on function private.is_session_member(uuid) from public, anon, authenticated;
 revoke execute on function private.can_read_vote(uuid, uuid, integer) from public, anon, authenticated;
+revoke execute on function private.can_access_presence_topic(text) from public, anon, authenticated;
 grant execute on function private.is_session_member(uuid) to authenticated;
 grant execute on function private.can_read_vote(uuid, uuid, integer) to authenticated;
+grant execute on function private.can_access_presence_topic(text) to authenticated;
 
 create policy "Members can read their sessions"
   on public.sessions
@@ -149,13 +171,8 @@ create policy "Session members can read presence"
   for select
   to authenticated
   using (
-    realtime.messages.extension = 'presence'
-    and exists (
-      select 1 from public.participants p
-       where p.user_id = (select auth.uid())
-         and p.left_at is null
-         and (select realtime.topic()) = 'session:' || p.session_id::text
-    )
+    realtime.messages.extension in ('presence', 'broadcast')
+    and (select private.can_access_presence_topic((select realtime.topic())))
   );
 
 create policy "Session members can publish presence"
@@ -164,10 +181,5 @@ create policy "Session members can publish presence"
   to authenticated
   with check (
     realtime.messages.extension = 'presence'
-    and exists (
-      select 1 from public.participants p
-       where p.user_id = (select auth.uid())
-         and p.left_at is null
-         and (select realtime.topic()) = 'session:' || p.session_id::text
-    )
+    and (select private.can_access_presence_topic((select realtime.topic())))
   );

@@ -58,6 +58,7 @@ export function useRealtimeVotes(
   const { items: votes, loading, error, connectionState, refetch } = useSupabaseRealtimeCollection({
     sessionId,
     channelName: `votes:${sessionId}:${currentRound}`,
+    channelTopic: sessionId ? `session:${sessionId}:votes:${currentRound}` : undefined,
     fetchCollection,
     configureSubscription,
   });

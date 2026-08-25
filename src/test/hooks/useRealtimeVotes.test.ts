@@ -133,7 +133,7 @@ describe('useRealtimeVotes', () => {
 
     expect(result.current.votes).toHaveLength(2);
     expect(result.current.votes[0].id).toBe('vote-001');
-    expect(chainable.channel).toHaveBeenCalledWith(`votes:${SESSION_ID}:${CURRENT_ROUND}:0`, {
+    expect(chainable.channel).toHaveBeenCalledWith(`session:${SESSION_ID}:votes:${CURRENT_ROUND}:0`, {
       config: { private: true },
     });
   });

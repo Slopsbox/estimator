@@ -278,6 +278,7 @@ begin
   if to_regnamespace('private') is not null then
     execute 'drop function if exists private.can_read_vote(uuid, uuid, integer)';
     execute 'drop function if exists private.is_session_member(uuid)';
+    execute 'drop function if exists private.can_access_presence_topic(text)';
   end if;
 end;
 $drop_private_helpers$;

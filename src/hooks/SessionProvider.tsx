@@ -273,7 +273,7 @@ export function SessionProvider({ children }: PropsWithChildren) {
       if (!active || generation !== generationRef.current) return;
       setConnectionState('connecting');
       channel = supabase
-        .channel(`session-watch:${sessionId}:${generation}`, { config: { private: true } })
+        .channel(`session:${sessionId}:session-watch:${generation}`, { config: { private: true } })
         .on('postgres_changes', {
           event: 'UPDATE', schema: 'public', table: 'sessions', filter: `id=eq.${sessionId}`,
         }, () => {

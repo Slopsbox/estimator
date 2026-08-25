@@ -158,7 +158,7 @@ describe('useRealtimeParticipants', () => {
     expect(result.current.participants).toHaveLength(2);
     expect(result.current.participants[0].id).toBe('participant-001');
     expect(result.current.participants[1].id).toBe('participant-002');
-    expect(chainable.channel).toHaveBeenCalledWith(`participants:${SESSION_ID}:active:0`, {
+    expect(chainable.channel).toHaveBeenCalledWith(`session:${SESSION_ID}:participants:active:0`, {
       config: { private: true },
     });
   });

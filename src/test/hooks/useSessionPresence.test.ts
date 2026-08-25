@@ -56,7 +56,7 @@ describe('useSessionPresence', () => {
     renderHook(() => useSessionPresence('session-1', 'participant-1'));
     const channel = channels[0];
 
-    expect(channelMock).toHaveBeenCalledWith('session:session-1', {
+    expect(channelMock).toHaveBeenCalledWith('session:session-1:presence', {
       config: { private: true, presence: { key: 'participant-1' } },
     });
     expect(channel.track).not.toHaveBeenCalled();

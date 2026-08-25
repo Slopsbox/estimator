@@ -11,6 +11,7 @@ interface FetchResult<T> {
 interface UseSupabaseRealtimeCollectionOptions<T> {
   sessionId: string | null;
   channelName: string;
+  channelTopic?: string;
   fetchCollection: () => Promise<FetchResult<T>>;
   configureSubscription: (
     channel: RealtimeChannel,
@@ -25,6 +26,7 @@ export type RealtimeCollectionConnectionState = 'idle' | 'connecting' | 'connect
 export function useSupabaseRealtimeCollection<T>({
   sessionId,
   channelName,
+  channelTopic,
   fetchCollection,
   configureSubscription,
 }: UseSupabaseRealtimeCollectionOptions<T>) {
@@ -107,7 +109,10 @@ export function useSupabaseRealtimeCollection<T>({
     };
 
     const channel = configureSubscription(
-      supabase.channel(`${channelName}:${retryCount}`, { config: { private: true } }),
+      supabase.channel(
+        channelTopic ? `${channelTopic}:${retryCount}` : `${channelName}:${retryCount}`,
+        { config: { private: true } },
+      ),
       setItemsForCurrentGeneration,
       isCurrent,
     )
@@ -136,7 +141,7 @@ export function useSupabaseRealtimeCollection<T>({
       }
       void supabase.removeChannel(channel);
     };
-  }, [sessionId, channelName, fetchCollection, configureSubscription, retryCount]);
+  }, [sessionId, channelName, channelTopic, fetchCollection, configureSubscription, retryCount]);
 
   useVisibilityRefetch(refetch);
 

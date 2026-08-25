@@ -67,6 +67,7 @@ export function useRealtimeParticipants(sessionId: string | null, includeInactiv
   const { items: participants, loading, error, connectionState, refetch } = useSupabaseRealtimeCollection({
     sessionId,
     channelName: `participants:${sessionId}:${includeInactive ? 'all' : 'active'}`,
+    channelTopic: sessionId ? `session:${sessionId}:participants:${includeInactive ? 'all' : 'active'}` : undefined,
     fetchCollection,
     configureSubscription,
   });

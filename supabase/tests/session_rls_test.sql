@@ -4,7 +4,7 @@
 begin;
 
 create extension if not exists pgtap with schema extensions;
-select extensions.plan(10);
+select extensions.plan(14);
 
 insert into auth.users (id, aud, role, email, created_at, updated_at)
 values
@@ -63,11 +63,16 @@ select extensions.ok(
   'anon has no direct table access after lockdown'
 );
 select extensions.ok(
-  has_table_privilege('authenticated', 'public.sessions', 'SELECT')
-  and has_table_privilege('authenticated', 'public.participants', 'SELECT')
+  has_column_privilege('authenticated', 'public.sessions', 'id', 'SELECT')
+  and has_column_privilege('authenticated', 'public.sessions', 'status', 'SELECT')
+  and not has_column_privilege('authenticated', 'public.sessions', 'facilitator_user_id', 'SELECT')
+  and not has_column_privilege('authenticated', 'public.sessions', 'create_request_id', 'SELECT')
+  and has_column_privilege('authenticated', 'public.participants', 'id', 'SELECT')
+  and has_column_privilege('authenticated', 'public.participants', 'name', 'SELECT')
+  and not has_column_privilege('authenticated', 'public.participants', 'user_id', 'SELECT')
   and has_table_privilege('authenticated', 'public.votes', 'SELECT')
   and has_table_privilege('authenticated', 'public.round_participants', 'SELECT'),
-  'authenticated has the required SELECT grants'
+  'authenticated can read public fields but not stable auth identifiers'
 );
 select extensions.ok(
   not has_table_privilege('authenticated', 'public.sessions', 'INSERT,UPDATE,DELETE')
@@ -81,12 +86,32 @@ set local role authenticated;
 select set_config('request.jwt.claim.sub', '30000000-0000-0000-0000-000000000004', true);
 select set_config('request.jwt.claim.role', 'authenticated', true);
 select extensions.is(
+  private.can_access_presence_topic('session:' || (select value from session_rls_context where key = 'session_id')),
+  false,
+  'an outsider cannot join a private session presence topic'
+);
+select extensions.is(
+  private.can_access_presence_topic('session:' || (select value from session_rls_context where key = 'session_id') || ':votes:1'),
+  false,
+  'an outsider cannot join a private session subtopic'
+);
+select extensions.is(
   (select count(*)::text from public.sessions where id = (select value::uuid from session_rls_context where key = 'session_id')),
   '0',
   'an outsider cannot read another session'
 );
 
 select set_config('request.jwt.claim.sub', '30000000-0000-0000-0000-000000000002', true);
+select extensions.is(
+  private.can_access_presence_topic('session:' || (select value from session_rls_context where key = 'session_id')),
+  true,
+  'an active member can join the private session presence topic'
+);
+select extensions.is(
+  private.can_access_presence_topic('session:' || (select value from session_rls_context where key = 'session_id') || ':votes:1'),
+  true,
+  'an active member can join a private session subtopic'
+);
 select extensions.is(
   (select count(*)::text from public.sessions where id = (select value::uuid from session_rls_context where key = 'session_id')),
   '1',

@@ -58,6 +58,7 @@ export function useRealtimeRoundParticipants(sessionId: string | null, round: nu
   const { items: roundParticipants, loading, error, connectionState, refetch } = useSupabaseRealtimeCollection({
     sessionId,
     channelName: `round-participants:${sessionId}:${round}`,
+    channelTopic: sessionId ? `session:${sessionId}:round:${round}` : undefined,
     fetchCollection,
     configureSubscription,
   });

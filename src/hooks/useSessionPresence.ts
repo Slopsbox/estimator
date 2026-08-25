@@ -39,7 +39,7 @@ export function useSessionPresence(sessionId: string | null, participantId: stri
       if (!isCurrent()) return;
       setConnectionState('connecting');
       setPresenceReady(false);
-      const currentChannel = supabase.channel(`session:${sessionId}`, {
+      const currentChannel = supabase.channel(`session:${sessionId}:presence`, {
         config: { private: true, presence: { key: participantId } },
       });
       channel = currentChannel;

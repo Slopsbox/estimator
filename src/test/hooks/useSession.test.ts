@@ -105,7 +105,7 @@ describe('SessionProvider', () => {
 
     await waitFor(() => expect(result.current.restoreStatus).toBe('ready'));
     expect(result.current.session).toEqual(SESSION);
-    expect((await import('../../lib/supabase')).supabase.channel).toHaveBeenCalledWith('session-watch:session-1:0', {
+    expect((await import('../../lib/supabase')).supabase.channel).toHaveBeenCalledWith('session:session-1:session-watch:0', {
       config: { private: true },
     });
   });
