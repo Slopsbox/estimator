@@ -3,6 +3,7 @@ import { BrowserRouter, Route, Routes } from 'react-router-dom';
 import { LandingPage } from './pages/Landing';
 import { AppLogo } from './components/AppLogo';
 import { ChunkErrorBoundary } from './components/ChunkErrorBoundary';
+import { SessionProvider } from './hooks/SessionProvider';
 
 function lazyWithRetry<T extends React.ComponentType<unknown>>(
   importFn: () => Promise<{ default: T }>,
@@ -54,14 +55,16 @@ export function App() {
   return (
     <BrowserRouter>
       <ChunkErrorBoundary>
-        <Suspense fallback={<LoadingScreen />}>
-          <Routes>
-            <Route path="/" element={<LandingPage />} />
-            <Route path="/join" element={<DeltagerJoinPage />} />
-            <Route path="/vote" element={<VotePage />} />
-            <Route path="/dashboard" element={<DashboardPage />} />
-          </Routes>
-        </Suspense>
+        <SessionProvider>
+          <Suspense fallback={<LoadingScreen />}>
+            <Routes>
+              <Route path="/" element={<LandingPage />} />
+              <Route path="/join" element={<DeltagerJoinPage />} />
+              <Route path="/vote" element={<VotePage />} />
+              <Route path="/dashboard" element={<DashboardPage />} />
+            </Routes>
+          </Suspense>
+        </SessionProvider>
       </ChunkErrorBoundary>
     </BrowserRouter>
   );

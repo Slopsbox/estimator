@@ -10,12 +10,14 @@ const { chainable, channelMock } = vi.hoisted(() => {
   let subscribeCb: ((status: string) => void) | undefined;
   let insertHandler: ((payload: { new: Participant }) => void) | undefined;
   let updateHandler: ((payload: { new: Participant }) => void) | undefined;
+  let deleteHandler: ((payload: { old: Partial<Participant> }) => void) | undefined;
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const channelMock: Record<string, any> = {
     on: vi.fn().mockImplementation((_eventType: string, config: { event: string }, handler: (payload: unknown) => void) => {
       if (config.event === 'INSERT') insertHandler = handler as (payload: { new: Participant }) => void;
       if (config.event === 'UPDATE') updateHandler = handler as (payload: { new: Participant }) => void;
+      if (config.event === 'DELETE') deleteHandler = handler as (payload: { old: Partial<Participant> }) => void;
       return channelMock;
     }),
     subscribe: vi.fn().mockImplementation((cb?: (status: string) => void) => {
@@ -25,6 +27,7 @@ const { chainable, channelMock } = vi.hoisted(() => {
     _triggerSubscribed: () => subscribeCb?.('SUBSCRIBED'),
     _triggerInsert: (p: Participant) => insertHandler?.({ new: p }),
     _triggerUpdate: (p: Participant) => updateHandler?.({ new: p }),
+    _triggerDelete: (p: Partial<Participant>) => deleteHandler?.({ old: p }),
   };
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -32,6 +35,7 @@ const { chainable, channelMock } = vi.hoisted(() => {
     from: vi.fn(),
     select: vi.fn(),
     eq: vi.fn(),
+    is: vi.fn(),
     order: vi.fn(),
     single: vi.fn().mockResolvedValue({ data: null, error: null }),
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -43,7 +47,7 @@ const { chainable, channelMock } = vi.hoisted(() => {
     removeChannel: vi.fn().mockResolvedValue(undefined),
   };
 
-  ['from', 'select', 'eq', 'order'].forEach((m) => chainable[m].mockReturnValue(chainable));
+  ['from', 'select', 'eq', 'is', 'order'].forEach((m) => chainable[m].mockReturnValue(chainable));
 
   return { chainable, channelMock };
 });
@@ -59,7 +63,7 @@ import { useRealtimeParticipants } from '../../hooks/useRealtimeParticipants';
 function resetChainable() {
   vi.clearAllMocks();
 
-  ['from', 'select', 'eq', 'order'].forEach((m) => chainable[m].mockReturnValue(chainable));
+  ['from', 'select', 'eq', 'is', 'order'].forEach((m) => chainable[m].mockReturnValue(chainable));
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   chainable.then.mockImplementation((cb: (r: any) => void) => {
@@ -72,11 +76,13 @@ function resetChainable() {
   let subscribeCb: ((status: string) => void) | undefined;
   let insertHandler: ((payload: { new: Participant }) => void) | undefined;
   let updateHandler: ((payload: { new: Participant }) => void) | undefined;
+  let deleteHandler: ((payload: { old: Partial<Participant> }) => void) | undefined;
 
   channelMock.on.mockImplementation(
     (_eventType: string, config: { event: string }, handler: (payload: unknown) => void) => {
       if (config.event === 'INSERT') insertHandler = handler as (payload: { new: Participant }) => void;
       if (config.event === 'UPDATE') updateHandler = handler as (payload: { new: Participant }) => void;
+      if (config.event === 'DELETE') deleteHandler = handler as (payload: { old: Partial<Participant> }) => void;
       return channelMock;
     },
   );
@@ -87,6 +93,7 @@ function resetChainable() {
   channelMock._triggerSubscribed = () => subscribeCb?.('SUBSCRIBED');
   channelMock._triggerInsert = (p: Participant) => insertHandler?.({ new: p });
   channelMock._triggerUpdate = (p: Participant) => updateHandler?.({ new: p });
+  channelMock._triggerDelete = (p: Partial<Participant>) => deleteHandler?.({ old: p });
 
   chainable.channel.mockReturnValue(channelMock);
   chainable.removeChannel.mockResolvedValue(undefined);
@@ -102,6 +109,7 @@ function makeParticipant(overrides: Partial<Participant> = {}): Participant {
     name: 'Ola Nordmann',
     role: 'participant',
     joined_at: '2026-01-01T00:00:00Z',
+    left_at: null,
     ...overrides,
   };
 }
@@ -129,7 +137,7 @@ describe('useRealtimeParticipants', () => {
     expect(result.current.participants).toEqual([]);
   });
 
-  it('henter initial deltakerliste etter subscription bekreftes', async () => {
+  it('henter initial deltakerliste umiddelbart og bruker privat session-topic', async () => {
     const initialParticipants = [
       makeParticipant({ id: 'participant-001', name: 'Ola' }),
       makeParticipant({ id: 'participant-002', name: 'Kari', role: 'facilitator' }),
@@ -143,10 +151,6 @@ describe('useRealtimeParticipants', () => {
 
     const { result } = renderHook(() => useRealtimeParticipants(SESSION_ID));
 
-    act(() => {
-      channelMock._triggerSubscribed();
-    });
-
     await waitFor(() => {
       expect(result.current.loading).toBe(false);
     });
@@ -154,6 +158,31 @@ describe('useRealtimeParticipants', () => {
     expect(result.current.participants).toHaveLength(2);
     expect(result.current.participants[0].id).toBe('participant-001');
     expect(result.current.participants[1].id).toBe('participant-002');
+    expect(chainable.channel).toHaveBeenCalledWith(`participants:${SESSION_ID}:active:0`, {
+      config: { private: true },
+    });
+  });
+
+  it('replayer INSERT, UPDATE og DELETE som skjer mens initial fetch er in-flight', async () => {
+    let resolveFetch!: (result: { data: Participant[]; error: null }) => void;
+    chainable.then.mockImplementation((resolve: typeof resolveFetch) => {
+      resolveFetch = resolve;
+      return Promise.resolve();
+    });
+    const old = makeParticipant({ name: 'Gammelt navn' });
+    const inserted = makeParticipant({ id: 'participant-002', name: 'Ny' });
+    const { result } = renderHook(() => useRealtimeParticipants(SESSION_ID));
+
+    await waitFor(() => expect(resolveFetch).toBeTypeOf('function'));
+
+    act(() => {
+      channelMock._triggerInsert(inserted);
+      channelMock._triggerUpdate({ ...old, name: 'Oppdatert navn' });
+      channelMock._triggerDelete(inserted);
+    });
+    await act(async () => resolveFetch({ data: [old], error: null }));
+
+    expect(result.current.participants).toEqual([{ ...old, name: 'Oppdatert navn' }]);
   });
 
   it('legger til ny deltaker fra INSERT-event', async () => {
@@ -215,6 +244,30 @@ describe('useRealtimeParticipants', () => {
     expect(result.current.participants[0].name).toBe('Ola (nytt navn)');
   });
 
+  it('henter kun aktive memberships og fjerner left membership ved UPDATE', async () => {
+    const participant = makeParticipant();
+    chainable.then.mockImplementation((cb: (r: { data: Participant[]; error: null }) => void) => {
+      cb({ data: [participant], error: null });
+      return Promise.resolve();
+    });
+    const { result } = renderHook(() => useRealtimeParticipants(SESSION_ID));
+    act(() => channelMock._triggerSubscribed());
+    await waitFor(() => expect(result.current.participants).toHaveLength(1));
+    expect(chainable.is).toHaveBeenCalledWith('left_at', null);
+
+    act(() => channelMock._triggerUpdate({ ...participant, left_at: '2026-01-02T00:00:00Z' }));
+    expect(result.current.participants).toEqual([]);
+  });
+
+  it('reaktiverer membership ved UPDATE med left_at null', async () => {
+    const { result } = renderHook(() => useRealtimeParticipants(SESSION_ID));
+    act(() => channelMock._triggerSubscribed());
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    const participant = makeParticipant();
+    act(() => channelMock._triggerUpdate(participant));
+    expect(result.current.participants).toEqual([participant]);
+  });
+
   it('unngår duplikater ved INSERT av eksisterende id', async () => {
     const existingParticipant = makeParticipant({ id: 'participant-dup' });
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -241,7 +294,7 @@ describe('useRealtimeParticipants', () => {
     expect(result.current.participants).toHaveLength(1);
   });
 
-  it('ignorerer event fra forrige sesjon etter sessionId-bytte', () => {
+  it('ignorerer event fra forrige sesjon etter sessionId-bytte', async () => {
     const { result, rerender } = renderHook(
       ({ sessionId }: { sessionId: string }) => useRealtimeParticipants(sessionId),
       { initialProps: { sessionId: SESSION_ID } },
@@ -253,7 +306,10 @@ describe('useRealtimeParticipants', () => {
 
     expect(firstSessionInsertHandler).toBeDefined();
 
-    rerender({ sessionId: 'session-new' });
+    await act(async () => {
+      rerender({ sessionId: 'session-new' });
+      await Promise.resolve();
+    });
 
     act(() => {
       firstSessionInsertHandler?.({ new: makeParticipant({ id: 'participant-from-old-session' }) });

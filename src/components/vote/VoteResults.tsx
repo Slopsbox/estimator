@@ -12,6 +12,7 @@ interface VoteResultsProps {
   localParticipant: LocalParticipant | null;
   consensusStreak: number;
   currentRound?: number;
+  onLeave?: () => void;
 }
 
 /** Returner riktig antall flamme-emojier for streaken. */
@@ -33,6 +34,7 @@ export function VoteResults({
   localParticipant,
   consensusStreak,
   currentRound,
+  onLeave,
 }: VoteResultsProps) {
   // Dedupliser: kun siste stemme per participant (backup for race conditions ved Amalie-bruk)
   const uniqueVotes = Array.from(
@@ -65,6 +67,8 @@ export function VoteResults({
   return (
     <NavyPageLayout
       roleLabel="Deltager"
+      onBack={onLeave}
+      backLabel="Forlat sesjon"
       headerRight={roundBadge}
       navyContent={
         <div className="text-center">

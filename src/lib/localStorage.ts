@@ -1,13 +1,16 @@
-import type { LocalParticipant, ParticipantRole } from './types';
+import type { LocalParticipant, ParticipantRole, SessionPointer } from './types';
 
 export const LOCAL_PARTICIPANT_STORAGE_KEY = 'estimat_local_participant';
 export const LAST_USED_NAME_STORAGE_KEY = 'estimat_last_used_name';
+export const CREATE_REQUEST_ID_STORAGE_KEY = 'estimat_create_request_id';
+const POINTER_TTL_MS = 24 * 60 * 60 * 1000;
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 function isParticipantRole(value: unknown): value is ParticipantRole {
   return value === 'facilitator' || value === 'participant';
 }
 
-function isLocalParticipant(value: unknown): value is LocalParticipant {
+function isPointerShape(value: unknown): value is LocalParticipant & { version?: unknown } {
   if (typeof value !== 'object' || value === null) return false;
 
   const candidate = value as Record<string, unknown>;
@@ -19,13 +22,34 @@ function isLocalParticipant(value: unknown): value is LocalParticipant {
     && isParticipantRole(candidate.role);
 }
 
-export function readLocalParticipant(): LocalParticipant | null {
+export function readSessionPointer(): SessionPointer | null {
   const serialized = localStorage.getItem(LOCAL_PARTICIPANT_STORAGE_KEY);
   if (!serialized) return null;
 
   try {
     const parsed: unknown = JSON.parse(serialized);
-    if (isLocalParticipant(parsed)) return parsed;
+    if (isPointerShape(parsed) && (parsed.version === undefined || parsed.version === 1)) {
+      const updatedAt = typeof (parsed as Record<string, unknown>).updatedAt === 'string'
+        ? (parsed as Record<string, unknown>).updatedAt as string
+        : new Date().toISOString();
+      const updatedAtMs = Date.parse(updatedAt);
+      if (!Number.isFinite(updatedAtMs) || Date.now() - updatedAtMs > POINTER_TTL_MS) {
+        localStorage.removeItem(LOCAL_PARTICIPANT_STORAGE_KEY);
+        return null;
+      }
+      const pointer: SessionPointer = {
+        version: 1,
+        updatedAt,
+        participantId: parsed.participantId,
+        sessionId: parsed.sessionId,
+        name: parsed.name,
+        role: parsed.role,
+      };
+      if (parsed.version === undefined || typeof (parsed as Record<string, unknown>).updatedAt !== 'string') {
+        writeSessionPointer(pointer);
+      }
+      return pointer;
+    }
   } catch {
     // Ugyldig JSON behandles på samme måte som en ugyldig objektform.
   }
@@ -34,12 +58,45 @@ export function readLocalParticipant(): LocalParticipant | null {
   return null;
 }
 
-export function writeLocalParticipant(participant: LocalParticipant): void {
-  localStorage.setItem(LOCAL_PARTICIPANT_STORAGE_KEY, JSON.stringify(participant));
+export function writeSessionPointer(pointer: SessionPointer): void {
+  localStorage.setItem(LOCAL_PARTICIPANT_STORAGE_KEY, JSON.stringify({
+    ...pointer,
+    updatedAt: new Date().toISOString(),
+  }));
 }
 
-export function clearLocalParticipant(): void {
+export function clearSessionPointer(): void {
   localStorage.removeItem(LOCAL_PARTICIPANT_STORAGE_KEY);
+}
+
+/** Midlertidige alias beholdes mens resten av frontend flyttes til pointer-navn. */
+export function readLocalParticipant(): LocalParticipant | null {
+  const pointer = readSessionPointer();
+  if (!pointer) return null;
+  return {
+    participantId: pointer.participantId,
+    sessionId: pointer.sessionId,
+    name: pointer.name,
+    role: pointer.role,
+  };
+}
+
+export function writeLocalParticipant(participant: LocalParticipant): void {
+  writeSessionPointer({ version: 1, ...participant });
+}
+
+export const clearLocalParticipant = clearSessionPointer;
+
+export function getOrCreateCreateRequestId(): string {
+  const existing = localStorage.getItem(CREATE_REQUEST_ID_STORAGE_KEY);
+  if (existing && UUID_PATTERN.test(existing)) return existing;
+  const requestId = crypto.randomUUID();
+  localStorage.setItem(CREATE_REQUEST_ID_STORAGE_KEY, requestId);
+  return requestId;
+}
+
+export function clearCreateRequestId(): void {
+  localStorage.removeItem(CREATE_REQUEST_ID_STORAGE_KEY);
 }
 
 export function readLastUsedName(): string {

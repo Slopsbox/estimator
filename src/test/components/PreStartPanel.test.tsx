@@ -12,6 +12,7 @@ const makeParticipant = (id: string, name: string, role: 'facilitator' | 'partic
   name,
   role,
   joined_at: new Date().toISOString(),
+  left_at: null,
 });
 
 // ── PreStartPanel ───────────────────────────────────────────
@@ -49,6 +50,22 @@ describe('PreStartPanel', () => {
     render(<PreStartPanel participants={p} actionLoading={false} onStart={vi.fn()} />);
     expect(screen.getByText('Kari Nordmann')).toBeInTheDocument();
     expect(screen.getByText('Per Hansen')).toBeInTheDocument();
+  });
+
+  it('viser tilgjengelig online/offline-status uten å skjule offline medlemskap', () => {
+    const p = [makeParticipant('1', 'Kari'), makeParticipant('2', 'Per')];
+    render(
+      <PreStartPanel
+        participants={p}
+        presentParticipantIds={new Set(['1'])}
+        presenceReady={true}
+        actionLoading={false}
+        onStart={vi.fn()}
+      />,
+    );
+    expect(screen.getByLabelText('Kari er online')).toBeInTheDocument();
+    expect(screen.getByLabelText('Per er offline')).toBeInTheDocument();
+    expect(screen.getByText('Per')).toBeInTheDocument();
   });
 
   it('kaller onStart når knappen klikkes', async () => {

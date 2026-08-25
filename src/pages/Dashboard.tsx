@@ -5,14 +5,17 @@ import { NavyPageLayout } from '../components/NavyPageLayout';
 import { PreStartPanel } from '../components/dashboard/PreStartPanel';
 import { VotesPanel } from '../components/dashboard/VotesPanel';
 import { useRealtimeParticipants } from '../hooks/useRealtimeParticipants';
+import { useRealtimeRoundParticipants } from '../hooks/useRealtimeRoundParticipants';
 import { useRealtimeVotes } from '../hooks/useRealtimeVotes';
+import { useRoundVoteStatuses } from '../hooks/useRoundVoteStatuses';
+import { useSessionPresence } from '../hooks/useSessionPresence';
 import { useSession } from '../hooks/useSession';
 import { useWakeLock } from '../hooks/useWakeLock';
 
 /** Fasilitator-dashboard (revisjon 3) – ett sammenhengende view, ingen tabs. */
 export function DashboardPage() {
   const navigate = useNavigate();
-  const { session, localParticipant, loading, error, createSession, startSession, nextRound, endSession, revealVotes, logout } =
+  const { session, localParticipant, loading, error, restoreStatus, createSession, startSession, nextRound, endSession, revealVotes, logout } =
     useSession();
 
   const [nameInput, setNameInput] = useState('');
@@ -25,11 +28,24 @@ export function DashboardPage() {
   // Ref for å rydde setTimeout og unngå state-oppdatering etter unmount
   const copyTimeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
-  const { participants } = useRealtimeParticipants(session?.id ?? null);
-  const { votes, deletedParticipantIds } = useRealtimeVotes(
+  const participantData = useRealtimeParticipants(session?.id ?? null, session?.started ?? false);
+  const roundData = useRealtimeRoundParticipants(session?.id ?? null, session?.current_round ?? 1);
+  const { participants } = participantData;
+  const { roundParticipants } = roundData;
+  const { presentParticipantIds, connectionState: presenceConnectionState, presenceReady } = useSessionPresence(
     session?.id ?? null,
+    localParticipant?.participantId ?? null,
+  );
+  const voteData = useRealtimeVotes(
+    session?.votes_revealed ? session.id : null,
     session?.current_round ?? 1,
     session?.votes_revealed ?? false,
+  );
+  const { votes } = voteData;
+  const statusData = useRoundVoteStatuses(
+    session?.id ?? null,
+    session?.current_round ?? 1,
+    Boolean(session?.started && !session.votes_revealed),
   );
 
   const isFacilitator = localParticipant?.role === 'facilitator';
@@ -88,10 +104,10 @@ export function DashboardPage() {
   const handleReveal = useCallback(async () => {
     setActionError(null);
     setActionLoading(true);
-    const result = await revealVotes(votes);
+    const result = await revealVotes();
     setActionLoading(false);
     if (!result.ok) setActionError(result.message);
-  }, [revealVotes, votes]);
+  }, [revealVotes]);
 
   const handleEndSession = useCallback(async () => {
     const confirmed = window.confirm('Er du sikker på at du vil avslutte sesjonen?');
@@ -125,6 +141,10 @@ export function DashboardPage() {
   }, [session]);
 
   // ── Opprett sesjon ─────────────────────────────────────────
+  if (!session && localParticipant && (restoreStatus === 'initializing' || restoreStatus === 'reconnecting')) {
+    return <div className="min-h-screen flex items-center justify-center">{restoreStatus === 'initializing' ? 'Gjenoppretter sesjon…' : 'Kobler til sesjonen på nytt…'}</div>;
+  }
+
   if (!isFacilitator || !session) {
     return (
       <NavyPageLayout
@@ -142,6 +162,11 @@ export function DashboardPage() {
           </div>
         }
       >
+        {restoreStatus === 'invalid' && (
+          <p role="alert" className="mb-4 text-sm" style={{ color: 'var(--color-danger)' }}>
+            Forrige sesjon er utløpt eller ikke lenger tilgjengelig.
+          </p>
+        )}
         <form onSubmit={handleCreate} className="space-y-4">
           <div>
             <label
@@ -210,12 +235,28 @@ export function DashboardPage() {
   }
 
   // Tell deltakere som har stemt (ikke fasilitator)
-  const voterParticipants = participants.filter((p) => p.role === 'participant');
-  const votedCount = votes.length;
+  const roundParticipantIds = new Set(roundParticipants.map((row) => row.participant_id));
+  const voterParticipants = participants.filter((p) => p.role === 'participant' && roundParticipantIds.has(p.id));
+  const rosterIds = new Set(voterParticipants.map((participant) => participant.id));
+  const rosterVotes = votes.filter((vote) => rosterIds.has(vote.participant_id));
+  const votedParticipantIds = new Set(
+    session.votes_revealed
+      ? rosterVotes.map((vote) => vote.participant_id)
+      : statusData.statuses.filter((status) => status.has_voted && rosterIds.has(status.participant_id)).map((status) => status.participant_id),
+  );
+  const reestimatingParticipantIds = new Set(
+    roundParticipants.filter((row) => row.reestimate_used).map((row) => row.participant_id),
+  );
+  const votedCount = votedParticipantIds.size;
   const totalCount = voterParticipants.length;
   const progressPct = totalCount > 0 ? (votedCount / totalCount) * 100 : 0;
 
   const sessionStarted = session.started;
+  const datasetLoading = participantData.loading || roundData.loading
+    || (session.votes_revealed ? voteData.loading : statusData.loading);
+  const datasetError = participantData.error || roundData.error
+    || (session.votes_revealed ? voteData.error : statusData.error);
+  const dataActionsDisabled = datasetLoading || Boolean(datasetError);
 
   // ── Dashboard ──────────────────────────────────────────────
   // Wrapper-komponent som aktiverer Wake Lock kun i det aktive dashboard-viewet
@@ -223,14 +264,20 @@ export function DashboardPage() {
     session={session}
     voterParticipants={voterParticipants}
     participants={participants}
-    votes={votes}
-    deletedParticipantIds={deletedParticipantIds}
+    votes={rosterVotes}
+    votedParticipantIds={votedParticipantIds}
+    presentParticipantIds={presentParticipantIds}
+    presenceReady={presenceReady}
+    presenceConnectionState={presenceConnectionState}
+    reestimatingParticipantIds={reestimatingParticipantIds}
     votedCount={votedCount}
     totalCount={totalCount}
     progressPct={progressPct}
     sessionStarted={sessionStarted}
-    actionLoading={actionLoading}
-    error={actionError ?? error}
+    actionLoading={actionLoading || dataActionsDisabled}
+    endSessionLoading={actionLoading}
+    datasetLoading={datasetLoading}
+    error={actionError ?? datasetError ?? error}
     codeCopied={codeCopied}
     joinCodeDots={joinCodeDots}
     handleEndSession={handleEndSession}
@@ -249,12 +296,18 @@ interface ActiveDashboardViewProps {
   voterParticipants: ReturnType<typeof useRealtimeParticipants>['participants'];
   participants: ReturnType<typeof useRealtimeParticipants>['participants'];
   votes: ReturnType<typeof useRealtimeVotes>['votes'];
-  deletedParticipantIds: ReturnType<typeof useRealtimeVotes>['deletedParticipantIds'];
+  votedParticipantIds: ReadonlySet<string>;
+  presentParticipantIds: ReadonlySet<string>;
+  presenceReady: boolean;
+  presenceConnectionState: ReturnType<typeof useSessionPresence>['connectionState'];
+  reestimatingParticipantIds: ReadonlySet<string>;
   votedCount: number;
   totalCount: number;
   progressPct: number;
   sessionStarted: boolean;
   actionLoading: boolean;
+  endSessionLoading: boolean;
+  datasetLoading: boolean;
   error: string | null;
   codeCopied: boolean;
   joinCodeDots: { color: string }[];
@@ -277,12 +330,18 @@ function ActiveDashboardView({
   voterParticipants,
   participants,
   votes,
-  deletedParticipantIds,
+  votedParticipantIds,
+  presentParticipantIds,
+  presenceReady,
+  presenceConnectionState,
+  reestimatingParticipantIds,
   votedCount,
   totalCount,
   progressPct,
   sessionStarted,
   actionLoading,
+  endSessionLoading,
+  datasetLoading,
   error,
   codeCopied,
   joinCodeDots,
@@ -339,12 +398,12 @@ function ActiveDashboardView({
         <button
           type="button"
           onClick={handleEndSession}
-          disabled={actionLoading}
+          disabled={endSessionLoading}
           className="text-xs px-3 py-1.5 font-semibold text-white transition-all focus:outline-none"
           style={{
             background: 'var(--color-red-600)',
             borderRadius: 'var(--radius-md)',
-            opacity: actionLoading ? 0.6 : 1,
+            opacity: endSessionLoading ? 0.6 : 1,
           }}
         >
           Avslutt
@@ -369,6 +428,10 @@ function ActiveDashboardView({
 
        <div className="flex-1 px-4 py-4 space-y-4 overflow-y-auto">
         {error && <p role="alert" className="text-sm" style={{ color: 'var(--color-danger)' }}>{error}</p>}
+        {datasetLoading && <p role="status" className="text-sm" style={{ color: 'var(--color-neutral-500)' }}>Henter autoritative sesjonsdata…</p>}
+        {presenceConnectionState === 'connecting' || presenceConnectionState === 'disconnected' ? (
+          <p role="status" className="text-xs" style={{ color: 'var(--color-neutral-500)' }}>Kobler til status…</p>
+        ) : null}
         {/* Sesjonskode-kort */}
         <div
           className="px-5 py-4 space-y-1"
@@ -434,8 +497,9 @@ function ActiveDashboardView({
                 totalCount={totalCount}
                 actionLoading={actionLoading}
                 consensusStreak={session.consensus_streak}
-                sessionId={session.id}
-                deletedParticipantIds={deletedParticipantIds}
+                presentParticipantIds={presentParticipantIds}
+                reestimatingParticipantIds={reestimatingParticipantIds}
+                votedParticipantIds={votedParticipantIds}
                 onReveal={handleReveal}
                 onNextRound={handleNextRound}
               />
@@ -443,6 +507,8 @@ function ActiveDashboardView({
               /* Før oppstart: vis deltakerliste + "Start sesjon"-knapp */
               <PreStartPanel
                 participants={participants}
+                presentParticipantIds={presentParticipantIds}
+                presenceReady={presenceReady}
                 actionLoading={actionLoading}
                 onStart={handleStartSession}
               />

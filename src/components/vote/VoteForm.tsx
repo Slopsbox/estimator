@@ -11,6 +11,7 @@ interface VoteFormProps {
   selectedSize: Size | null;
   selectedValue: Value | null;
   submitting: boolean;
+  canSubmit?: boolean;
   submitError: string | null;
   onSelectSize: (size: Size) => void;
   onSelectValue: (value: Value) => void;
@@ -244,13 +245,14 @@ export function VoteForm({
   selectedSize,
   selectedValue,
   submitting,
+  canSubmit = true,
   submitError,
   onSelectSize,
   onSelectValue,
   onVote,
   onBack,
 }: VoteFormProps) {
-  const canVote = selectedSize !== null && selectedValue !== null;
+  const canVote = canSubmit && selectedSize !== null && selectedValue !== null;
 
   const [sheetContent, setSheetContent] = useState<SheetContent>(null);
 
@@ -279,8 +281,9 @@ export function VoteForm({
   return (
     <>
       <NavyPageLayout
-        roleLabel="Deltager"
-        onBack={onBack}
+      roleLabel="Deltager"
+      onBack={onBack}
+      backLabel="Forlat sesjon"
         headerRight={roundBadge}
         navyContent={
           <div className="text-center">

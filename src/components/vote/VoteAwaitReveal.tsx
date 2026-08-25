@@ -10,6 +10,7 @@ interface VoteAwaitRevealProps {
   hasUsedAmalie?: boolean;
   onAmalie?: () => void;
   error?: string | null;
+  onLeave?: () => void;
 }
 
 /**
@@ -27,6 +28,7 @@ export function VoteAwaitReveal({
   hasUsedAmalie = false,
   onAmalie,
   error,
+  onLeave,
 }: VoteAwaitRevealProps) {
   const myVoteEmoji = VALUE_MEDAL[selectedValue];
   const valueLabel = VALUES.find((v) => v.key === selectedValue)?.label ?? '';
@@ -46,6 +48,8 @@ export function VoteAwaitReveal({
   return (
     <NavyPageLayout
       roleLabel="Deltager"
+      onBack={onLeave}
+      backLabel="Forlat sesjon"
       headerRight={roundBadge}
       navyContent={
         <div className="text-center">

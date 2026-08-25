@@ -3,7 +3,7 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { DashboardPage } from '../../pages/Dashboard';
-import type { LocalParticipant, Participant, Session, Vote } from '../../lib/types';
+import type { LocalParticipant, Participant, RoundParticipant, Session, Vote } from '../../lib/types';
 
 // ── Navigasjon-mock ────────────────────────────────────────────────────────────
 const mockNavigate = vi.fn();
@@ -21,6 +21,7 @@ let mockSession: Session | null = null;
 let mockLocalParticipant: LocalParticipant | null = null;
 let mockLoading = false;
 let mockError: string | null = null;
+let mockRestoreStatus = 'ready';
 
 const mockCreateSession = vi.fn();
 const mockStartSession = vi.fn<() => Promise<{ ok: true } | { ok: false; message: string }>>();
@@ -36,6 +37,7 @@ vi.mock('../../hooks/useSession', () => ({
     loading: mockLoading,
     error: mockError,
     initialized: true,
+    restoreStatus: mockRestoreStatus,
     createSession: mockCreateSession,
     joinSession: vi.fn(),
     startSession: mockStartSession,
@@ -49,11 +51,33 @@ vi.mock('../../hooks/useSession', () => ({
 
 // ── Konfigurerbar useRealtimeParticipants-state ───────────────────────────────
 let mockParticipants: Participant[] = [];
+let mockRoundParticipants: RoundParticipant[] = [];
+let mockPresentParticipantIds = new Set<string>();
+let mockPresenceReady = true;
+let mockPresenceConnectionState = 'connected';
+let mockParticipantsLoading = false;
+let mockRoundLoading = false;
+let mockVotesLoading = false;
+let mockDatasetError: string | null = null;
+let mockVoteStatuses: Array<{ participant_id: string; has_voted: boolean }> = [];
 
 vi.mock('../../hooks/useRealtimeParticipants', () => ({
   useRealtimeParticipants: () => ({
     participants: mockParticipants,
-    loading: false,
+    loading: mockParticipantsLoading,
+    error: mockDatasetError,
+  }),
+}));
+
+vi.mock('../../hooks/useRealtimeRoundParticipants', () => ({
+  useRealtimeRoundParticipants: () => ({ roundParticipants: mockRoundParticipants, loading: mockRoundLoading, error: mockDatasetError }),
+}));
+
+vi.mock('../../hooks/useSessionPresence', () => ({
+  useSessionPresence: () => ({
+    presentParticipantIds: mockPresentParticipantIds,
+    presenceReady: mockPresenceReady,
+    connectionState: mockPresenceConnectionState,
   }),
 }));
 
@@ -63,10 +87,15 @@ let mockVotes: Vote[] = [];
 vi.mock('../../hooks/useRealtimeVotes', () => ({
   useRealtimeVotes: () => ({
     votes: mockVotes,
-    loading: false,
+    loading: mockVotesLoading,
+    error: mockDatasetError,
     revealed: false,
     setRevealed: vi.fn(),
   }),
+}));
+
+vi.mock('../../hooks/useRoundVoteStatuses', () => ({
+  useRoundVoteStatuses: () => ({ statuses: mockVoteStatuses, loading: mockVotesLoading, error: mockDatasetError }),
 }));
 
 // ── Hjelpdata ─────────────────────────────────────────────────────────────────
@@ -94,6 +123,7 @@ const PARTICIPANT_1: Participant = {
   name: 'Ola',
   role: 'participant',
   joined_at: '2026-01-01T00:01:00Z',
+  left_at: null,
 };
 
 const PARTICIPANT_2: Participant = {
@@ -102,6 +132,7 @@ const PARTICIPANT_2: Participant = {
   name: 'Kari',
   role: 'participant',
   joined_at: '2026-01-01T00:02:00Z',
+  left_at: null,
 };
 
 const MOCK_VOTE_1: Vote = {
@@ -129,8 +160,18 @@ beforeEach(() => {
   mockLocalParticipant = null;
   mockLoading = false;
   mockError = null;
+  mockRestoreStatus = 'ready';
   mockParticipants = [];
+  mockRoundParticipants = [];
+  mockPresentParticipantIds = new Set();
+  mockPresenceReady = true;
+  mockPresenceConnectionState = 'connected';
   mockVotes = [];
+  mockVoteStatuses = [];
+  mockParticipantsLoading = false;
+  mockRoundLoading = false;
+  mockVotesLoading = false;
+  mockDatasetError = null;
 
   mockCreateSession.mockReset();
   mockStartSession.mockReset();
@@ -149,6 +190,15 @@ beforeEach(() => {
 // 1. Opprett-sesjon-form
 // ═════════════════════════════════════════════════════════════════════════════
 describe('DashboardPage – opprett sesjon (ingen sesjon/fasilitator)', () => {
+  it('viser reconnect-status i stedet for create-form når cached identity finnes', () => {
+    mockSession = null;
+    mockLocalParticipant = FACILITATOR_PARTICIPANT;
+    mockRestoreStatus = 'reconnecting';
+    renderDashboard();
+
+    expect(screen.getByText(/kobler til sesjonen på nytt/i)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /opprett sesjon/i })).not.toBeInTheDocument();
+  });
   it('1. viser opprett-form når ingen sesjon/fasilitator', () => {
     mockSession = null;
     mockLocalParticipant = null;
@@ -157,6 +207,12 @@ describe('DashboardPage – opprett sesjon (ingen sesjon/fasilitator)', () => {
 
     expect(screen.getByRole('heading', { name: /opprett sesjon/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /opprett sesjon/i })).toBeInTheDocument();
+  });
+
+  it('viser autoritativ utløpt-status før ny fasilitator-sesjon', () => {
+    mockRestoreStatus = 'invalid';
+    renderDashboard();
+    expect(screen.getByRole('alert')).toHaveTextContent(/forrige sesjon er utløpt/i);
   });
 
   it('2. validering: tomt navnefelt gir disabled knapp og ingen createSession-kall', async () => {
@@ -261,7 +317,12 @@ describe('DashboardPage – etter start (session.started === true)', () => {
     mockSession = { ...BASE_SESSION, started: true, votes_revealed: false };
     mockLocalParticipant = FACILITATOR_PARTICIPANT;
     mockParticipants = [PARTICIPANT_1, PARTICIPANT_2];
+    mockRoundParticipants = [
+      { session_id: 'ses-1', round: 1, participant_id: 'p-1', joined_at: '', reestimate_used: false },
+      { session_id: 'ses-1', round: 1, participant_id: 'p-2', joined_at: '', reestimate_used: false },
+    ];
     mockVotes = [MOCK_VOTE_1]; // 1 av 2 har stemt
+    mockVoteStatuses = [{ participant_id: 'p-1', has_voted: true }, { participant_id: 'p-2', has_voted: false }];
   });
 
   it('8. viser stemmestatus (X av Y har stemt)', () => {
@@ -278,6 +339,27 @@ describe('DashboardPage – etter start (session.started === true)', () => {
     await user.click(screen.getByRole('button', { name: /vis resultater/i }));
 
     expect(mockRevealVotes).toHaveBeenCalledTimes(1);
+  });
+
+  it('bruker anonymiserte vote-statuses før reveal, ikke full vote-data', () => {
+    mockVotes = [];
+    renderDashboard();
+    expect(screen.getByText(/1 av 2 har stemt/i)).toBeInTheDocument();
+    expect(screen.queryByText(/M 🥇/)).not.toBeInTheDocument();
+  });
+
+  it('viser dataset-status og blokkerer reveal ved loading eller fetch-feil', () => {
+    mockParticipantsLoading = true;
+    const { rerender } = renderDashboard();
+    expect(screen.getByRole('status')).toHaveTextContent(/henter autoritative/i);
+    expect(screen.getByRole('button', { name: /vis resultater/i })).toBeDisabled();
+
+    mockParticipantsLoading = false;
+    mockDatasetError = 'Kunne ikke hente data. Prøv igjen.';
+    rerender(<MemoryRouter><DashboardPage /></MemoryRouter>);
+    expect(screen.getByRole('alert')).toHaveTextContent(/kunne ikke hente data/i);
+    expect(screen.getByRole('button', { name: /vis resultater/i })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /avslutt/i })).toBeEnabled();
   });
 
   it('10. etter reveal: viser stemmer med størrelse og medalje', () => {
@@ -301,6 +383,30 @@ describe('DashboardPage – etter start (session.started === true)', () => {
     await user.click(screen.getByRole('button', { name: /ny runde/i }));
 
     expect(mockNextRound).toHaveBeenCalledTimes(1);
+  });
+
+  it('teller ikke historisk membership som mangler fra rundens roster', () => {
+    mockRoundParticipants = [mockRoundParticipants[0]];
+    renderDashboard();
+    expect(screen.getByText('1 av 1 har stemt')).toBeInTheDocument();
+    expect(screen.queryByText('Kari')).not.toBeInTheDocument();
+  });
+
+  it('beholder offline round participant uten stemme i totalen', () => {
+    mockVotes = [];
+    mockVoteStatuses = [];
+    mockPresentParticipantIds = new Set();
+    renderDashboard();
+    expect(screen.getByText('0 av 2 har stemt')).toBeInTheDocument();
+    expect(screen.getByLabelText('Ola er offline')).toBeInTheDocument();
+  });
+
+  it('beholder offline round participant med stemme og stemmestatus', () => {
+    mockPresentParticipantIds = new Set();
+    renderDashboard();
+    expect(screen.getByText('1 av 2 har stemt')).toBeInTheDocument();
+    expect(screen.getByText('Klar ✓')).toBeInTheDocument();
+    expect(screen.getByLabelText('Ola er offline')).toBeInTheDocument();
   });
 });
 

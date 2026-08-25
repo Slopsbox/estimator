@@ -1,6 +1,6 @@
 # Estimering – Planning Poker PWA
 
-En enkel Planning Poker-app for teamestimering. Deltakere stemmer på størrelse (XS–XL) og forretningsverdi (Gull/Sølv/Bronse) i sanntid. Fasilitator styrer sesjonen og ser alle stemmer live.
+En enkel Planning Poker-app for teamestimering. Deltakere stemmer på størrelse (XS–XL) og forretningsverdi (Gull/Sølv/Bronse) i sanntid. Fasilitator styrer sesjonen, ser anonymisert fremdrift før reveal og stemmeverdier etter reveal.
 
 ## Teknisk stack
 
@@ -51,12 +51,16 @@ supabase status     # Vis URL og nøkler
 
 Kopier `API URL` og `anon key` fra `supabase status` inn i `.env.local`.
 
-#### Kjør migrasjonen
+#### Kjør migrasjoner og databasetester
 
 ```bash
-supabase db push
-# eller manuelt via SQL Editor i Supabase Dashboard:
-# copy/paste innholdet i supabase/migrations/001_initial_schema.sql
+supabase db reset --local
+supabase test db --local supabase/tests/session_rpc_test.sql
+
+# Etter at lockdown-filen er brukt i testdatabasen:
+psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" -v ON_ERROR_STOP=1 \
+  -f supabase/releases/enforce_session_rls_after_frontend.sql
+supabase test db --local supabase/tests/session_rls_test.sql
 ```
 
 ---
@@ -109,10 +113,14 @@ npm run test:watch   # Tester i watch-modus
 ## Koble til Supabase i produksjon
 
 1. Opprett prosjekt på [supabase.com](https://supabase.com)
-2. Gå til **SQL Editor** og kjør `supabase/migrations/001_initial_schema.sql`
-3. Gå til **Database → Replication** og verifiser at `sessions`, `participants` og `votes` er med i `supabase_realtime`-publikasjonen
-4. Hent **Project URL** og **anon key** fra **Settings → API**
-5. Sett disse i `.env.local` (eller som environment-variabler i Vercel)
+2. Aktiver **Anonymous Sign-Ins** under Auth. Klienten bruker en anonym, autentisert bruker per nettleseridentitet.
+3. Les [`supabase/releases/production_migration_reconciliation.md`](./supabase/releases/production_migration_reconciliation.md) før production `db push`. Historikk skal ikke repareres automatisk.
+4. Planlegg ett koordinert maintenance-vindu for den additive `session_identity_and_rounds`-migrasjonen og frontend som bruker RPC-kontrakten. Migrasjonen avslutter alle pågående identity-less legacy-sesjoner og fjerner umiddelbart gamle direkte skriverettigheter/policyer; cached legacy-klienter feiler dermed lukket.
+5. Tving oppdatering av cached PWA/service worker i samme vindu før trafikken åpnes igjen. Ikke legg inn en kompatibilitetsperiode med gamle klienter. Lockdown ligger bevisst i [`supabase/releases/enforce_session_rls_after_frontend.sql`](./supabase/releases/enforce_session_rls_after_frontend.sql) og fullfører member-scoped SELECT-RLS og private Presence etter frontend-verifisering.
+6. Kjør read-only preflight i [`supabase/releases/production_migration_reconciliation.sql`](./supabase/releases/production_migration_reconciliation.sql). Composite vote-FK forblir `NOT VALID` under additiv cutover og valideres separat med `validate_session_integrity_constraints.sql` etter cleanup/preflight.
+7. Gå til **Realtime Settings** og slå av **Allow public access** før lockdown. Presence bruker eksakt privat topic `session:<uuid>` og `realtime.messages`-policyer. Postgres Changes bruker separate private topics og filtreres av tabell-RLS; Supabase dokumenterer ikke en `realtime.messages`-extension-policy for Postgres Changes.
+8. Verifiser at `sessions`, `participants`, `votes` og `round_participants` er med i `supabase_realtime`-publikasjonen.
+9. Hent **Project URL** og **anon key** fra **Settings → API** og sett dem som miljøvariabler.
 
 ---
 
@@ -136,9 +144,14 @@ Se [docs/adr/001-arkitektur-estimeringsapp.md](./docs/adr/001-arkitektur-estimer
 
 ---
 
-## Sikkerhet (MVP)
+## Sikkerhet og medlemskap
 
-- RLS-policyer er åpne (alle kan lese og skrive) – egnet for intern bruk
-- Cloudflare Turnstile hindrer automatiserte bot-angrep
+- `participants` er varig medlemskap. `left_at` markerer eksplisitt forlatte medlemskap. Realtime Presence er kun et uautoritativt, kosmetisk online-hint og påvirker aldri tilgang, round roster eller stemmetall.
+- `round_participants` er autoritativ roster per runde; korte reconnects endrer ikke roster eller stemmetall.
+- Sesjonsmutasjoner går gjennom RPC-er og lockdown-migrasjonen begrenser lesing med RLS.
+- Vote `DELETE` Postgres Changes abonneres ikke på og brukes aldri som autoritativ event. Deltakerens `ownVote` kommer fra provideren/RPC, fasilitator bruker anonymiserte statuses før reveal, og full vote-snapshot/INSERT brukes etter reveal.
+- `supabase test db` krever en kjørende lokal Supabase-stack og dermed Docker.
+- `npm audit --omit=dev` er release-gate og er 0. Full `npm audit` rapporterer per 2026-08-25 16 dev-only funn (1 low, 3 moderate, 11 high, 1 critical) i Vercel/build/test-verktøykjeden, blant annet `@vercel/node`, `postcss`, `esbuild` og transitive parser/glob/archive-pakker. De er ikke med i nettleserens runtime-bundle; planen er kontrollert oppgradering og ny audit av build-input-reachability, ikke breaking `npm audit fix --force`.
+- Turnstile-gaten i frontend kan omgås ved direkte API-kall. Databasen begrenser hver auth-identitet til én aktiv fasilitator-sesjon, men join brute-force rate limiting er fortsatt en eksplisitt åpen risiko som må løses før offentlig eksponering.
 - Supabase anon-key er eksponert i klienten (standard for Supabase)
 - For ekstern bruk: vurder server-side Turnstile-validering via Supabase Edge Function

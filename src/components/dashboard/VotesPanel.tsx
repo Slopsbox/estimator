@@ -1,5 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { supabase } from '../../lib/supabase';
+import { useMemo } from 'react';
 import { PriorityMatrix } from '../PriorityMatrix';
 import { SpreadOMeter } from '../SpreadOMeter';
 import { VALUE_MEDAL } from '../../lib/constants';
@@ -14,9 +13,9 @@ export interface VotesPanelProps {
   totalCount: number;
   actionLoading: boolean;
   consensusStreak: number;
-  sessionId: string;
-  /** Deltakere som har slettet stemmen sin i denne runden (brukte Amalieknappen) */
-  deletedParticipantIds?: Set<string>;
+  presentParticipantIds?: ReadonlySet<string>;
+  reestimatingParticipantIds?: ReadonlySet<string>;
+  votedParticipantIds?: ReadonlySet<string>;
   onReveal: () => void;
   onNextRound: () => void;
 }
@@ -36,68 +35,15 @@ export function VotesPanel({
   totalCount,
   actionLoading,
   consensusStreak,
-  sessionId,
-  deletedParticipantIds,
+  presentParticipantIds,
+  reestimatingParticipantIds,
+  votedParticipantIds,
   onReveal,
   onNextRound,
 }: VotesPanelProps) {
   // Bygg oppslag: participantId → vote (memoisert)
   const voteMap = useMemo(() => new Map(votes.map((v) => [v.participant_id, v])), [votes]);
 
-  // Duplikat-ryddehåndtering
-  const [duplicateIds, setDuplicateIds] = useState<string[]>([]);
-  const [cleanupLoading, setCleanupLoading] = useState(false);
-
-  // Finn duplikater blant participants (samme navn, role='participant')
-  useEffect(() => {
-    const seen = new Map<string, string>(); // name → id (nyeste)
-    const dups: string[] = [];
-    // Sorter etter joined_at desc for å finne nyeste
-    const sorted = [...participants]
-      .filter((p) => p.role === 'participant')
-      .sort((a, b) => new Date(b.joined_at).getTime() - new Date(a.joined_at).getTime());
-
-    for (const p of sorted) {
-      if (seen.has(p.name)) {
-        dups.push(p.id);
-      } else {
-        seen.set(p.name, p.id);
-      }
-    }
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setDuplicateIds(dups);
-  }, [participants]);
-
-  const handleCleanup = useCallback(async () => {
-    if (!sessionId || duplicateIds.length === 0) return;
-
-    // Hent alle participants for sesjonen og finn duplikater – behold nyeste per navn
-    const { data: allParticipants } = await supabase
-      .from('participants')
-      .select('*')
-      .eq('session_id', sessionId)
-      .eq('role', 'participant')
-      .order('joined_at', { ascending: false });
-
-    if (!allParticipants) return;
-
-    const seen = new Set<string>();
-    const toDelete: string[] = [];
-
-    for (const p of allParticipants) {
-      if (seen.has(p.name)) {
-        toDelete.push(p.id);
-      } else {
-        seen.add(p.name);
-      }
-    }
-
-    if (toDelete.length > 0) {
-      setCleanupLoading(true);
-      await supabase.from('participants').delete().in('id', toDelete);
-      setCleanupLoading(false);
-    }
-  }, [sessionId, duplicateIds.length]);
 
   return (
     <div className="space-y-4">
@@ -182,6 +128,8 @@ export function VotesPanel({
         <ul className="space-y-2">
           {participants.map((p) => {
             const vote = voteMap.get(p.id);
+            const hasVoted = vote !== undefined || votedParticipantIds?.has(p.id) === true;
+            const online = presentParticipantIds?.has(p.id) ?? false;
             return (
               <li key={p.id} className="flex items-center gap-3">
                 <div
@@ -196,8 +144,12 @@ export function VotesPanel({
                 >
                   {p.name}
                 </span>
+                <span className="text-xs flex items-center gap-1" style={{ color: online ? 'var(--color-success)' : 'var(--color-neutral-500)' }} aria-label={`${p.name} er ${online ? 'online' : 'offline'}`}>
+                  <span className="w-1.5 h-1.5 rounded-full" style={{ background: online ? 'var(--color-success)' : 'var(--color-neutral-300)' }} aria-hidden="true" />
+                  {online ? 'online' : 'offline'}
+                </span>
                 {/* Stemme-status */}
-                {vote ? (
+                {hasVoted ? (
                   revealed ? (
                     /* Avslørt stemme */
                     <span
@@ -208,7 +160,7 @@ export function VotesPanel({
                         borderRadius: 'var(--radius-sm)',
                       }}
                     >
-                      {vote.size.toUpperCase()} {VALUE_MEDAL[vote.value as Value]}
+                      {vote ? `${vote.size.toUpperCase()} ${VALUE_MEDAL[vote.value as Value]}` : 'Ukjent'}
                     </span>
                   ) : (
                     /* Klar */
@@ -223,7 +175,7 @@ export function VotesPanel({
                       Klar ✓
                     </span>
                   )
-                ) : deletedParticipantIds?.has(p.id) ? (
+                ) : reestimatingParticipantIds?.has(p.id) ? (
                   /* Re-estimerer – hadde stemme, slettet den (Amalieknappen) */
                   <span
                     className="text-xs px-2 py-0.5 flex items-center gap-1"
@@ -256,29 +208,6 @@ export function VotesPanel({
             );
           })}
         </ul>
-      )}
-
-      {/* Rydd opp-knapp – kun synlig hvis det finnes duplikater */}
-      {duplicateIds.length > 0 && (
-        <button
-          type="button"
-          onClick={() => void handleCleanup()}
-          disabled={cleanupLoading}
-          className="w-full text-xs py-1.5 transition-all focus:outline-none"
-          style={{
-            color: 'var(--color-neutral-500)',
-            border: '1px dashed var(--color-neutral-300)',
-            borderRadius: 'var(--radius-sm)',
-            background: 'transparent',
-            cursor: cleanupLoading ? 'not-allowed' : 'pointer',
-            opacity: cleanupLoading ? 0.6 : 1,
-          }}
-          aria-label={`Fjern ${duplicateIds.length} duplikat${duplicateIds.length === 1 ? '' : 'er'}`}
-        >
-          {cleanupLoading
-            ? 'Rydder…'
-            : `Rydd opp (${duplicateIds.length} duplikat${duplicateIds.length === 1 ? '' : 'er'})`}
-        </button>
       )}
 
       {/* SpreadOMeter – vises etter avsløring */}

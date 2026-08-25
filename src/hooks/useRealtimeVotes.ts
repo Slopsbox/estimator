@@ -4,10 +4,26 @@ import { supabase } from '../lib/supabase';
 import type { Vote } from '../lib/types';
 import { useSupabaseRealtimeCollection } from './useSupabaseRealtimeCollection';
 
+function isVote(value: unknown): value is Vote {
+  if (typeof value !== 'object' || value === null) return false;
+  const vote = value as Record<string, unknown>;
+  return typeof vote.id === 'string'
+    && typeof vote.session_id === 'string'
+    && typeof vote.participant_id === 'string'
+    && typeof vote.round === 'number'
+    && typeof vote.size === 'string'
+    && typeof vote.value === 'string'
+    && typeof vote.created_at === 'string';
+}
+
 /** Abonnerer på stemmer for en sesjon og runde i sanntid. */
-export function useRealtimeVotes(sessionId: string | null, currentRound: number, initialRevealed = false) {
+export function useRealtimeVotes(
+  sessionId: string | null,
+  currentRound: number,
+  initialRevealed = false,
+  participantId?: string,
+) {
   const [revealed, setRevealed] = useState(initialRevealed);
-  const [deletedParticipantIds, setDeletedParticipantIds] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -17,7 +33,7 @@ export function useRealtimeVotes(sessionId: string | null, currentRound: number,
   const fetchCollection = useCallback(async () => {
     return supabase
       .from('votes')
-      .select('*')
+      .select('id, session_id, participant_id, round, size, value, created_at')
       .eq('session_id', sessionId ?? '')
       .eq('round', currentRound)
       .order('created_at', { ascending: true });
@@ -28,29 +44,18 @@ export function useRealtimeVotes(sessionId: string | null, currentRound: number,
     setVotes: React.Dispatch<React.SetStateAction<Vote[]>>,
     isCurrent: () => boolean,
   ) => {
-    return channel
-      .on('postgres_changes', {
+    return channel.on('postgres_changes', {
         event: 'INSERT', schema: 'public', table: 'votes', filter: `session_id=eq.${sessionId}`,
        }, (payload) => {
          if (!isCurrent()) return;
-         const vote = payload.new as Vote;
+          const vote: unknown = payload.new;
+          if (!isVote(vote)) return;
         if (vote.round !== currentRound) return;
         setVotes((current) => current.some((item) => item.id === vote.id) ? current : [...current, vote]);
-      })
-      .on('postgres_changes', {
-        event: 'DELETE', schema: 'public', table: 'votes', filter: `session_id=eq.${sessionId}`,
-       }, (payload) => {
-         if (!isCurrent()) return;
-         const deleted = payload.old as { id?: string; participant_id?: string };
-        if (!deleted.id) return;
-        setVotes((current) => current.filter((item) => item.id !== deleted.id));
-        if (deleted.participant_id) {
-          setDeletedParticipantIds((current) => new Set([...current, deleted.participant_id!]));
-        }
       });
   }, [sessionId, currentRound]);
 
-  const { items: votes, loading, error } = useSupabaseRealtimeCollection({
+  const { items: votes, loading, error, connectionState, refetch } = useSupabaseRealtimeCollection({
     sessionId,
     channelName: `votes:${sessionId}:${currentRound}`,
     fetchCollection,
@@ -58,9 +63,12 @@ export function useRealtimeVotes(sessionId: string | null, currentRound: number,
   });
 
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setDeletedParticipantIds(new Set());
-  }, [sessionId, currentRound]);
+    if (initialRevealed) void refetch();
+  }, [initialRevealed, refetch]);
 
-  return { votes, loading, error, revealed, setRevealed, deletedParticipantIds };
+  const ownVote = participantId
+    ? votes.find((vote) => vote.participant_id === participantId) ?? null
+    : null;
+
+  return { votes, ownVote, loading, error, connectionState, refetch, revealed, setRevealed };
 }

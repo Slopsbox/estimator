@@ -13,13 +13,16 @@ import type { Tables } from './database.types';
 // ============================================================
 
 /** Rad fra sessions-tabellen */
-export type Session = Tables<'sessions'>;
+export type Session = Omit<Tables<'sessions'>, 'facilitator_user_id' | 'create_request_id'>;
 
 /** Rad fra participants-tabellen */
-export type Participant = Tables<'participants'>;
+export type Participant = Omit<Tables<'participants'>, 'user_id'>;
 
 /** Rad fra votes-tabellen */
 export type Vote = Tables<'votes'>;
+
+/** Rad fra round_participants-tabellen */
+export type RoundParticipant = Tables<'round_participants'>;
 
 // ============================================================
 // App-nivå narrowing-typer (snevrere enn DB-typens `string`)
@@ -42,13 +45,18 @@ export type ParticipantRole = 'facilitator' | 'participant';
 // Frontend-spesifikke typer (ingen DB-ekvivalent)
 // ============================================================
 
-/** Lokal tilstand for en deltaker (lagres i localStorage) */
-export interface LocalParticipant {
+/** Versjonert lokal peker. Rolle og navn er kun cache frem til restore-RPC svarer. */
+export interface SessionPointer {
+  version: 1;
+  updatedAt?: string;
   participantId: string;
   sessionId: string;
   name: string;
   role: ParticipantRole;
 }
+
+/** Autoritativ deltakeridentitet i aktiv app-state. */
+export type LocalParticipant = Omit<SessionPointer, 'version'>;
 
 /** Props for stemme-komponent */
 export interface VoteSubmission {

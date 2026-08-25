@@ -5,6 +5,7 @@ export interface NavyPageLayoutProps {
   roleLabel: string;
   /** Valgfri tilbake-knapp handling. Hvis utelatt, vises ingen tilbake-knapp. */
   onBack?: () => void;
+  backLabel?: string;
   /** Valgfri badge til høyre i header (f.eks. runde-badge) */
   headerRight?: ReactNode;
   /** Innhold i navy-seksjonen (under header-raden) – typisk ikon + tittel + undertekst */
@@ -31,6 +32,7 @@ export interface NavyPageLayoutProps {
 export function NavyPageLayout({
   roleLabel,
   onBack,
+  backLabel = 'Tilbake',
   headerRight,
   navyContent,
   children,
@@ -53,7 +55,7 @@ export function NavyPageLayout({
               onClick={onBack}
               className="flex items-center justify-center w-9 h-9 focus:outline-none"
               style={{ color: 'white', background: 'transparent' }}
-              aria-label="Tilbake"
+              aria-label={backLabel}
             >
               <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true">
                 <path

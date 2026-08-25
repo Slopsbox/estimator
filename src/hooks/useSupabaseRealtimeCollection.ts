@@ -19,10 +19,9 @@ interface UseSupabaseRealtimeCollectionOptions<T> {
   ) => RealtimeChannel;
 }
 
-/**
- * Felles livssyklus for session-scopede Supabase Realtime-samlinger.
- * Initialdata hentes først når kanalen er SUBSCRIBED for å unngå tapte events.
- */
+export type RealtimeCollectionConnectionState = 'idle' | 'connecting' | 'connected' | 'disconnected';
+
+/** Felles livssyklus for session-scopede Supabase Realtime-samlinger. */
 export function useSupabaseRealtimeCollection<T>({
   sessionId,
   channelName,
@@ -33,19 +32,30 @@ export function useSupabaseRealtimeCollection<T>({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [retryCount, setRetryCount] = useState(0);
+  const [connectionState, setConnectionState] = useState<RealtimeCollectionConnectionState>('idle');
   const retryTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const generationRef = useRef(0);
+  const refetchInFlightRef = useRef<Promise<void> | null>(null);
+  const scopeRef = useRef<string | null>(null);
 
-  const refetch = useCallback(async () => {
+  const refetch = useCallback(() => {
     if (!sessionId) return;
+    if (refetchInFlightRef.current) return refetchInFlightRef.current;
     const generation = generationRef.current;
-    const result = await fetchCollection();
-    if (generation !== generationRef.current) return;
-    if (result.error) {
-      setError('Kunne ikke oppdatere data. Prøv igjen.');
-      return;
-    }
-    if (result.data) setItems(result.data);
+    const attempt = (async () => {
+      const result = await fetchCollection();
+      if (generation !== generationRef.current) return;
+      if (result.error) {
+        setError('Kunne ikke oppdatere data. Prøv igjen.');
+        return;
+      }
+      if (result.data) setItems(result.data);
+      setError(null);
+    })().finally(() => {
+      if (refetchInFlightRef.current === attempt) refetchInFlightRef.current = null;
+    });
+    refetchInFlightRef.current = attempt;
+    return attempt;
   }, [sessionId, fetchCollection]);
 
   useEffect(() => {
@@ -57,20 +67,31 @@ export function useSupabaseRealtimeCollection<T>({
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setItems([]);
       setLoading(false);
+      setConnectionState('idle');
+      scopeRef.current = null;
       return;
     }
 
     let active = true;
+    let initialFetchPending = true;
+    const pendingUpdaters: Array<(items: T[]) => T[]> = [];
     const isCurrent = () => active && generationRef.current === generation;
     const setItemsForCurrentGeneration: React.Dispatch<React.SetStateAction<T[]>> = (action) => {
+      const updater = typeof action === 'function'
+        ? action as (items: T[]) => T[]
+        : () => action;
+      if (initialFetchPending) pendingUpdaters.push(updater);
       setItems((current) => {
         if (!isCurrent()) return current;
-        return typeof action === 'function' ? action(current) : action;
+        return updater(current);
       });
     };
     setLoading(true);
     setError(null);
-    setItems([]);
+    setConnectionState('connecting');
+    const scope = `${sessionId}:${channelName}`;
+    if (scopeRef.current !== scope) setItems([]);
+    scopeRef.current = scope;
 
     const fetchInitialData = async () => {
       const result = await fetchCollection();
@@ -78,19 +99,24 @@ export function useSupabaseRealtimeCollection<T>({
       if (result.error) {
         setError('Kunne ikke hente data. Prøv igjen.');
       } else if (result.data) {
-        setItemsForCurrentGeneration(result.data);
+        setItems(pendingUpdaters.reduce((current, update) => update(current), result.data));
       }
+      initialFetchPending = false;
+      pendingUpdaters.length = 0;
       setLoading(false);
     };
 
     const channel = configureSubscription(
-      supabase.channel(`${channelName}:${retryCount}`),
+      supabase.channel(`${channelName}:${retryCount}`, { config: { private: true } }),
       setItemsForCurrentGeneration,
       isCurrent,
     )
       .subscribe((status) => {
-        if (status === 'SUBSCRIBED' && isCurrent()) void fetchInitialData();
-        if ((status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') && isCurrent()) {
+        if (status === 'SUBSCRIBED' && isCurrent()) {
+          setConnectionState('connected');
+        }
+        if ((status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') && isCurrent()) {
+          setConnectionState('disconnected');
           if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
           retryTimerRef.current = setTimeout(() => {
             if (!isCurrent()) return;
@@ -99,6 +125,7 @@ export function useSupabaseRealtimeCollection<T>({
           }, 2000);
         }
       });
+    void fetchInitialData();
 
     return () => {
       active = false;
@@ -113,5 +140,5 @@ export function useSupabaseRealtimeCollection<T>({
 
   useVisibilityRefetch(refetch);
 
-  return { items, setItems, loading, error };
+  return { items, setItems, loading, error, connectionState, refetch };
 }

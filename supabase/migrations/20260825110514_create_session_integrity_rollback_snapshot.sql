@@ -1,0 +1,7 @@
+-- Production rollback snapshot created before the session-integrity cutover.
+--
+-- The production migration was applied through the Supabase MCP before this
+-- history file was added. It created schema rollback_20260825_session_integrity
+-- with data snapshots of sessions, participants, votes and their RLS policies.
+-- This file intentionally contains no executable SQL so a fresh database does
+-- not create a production-specific rollback artifact.

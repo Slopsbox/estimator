@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import type { User } from '@supabase/supabase-js';
 import type { Database } from './database.types';
 
 const supabaseUrl =
@@ -6,4 +7,40 @@ const supabaseUrl =
 const supabaseAnonKey =
   (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined) ?? 'test-anon-key';
 
-export const supabase = createClient<Database>(supabaseUrl, supabaseAnonKey);
+export const supabase = createClient<Database>(supabaseUrl, supabaseAnonKey, {
+  auth: {
+    persistSession: true,
+    autoRefreshToken: true,
+    detectSessionInUrl: false,
+  },
+});
+
+let identityPromise: Promise<User> | null = null;
+
+export function ensureAnonymousIdentity(): Promise<User> {
+  if (identityPromise) return identityPromise;
+
+  identityPromise = (async () => {
+    const current = await supabase.auth.getSession();
+    if (current.error) throw new Error('Kunne ikke opprette sikker identitet. Prøv igjen.');
+
+    if (current.data.session) {
+      await supabase.realtime.setAuth(current.data.session.access_token);
+      return current.data.session.user;
+    }
+
+    const signedIn = await supabase.auth.signInAnonymously();
+    if (signedIn.error || !signedIn.data.user || !signedIn.data.session) {
+      throw new Error('Kunne ikke opprette sikker identitet. Prøv igjen.');
+    }
+
+    await supabase.realtime.setAuth(signedIn.data.session.access_token);
+    return signedIn.data.user;
+  })().catch(() => {
+    throw new Error('Kunne ikke opprette sikker identitet. Prøv igjen.');
+  }).finally(() => {
+    identityPromise = null;
+  });
+
+  return identityPromise;
+}

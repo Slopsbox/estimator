@@ -13,7 +13,7 @@ import { readLastUsedName } from '../lib/localStorage';
  */
 export function DeltagerJoinPage() {
   const navigate = useNavigate();
-  const { joinSession, loading } = useSession();
+  const { joinSession, loading, restoreStatus } = useSession();
 
   const [name, setName] = useState(() => {
     return readLastUsedName();
@@ -56,29 +56,21 @@ export function DeltagerJoinPage() {
     setCodeError(null);
     setNameError(null);
 
-    const ok = await joinSession(code, name.trim());
+    const result = await joinSession(code, name.trim());
 
-    if (!ok) {
-      console.warn('[DeltagerJoin] joinSession returnerte false – feil kode?', {
-        kode: code,
-        navn: name.trim(),
-      });
-      setCodeError('Feil kode — prøv igjen.');
+    if (!result.ok) {
+      setCodeError(result.reason === 'session_not_found'
+        ? 'Feil kode — prøv igjen.'
+        : result.reason === 'role_conflict'
+          ? 'Denne nettleseren er fasilitator for sesjonen.'
+          : 'Kunne ikke koble til. Sjekk nettet og prøv igjen.');
       setShaking(true);
       setTimeout(() => setShaking(false), 500);
       codeInputRef.current?.focus();
       return;
     }
 
-    // Bruker full page navigation i stedet for React Router navigate().
-    // Årsak: useSession er en hook med lokal state per komponent-instans.
-    // Med navigate('/vote') monteres Vote.tsx med EN NY useSession-instans som
-     // starter med session=null og må gjenopprette fra localStorage asynkront.
-    // I det korte vinduet før gjenoppretting er ferdig (initialized=false) vises
-    // ingenting og brukeren "henger" på join-siden.
-     // window.location.href tvinger full re-mount med fresh localStorage-lesing,
-    // slik at gjenopprettingen starter fra en ren tilstand og alltid finner dataene.
-    window.location.href = '/vote';
+    navigate('/vote');
   };
 
   const canSubmit = name.trim().length > 0 && code.length === 4;
@@ -99,6 +91,11 @@ export function DeltagerJoinPage() {
         </div>
       }
     >
+      {restoreStatus === 'invalid' && (
+        <p role="alert" className="mb-4 text-sm" style={{ color: 'var(--color-danger)' }}>
+          Forrige sesjon er utløpt eller ikke lenger tilgjengelig.
+        </p>
+      )}
       <form onSubmit={handleJoin} className="space-y-4">
         {/* Navn-input */}
         <div>

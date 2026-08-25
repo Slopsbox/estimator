@@ -1,0 +1,429 @@
+-- Run after the additive migration, before or independently of lockdown.
+-- `supabase test db supabase/tests/session_rpc_test.sql`
+-- Requires the local Supabase stack and pgTAP (included by the Supabase image).
+begin;
+
+create extension if not exists pgtap with schema extensions;
+select extensions.plan(34);
+
+insert into auth.users (id, aud, role, email, created_at, updated_at)
+values
+  ('10000000-0000-0000-0000-000000000001', 'authenticated', 'authenticated', 'facilitator@test.invalid', now(), now()),
+  ('10000000-0000-0000-0000-000000000002', 'authenticated', 'authenticated', 'participant-a@test.invalid', now(), now()),
+  ('10000000-0000-0000-0000-000000000003', 'authenticated', 'authenticated', 'participant-b@test.invalid', now(), now()),
+  ('10000000-0000-0000-0000-000000000004', 'authenticated', 'authenticated', 'outsider@test.invalid', now(), now());
+
+create temporary table session_test_context (
+  key text primary key,
+  value text not null
+);
+
+grant select on session_test_context to authenticated;
+
+select extensions.is(
+  (select count(*)::text from public.sessions where status = 'active' and facilitator_user_id is null),
+  '0',
+  'additive cutover leaves no active legacy session restorable'
+);
+
+select set_config('request.jwt.claim.sub', '10000000-0000-0000-0000-000000000001', true);
+insert into session_test_context (key, value)
+select 'create_result', public.create_session(
+  '20000000-0000-0000-0000-000000000001',
+  '  Sam  '
+)::text;
+
+insert into session_test_context (key, value)
+select 'session_id', value::jsonb->'session'->>'id'
+from session_test_context where key = 'create_result';
+
+insert into session_test_context (key, value)
+select 'join_code', value::jsonb->'session'->>'join_code'
+from session_test_context where key = 'create_result';
+
+insert into session_test_context (key, value)
+select 'facilitator_participant_id', value::jsonb->'participant'->>'id'
+from session_test_context where key = 'create_result';
+
+select extensions.is(
+  (select value::jsonb->>'status' from session_test_context where key = 'create_result'),
+  'ok',
+  'create_session creates the session atomically'
+);
+
+select extensions.ok(
+  not ((select value::jsonb->'session' from session_test_context where key = 'create_result') ? 'facilitator_user_id')
+  and not ((select value::jsonb->'session' from session_test_context where key = 'create_result') ? 'create_request_id')
+  and not ((select value::jsonb->'participant' from session_test_context where key = 'create_result') ? 'user_id'),
+  'RPC responses strip permanent auth and request identifiers'
+);
+
+select extensions.is(
+  public.create_session('20000000-0000-0000-0000-000000000099', 'Second')->>'status',
+  'active_session_exists',
+  'one auth identity cannot create a second active facilitator session'
+);
+
+select extensions.is(
+  public.create_session(
+    '20000000-0000-0000-0000-000000000001',
+    'Ignored on retry'
+  )->'session'->>'id',
+  (select value from session_test_context where key = 'session_id'),
+  'create_session is idempotent for user and request id'
+);
+
+select set_config('request.jwt.claim.sub', '10000000-0000-0000-0000-000000000001', true);
+select extensions.is(
+  public.join_session((select value from session_test_context where key = 'join_code'), 'Fac as participant')->>'status',
+  'role_conflict',
+  'facilitator cannot join the same session as participant'
+);
+
+select extensions.throws_ok(
+  format('select public.leave_session(%L::uuid)', (select value from session_test_context where key = 'session_id')),
+  '42501',
+  'facilitator_cannot_leave',
+  'facilitator cannot leave their active session'
+);
+
+select extensions.is(
+  (
+    select count(*)::text
+    from public.round_participants
+    where session_id = (select value::uuid from session_test_context where key = 'session_id')
+      and round = 1
+  ),
+  '1',
+  'create_session creates first-round membership in the same transaction'
+);
+
+select set_config('request.jwt.claim.sub', '10000000-0000-0000-0000-000000000002', true);
+insert into session_test_context (key, value)
+select 'join_a_result', public.join_session(
+  (select value from session_test_context where key = 'join_code'),
+  'Sam'
+)::text;
+
+insert into session_test_context (key, value)
+select 'participant_a_id', value::jsonb->'participant'->>'id'
+from session_test_context where key = 'join_a_result';
+
+select extensions.is(
+  public.join_session(
+    (select value from session_test_context where key = 'join_code'),
+    'Different retry name'
+  )->'participant'->>'id',
+  (select value from session_test_context where key = 'participant_a_id'),
+  'join_session is idempotent per authenticated user'
+);
+
+select set_config('request.jwt.claim.sub', '10000000-0000-0000-0000-000000000003', true);
+insert into session_test_context (key, value)
+select 'join_b_result', public.join_session(
+  (select value from session_test_context where key = 'join_code'),
+  'Sam'
+)::text;
+
+insert into session_test_context (key, value)
+select 'participant_b_id', value::jsonb->'participant'->>'id'
+from session_test_context where key = 'join_b_result';
+
+select extensions.isnt(
+  (select value from session_test_context where key = 'participant_a_id'),
+  (select value from session_test_context where key = 'participant_b_id'),
+  'two authenticated users with the same name get separate participants'
+);
+
+select extensions.is(
+  (select value::jsonb->'participant'->>'role' from session_test_context where key = 'join_b_result'),
+  'participant',
+  'join_session never grants the facilitator role'
+);
+
+select extensions.is(
+  public.leave_session((select value::uuid from session_test_context where key = 'session_id'))->>'status',
+  'ok',
+  'leave_session explicitly deactivates membership'
+);
+
+select extensions.is(
+  public.restore_session((select value::uuid from session_test_context where key = 'session_id'))->>'status',
+  'membership_missing',
+  'restore_session rejects a left membership'
+);
+
+select extensions.is(
+  public.join_session(
+    (select value from session_test_context where key = 'join_code'),
+    'Sam rejoined'
+  )->'participant'->>'id',
+  (select value from session_test_context where key = 'participant_b_id'),
+  'join_session reactivates the same membership'
+);
+
+select extensions.is(
+  (
+    select left_at::text
+    from public.participants
+    where id = (select value::uuid from session_test_context where key = 'participant_b_id')
+  ),
+  null,
+  'reactivated membership clears left_at'
+);
+
+select extensions.throws_ok(
+  format(
+    'select public.start_session(%L::uuid)',
+    (select value from session_test_context where key = 'session_id')
+  ),
+  '42501',
+  'facilitator_required',
+  'a participant cannot run facilitator mutations'
+);
+
+select set_config('request.jwt.claim.sub', '10000000-0000-0000-0000-000000000001', true);
+select public.start_session((select value::uuid from session_test_context where key = 'session_id'));
+
+select set_config('request.jwt.claim.sub', '10000000-0000-0000-0000-000000000002', true);
+select extensions.is(
+  public.cast_vote(
+    (select value::uuid from session_test_context where key = 'session_id'),
+    1,
+    'm',
+    'gold'
+  )->>'status',
+  'ok',
+  'a current-round participant can vote'
+);
+
+select extensions.is(
+  public.cast_vote(
+    (select value::uuid from session_test_context where key = 'session_id'),
+    1,
+    'm',
+    'gold'
+  )->>'status',
+  'duplicate',
+  'duplicate vote submission is explicit and idempotent'
+);
+
+select extensions.throws_ok(
+  format(
+    'select public.cast_vote(%L::uuid, 2, %L, %L)',
+    (select value from session_test_context where key = 'session_id'),
+    'm',
+    'gold'
+  ),
+  '22023',
+  'wrong_round',
+  'voting in the wrong round is rejected'
+);
+
+select extensions.is(
+  public.retract_vote(
+    (select value::uuid from session_test_context where key = 'session_id'),
+    1
+  )->>'status',
+  'ok',
+  'a participant can retract once before reveal'
+);
+
+select public.cast_vote(
+  (select value::uuid from session_test_context where key = 'session_id'),
+  1,
+  'm',
+  'gold'
+);
+
+select extensions.throws_ok(
+  format(
+    'select public.retract_vote(%L::uuid, 1)',
+    (select value from session_test_context where key = 'session_id')
+  ),
+  null,
+  'reestimate_unavailable',
+  'a second retraction in the round is rejected'
+);
+
+select set_config('request.jwt.claim.sub', '10000000-0000-0000-0000-000000000001', true);
+select public.reveal_votes((select value::uuid from session_test_context where key = 'session_id'));
+
+select set_config('request.jwt.claim.sub', '10000000-0000-0000-0000-000000000002', true);
+select extensions.throws_ok(
+  format(
+    'select public.cast_vote(%L::uuid, 1, %L, %L)',
+    (select value from session_test_context where key = 'session_id'),
+    'l',
+    'silver'
+  ),
+  null,
+  'voting_closed',
+  'voting after reveal is rejected'
+);
+
+select set_config('request.jwt.claim.sub', '10000000-0000-0000-0000-000000000003', true);
+insert into session_test_context (key, value)
+select 'second_session_id', public.create_session(
+  '20000000-0000-0000-0000-000000000002',
+  'Other facilitator'
+)->'session'->>'id';
+
+select extensions.throws_ok(
+  format(
+    'insert into public.votes (session_id, participant_id, round, size, value) values (%L::uuid, %L::uuid, 2, %L, %L)',
+    (select value from session_test_context where key = 'second_session_id'),
+    (select value from session_test_context where key = 'participant_a_id'),
+    's',
+    'bronze'
+  ),
+  '23503',
+  null,
+  'a vote participant must belong to the same session'
+);
+
+select set_config('request.jwt.claim.sub', '10000000-0000-0000-0000-000000000001', true);
+select public.next_round((select value::uuid from session_test_context where key = 'session_id'));
+
+select set_config('request.jwt.claim.sub', '10000000-0000-0000-0000-000000000002', true);
+select public.cast_vote(
+  (select value::uuid from session_test_context where key = 'session_id'),
+  2,
+  's',
+  'silver'
+);
+
+select set_config('request.jwt.claim.sub', '10000000-0000-0000-0000-000000000003', true);
+select public.cast_vote(
+  (select value::uuid from session_test_context where key = 'session_id'),
+  2,
+  'l',
+  'bronze'
+);
+
+select set_config('request.jwt.claim.sub', '10000000-0000-0000-0000-000000000002', true);
+
+select set_config('request.jwt.claim.sub', '10000000-0000-0000-0000-000000000001', true);
+select extensions.is(
+  jsonb_array_length(public.get_round_vote_statuses(
+    (select value::uuid from session_test_context where key = 'session_id'),
+    2
+  ))::text,
+  '2',
+  'facilitator gets anonymized vote statuses before reveal'
+);
+
+select extensions.ok(
+  not (public.get_round_vote_statuses(
+    (select value::uuid from session_test_context where key = 'session_id'),
+    2
+  )::text ~ 'gold|silver|bronze|"size"|"value"'),
+  'vote status RPC never exposes vote values'
+);
+
+reset role;
+select set_config('request.jwt.claim.sub', '10000000-0000-0000-0000-000000000003', true);
+select public.leave_session((select value::uuid from session_test_context where key = 'session_id'));
+
+select extensions.is(
+  (
+    select count(*)::text
+    from public.round_participants
+    where session_id = (select value::uuid from session_test_context where key = 'session_id')
+      and round = 2
+      and participant_id = (select value::uuid from session_test_context where key = 'participant_b_id')
+  ),
+  '1',
+  'leaving after a vote preserves authoritative round participation'
+);
+
+select extensions.throws_ok(
+  format(
+    'select public.cast_vote(%L::uuid, 2, %L, %L)',
+    (select value from session_test_context where key = 'session_id'),
+    'm',
+    'gold'
+  ),
+  '42501',
+  'session_not_available',
+  'cast_vote requires active membership'
+);
+
+select extensions.ok(
+  exists (
+    select 1 from pg_constraint
+     where conname = 'votes_session_participant_fkey'
+       and not convalidated
+  ),
+  'cross-session vote FK remains NOT VALID during additive cutover'
+);
+
+select extensions.ok(
+  exists (
+    select 1 from pg_indexes
+     where schemaname = 'public'
+       and indexname = 'sessions_one_active_facilitator_uidx'
+  ),
+  'active facilitator session quota is enforced by a partial unique index'
+);
+
+select extensions.ok(
+  not has_table_privilege('anon', 'public.sessions', 'INSERT,UPDATE,DELETE')
+  and not has_table_privilege('anon', 'public.participants', 'INSERT,UPDATE,DELETE')
+  and not has_table_privilege('anon', 'public.votes', 'INSERT,UPDATE,DELETE')
+  and not has_table_privilege('authenticated', 'public.sessions', 'INSERT,UPDATE,DELETE')
+  and not has_table_privilege('authenticated', 'public.participants', 'INSERT,UPDATE,DELETE')
+  and not has_table_privilege('authenticated', 'public.votes', 'INSERT,UPDATE,DELETE'),
+  'additive cutover revokes all legacy direct table mutations'
+);
+
+select extensions.ok(
+  has_function_privilege('authenticated', 'public.create_session(uuid,text)', 'EXECUTE')
+  and has_function_privilege('authenticated', 'public.join_session(text,text)', 'EXECUTE')
+  and has_function_privilege('authenticated', 'public.restore_session(uuid)', 'EXECUTE')
+  and has_function_privilege('authenticated', 'public.claim_round(uuid)', 'EXECUTE')
+  and has_function_privilege('authenticated', 'public.cast_vote(uuid,integer,text,text)', 'EXECUTE')
+  and has_function_privilege('authenticated', 'public.retract_vote(uuid,integer)', 'EXECUTE')
+  and has_function_privilege('authenticated', 'public.start_session(uuid)', 'EXECUTE')
+  and has_function_privilege('authenticated', 'public.reveal_votes(uuid)', 'EXECUTE')
+  and has_function_privilege('authenticated', 'public.next_round(uuid)', 'EXECUTE')
+  and has_function_privilege('authenticated', 'public.end_session(uuid)', 'EXECUTE')
+  and has_function_privilege('authenticated', 'public.leave_session(uuid)', 'EXECUTE')
+  and has_function_privilege('authenticated', 'public.get_round_vote_statuses(uuid,integer)', 'EXECUTE'),
+  'authenticated role can execute every additive session RPC'
+);
+
+select extensions.is(
+  (select relreplident::text from pg_class where oid = 'public.votes'::regclass),
+  'd',
+  'votes uses DEFAULT replica identity and DELETE cannot carry full old rows'
+);
+
+select extensions.throws_ok(
+  format(
+    'select public.claim_round(%L::uuid)',
+    (select value from session_test_context where key = 'session_id')
+  ),
+  '42501',
+  'session_not_available',
+  'claim_round requires active membership'
+);
+
+select set_config('request.jwt.claim.sub', '10000000-0000-0000-0000-000000000001', true);
+select public.reveal_votes((select value::uuid from session_test_context where key = 'session_id'));
+select public.next_round((select value::uuid from session_test_context where key = 'session_id'));
+
+select extensions.is(
+  (
+    select count(*)::text
+    from public.round_participants
+    where session_id = (select value::uuid from session_test_context where key = 'session_id')
+      and round = 3
+      and participant_id = (select value::uuid from session_test_context where key = 'participant_b_id')
+  ),
+  '0',
+  'next_round excludes inactive memberships'
+);
+
+select * from extensions.finish();
+rollback;

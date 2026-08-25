@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor, act } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { VotePage } from '../../pages/Vote';
@@ -10,24 +10,12 @@ vi.mock('../../hooks/useConfetti', () => ({
   useConfetti: () => ({ triggerConfetti: vi.fn() }),
 }));
 
-// ── Mock: supabase ─────────────────────────────────────────────────────────────
-// Chainable delete-kjede: .delete().eq().eq().eq() → Promise.resolve({ error: null })
-const mockDeleteChain = {
-  eq: vi.fn(),
-  then: vi.fn().mockImplementation((cb: (v: { error: null }) => void) => {
-    cb({ error: null });
-    return Promise.resolve({ error: null });
-  }),
-};
-mockDeleteChain.eq.mockReturnValue(mockDeleteChain);
-
 vi.mock('../../lib/supabase', () => ({
   supabase: {
     from: vi.fn(() => ({
       select: vi.fn().mockReturnThis(),
       eq: vi.fn().mockReturnThis(),
-      insert: vi.fn().mockResolvedValue({ error: null }),
-      delete: vi.fn(() => mockDeleteChain),
+      order: vi.fn().mockReturnThis(),
       then: vi.fn().mockResolvedValue({ data: [], error: null }),
     })),
     channel: vi.fn(() => ({
@@ -42,16 +30,34 @@ vi.mock('../../lib/supabase', () => ({
 let mockInitialized = true;
 let mockSession: Record<string, unknown> | null = null;
 let mockLocalParticipant: Record<string, unknown> | null = null;
+let mockOwnVote: Record<string, unknown> | null = null;
+let mockRoundParticipant: Record<string, unknown> | null = null;
+let mockRealtimeOwnVote: Record<string, unknown> | null = null;
 const mockLogout = vi.fn();
 const mockNavigate = vi.fn();
+const mockCastVote = vi.fn();
+const mockRetractVote = vi.fn();
+const mockClaimRound = vi.fn();
+const mockLeaveSession = vi.fn();
+
+vi.mock('../../hooks/useSessionPresence', () => ({
+  useSessionPresence: vi.fn(() => ({ presentParticipantIds: new Set(), connectionState: 'connected', presenceReady: true })),
+}));
+
+vi.mock('../../hooks/useRealtimeVotes', () => ({
+  useRealtimeVotes: () => ({ votes: mockRealtimeOwnVote ? [mockRealtimeOwnVote] : [], ownVote: mockRealtimeOwnVote, revealed: Boolean(mockSession?.votes_revealed), refetch: vi.fn() }),
+}));
 
 vi.mock('../../hooks/useSession', () => ({
   useSession: () => ({
     session: mockSession,
     localParticipant: mockLocalParticipant,
+    ownVote: mockOwnVote,
+    roundParticipant: mockRoundParticipant,
     loading: false,
     error: null,
     initialized: mockInitialized,
+    restoreStatus: mockInitialized ? 'ready' : 'initializing',
     createSession: vi.fn(),
     joinSession: vi.fn(),
     startSession: vi.fn(),
@@ -60,6 +66,10 @@ vi.mock('../../hooks/useSession', () => ({
     nextRound: vi.fn(),
     endSession: vi.fn(),
     logout: mockLogout,
+    leaveSession: mockLeaveSession,
+    claimRound: mockClaimRound,
+    castVote: mockCastVote,
+    retractVote: mockRetractVote,
   }),
 }));
 
@@ -85,8 +95,15 @@ describe('VotePage – redirect-logikk', () => {
     mockInitialized = true;
     mockSession = null;
     mockLocalParticipant = null;
+    mockOwnVote = null;
+    mockRoundParticipant = null;
+    mockRealtimeOwnVote = null;
     mockLogout.mockReset();
     mockNavigate.mockReset();
+    mockClaimRound.mockReset();
+    mockClaimRound.mockResolvedValue({ ok: true });
+    mockLeaveSession.mockReset();
+    mockLeaveSession.mockResolvedValue({ ok: true });
     sessionStorage.clear();
   });
 
@@ -138,12 +155,24 @@ describe('VotePage – redirect-logikk', () => {
 
     expect(mockNavigate).not.toHaveBeenCalledWith('/join');
   });
+
+  it('redirecter fasilitator bort fra participant-siden', async () => {
+    mockSession = { id: 'ses-1', status: 'active', current_round: 1, started: true, votes_revealed: false };
+    mockLocalParticipant = { participantId: 'p-fac', sessionId: 'ses-1', name: 'Fac', role: 'facilitator' };
+
+    renderVote();
+
+    await waitFor(() => expect(mockNavigate).toHaveBeenCalledWith('/dashboard'));
+  });
 });
 
 describe('VotePage – venteskjerm (session.started === false)', () => {
   beforeEach(() => {
     mockInitialized = true;
     mockNavigate.mockReset();
+    mockOwnVote = null;
+    mockRoundParticipant = null;
+    mockRealtimeOwnVote = null;
   });
 
   it('viser venteskjerm når session.started er false', () => {
@@ -197,6 +226,11 @@ describe('VotePage – stemmeform (session.started === true)', () => {
   beforeEach(() => {
     mockInitialized = true;
     mockNavigate.mockReset();
+    mockClaimRound.mockReset();
+    mockClaimRound.mockResolvedValue({ ok: true });
+    mockOwnVote = null;
+    mockRoundParticipant = null;
+    mockRealtimeOwnVote = null;
     localStorage.setItem(LAST_USED_NAME_STORAGE_KEY, 'Ola');
     mockSession = {
       id: 'ses-1',
@@ -227,6 +261,77 @@ describe('VotePage – stemmeform (session.started === true)', () => {
 
     expect(screen.getByRole('button', { name: /stem/i })).toBeDisabled();
   });
+
+  it('viser resultater ved reveal selv uten egen stemme', () => {
+    mockSession = { ...mockSession, votes_revealed: true };
+    renderVote();
+    expect(screen.getByRole('heading', { name: /resultater/i })).toBeInTheDocument();
+    expect(screen.queryByText('Din stemme')).not.toBeInTheDocument();
+  });
+
+  it('går rett til venteskjerm når restore har en eksisterende stemme', () => {
+    mockOwnVote = { id: 'v-1', session_id: 'ses-1', participant_id: 'p-1', round: 1, size: 'l', value: 'silver', created_at: '' };
+    mockRoundParticipant = { reestimate_used: false };
+    renderVote();
+    expect(screen.getByText('Stemme registrert!')).toBeInTheDocument();
+    expect(screen.queryByText('Din stemme')).not.toBeInTheDocument();
+  });
+
+  it('claimer aktiv runde når round membership mangler', async () => {
+    mockClaimRound.mockResolvedValue({ ok: true });
+    renderVote();
+    await waitFor(() => expect(mockClaimRound).toHaveBeenCalledTimes(1));
+  });
+
+  it('retryer claim etter transient feil og blokkerer stemmegivning frem til claim lykkes', async () => {
+    vi.useFakeTimers();
+    try {
+      mockClaimRound
+        .mockResolvedValueOnce({ ok: false, message: 'Kunne ikke klargjøre runden. Prøv igjen.' })
+        .mockResolvedValueOnce({ ok: true });
+      const { rerender } = renderVote();
+      await act(async () => { await Promise.resolve(); });
+      expect(mockClaimRound).toHaveBeenCalledTimes(1);
+      expect(screen.getByRole('button', { name: /stem/i })).toBeDisabled();
+
+      await act(async () => {
+        vi.advanceTimersByTime(2000);
+        await Promise.resolve();
+      });
+      expect(mockClaimRound).toHaveBeenCalledTimes(2);
+      mockRoundParticipant = { session_id: 'ses-1', round: 1, participant_id: 'p-1', joined_at: '', reestimate_used: false };
+      rerender(<MemoryRouter><VotePage /></MemoryRouter>);
+      vi.useRealTimers();
+      const user = userEvent.setup();
+      await user.click(screen.getByRole('button', { name: /størrelse M/i }));
+      await user.click(screen.getByRole('button', { name: /verdi gull/i }));
+      expect(screen.getByRole('button', { name: /stem/i })).not.toBeDisabled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('bruker realtime ownVote når RPC-responsen var tvetydig', () => {
+    mockRoundParticipant = { reestimate_used: false };
+    mockRealtimeOwnVote = { id: 'v-rt', session_id: 'ses-1', participant_id: 'p-1', round: 1, size: 'l', value: 'gold', created_at: '' };
+
+    renderVote();
+
+    expect(screen.getByText('Stemme registrert!')).toBeInTheDocument();
+  });
+
+  it('bruker leaveSession når deltakeren eksplisitt forlater', async () => {
+    const user = userEvent.setup();
+    mockRoundParticipant = { reestimate_used: false };
+    mockLeaveSession.mockResolvedValue({ ok: true });
+    renderVote();
+
+    await user.click(screen.getByRole('button', { name: /forlat sesjon/i }));
+
+    await waitFor(() => expect(mockLeaveSession).toHaveBeenCalledTimes(1));
+    expect(mockLogout).not.toHaveBeenCalled();
+    expect(mockNavigate).toHaveBeenCalledWith('/');
+  });
 });
 
 // ── VotePage – Amalieknappen ─────────────────────────────────
@@ -247,10 +352,17 @@ describe('VotePage – Amalieknappen', () => {
   beforeEach(() => {
     mockInitialized = true;
     mockNavigate.mockReset();
-    mockDeleteChain.eq.mockClear();
-    mockDeleteChain.then.mockImplementation((cb: (v: { error: null }) => void) => {
-      cb({ error: null });
-      return Promise.resolve({ error: null });
+    mockOwnVote = null;
+    mockCastVote.mockReset();
+    mockCastVote.mockImplementation(async ({ size, value }) => {
+      mockOwnVote = { id: 'vote-1', session_id: 'ses-1', participant_id: 'p-1', round: 1, size, value, created_at: '' };
+      return { ok: true };
+    });
+    mockRetractVote.mockReset();
+    mockRetractVote.mockImplementation(async () => {
+      mockOwnVote = null;
+      mockRoundParticipant = { reestimate_used: true };
+      return { ok: true };
     });
     // Sett opp aktiv sesjon
     mockSession = {
@@ -267,6 +379,7 @@ describe('VotePage – Amalieknappen', () => {
       name: 'Ola',
       role: 'participant',
     };
+    mockRoundParticipant = { reestimate_used: false };
   });
 
   it('viser Amalieknappen i State B (etter stemme, før reveal)', async () => {
@@ -299,9 +412,7 @@ describe('VotePage – Amalieknappen', () => {
     });
 
     // Klikk Amalieknappen
-    await act(async () => {
-      await user.click(screen.getByRole('button', { name: /amalieknappen/i }));
-    });
+    await user.click(screen.getByRole('button', { name: /amalieknappen/i }));
 
     // Skal være tilbake på stemmeform (State A)
     await waitFor(() => {
@@ -323,9 +434,7 @@ describe('VotePage – Amalieknappen', () => {
     });
 
     // Bruk Amalieknappen
-    await act(async () => {
-      await user.click(screen.getByRole('button', { name: /amalieknappen/i }));
-    });
+    await user.click(screen.getByRole('button', { name: /amalieknappen/i }));
 
     // Stem på nytt
     await waitFor(() => {
@@ -345,10 +454,7 @@ describe('VotePage – Amalieknappen', () => {
 
   it('beholder den registrerte stemmen og viser feil når sletting feiler', async () => {
     const user = userEvent.setup();
-    mockDeleteChain.then.mockImplementation((cb: (v: { error: { code: string } }) => void) => {
-      cb({ error: { code: '42501' } });
-      return Promise.resolve({ error: { code: '42501' } });
-    });
+    mockRetractVote.mockResolvedValue({ ok: false, message: 'Kunne ikke endre stemmen. Prøv igjen.' });
     renderVote();
 
     await user.click(screen.getByRole('button', { name: /størrelse M/i }));

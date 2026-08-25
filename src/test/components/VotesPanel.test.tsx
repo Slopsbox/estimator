@@ -1,31 +1,8 @@
-import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { describe, expect, it, vi } from 'vitest';
+import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { VotesPanel } from '../../components/dashboard/VotesPanel';
 import type { Participant, Vote } from '../../lib/types';
-
-// ── Supabase-mock for cleanup-logikk ─────────────────────────
-// vi.hoisted() sikrer at disse er tilgjengelige i vi.mock()-factory
-const { mockDeleteFn } = vi.hoisted(() => {
-  const mockDeleteFn = vi.fn().mockResolvedValue({ error: null });
-  return { mockDeleteFn };
-});
-
-vi.mock('../../lib/supabase', () => ({
-  supabase: {
-    from: vi.fn().mockImplementation(() => ({
-      select: vi.fn().mockReturnThis(),
-      eq: vi.fn().mockReturnThis(),
-      order: vi.fn().mockReturnThis(),
-      delete: vi.fn().mockReturnValue({ in: mockDeleteFn }),
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      then: vi.fn().mockImplementation((cb: (r: any) => void) => {
-        cb({ data: [], error: null });
-        return Promise.resolve();
-      }),
-    })),
-  },
-}));
 
 // ── Hjelpere ────────────────────────────────────────────────
 
@@ -35,6 +12,7 @@ const makeParticipant = (id: string, name: string): Participant => ({
   name,
   role: 'participant',
   joined_at: new Date().toISOString(),
+  left_at: null,
 });
 
 const makeVote = (participantId: string, size: Vote['size'] = 'm', value: Vote['value'] = 'gold'): Vote => ({
@@ -55,7 +33,6 @@ const defaultProps = {
   totalCount: 0,
   actionLoading: false,
   consensusStreak: 0,
-  sessionId: 'sess-1',
   onReveal: vi.fn(),
   onNextRound: vi.fn(),
 };
@@ -63,9 +40,6 @@ const defaultProps = {
 // ── VotesPanel ─────────────────────────────────────────────
 
 describe('VotesPanel', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-  });
   it('viser "Ingen deltakere ennå" når lista er tom', () => {
     render(<VotesPanel {...defaultProps} />);
     expect(screen.getByText('Ingen deltakere ennå.')).toBeInTheDocument();
@@ -283,9 +257,9 @@ describe('VotesPanel', () => {
     expect(screen.queryByText(/runder med konsensus/)).not.toBeInTheDocument();
   });
 
-  it('viser "↩️ Re-estimerer..." når deltaker er i deletedParticipantIds og ikke har stemme', () => {
+  it('viser "Re-estimerer" fra autoritativ round participation når deltaker ikke har stemme', () => {
     const p = [makeParticipant('1', 'Ola')];
-    const deletedParticipantIds = new Set(['1']);
+    const reestimatingParticipantIds = new Set(['1']);
     render(
       <VotesPanel
         {...defaultProps}
@@ -293,35 +267,35 @@ describe('VotesPanel', () => {
         votes={[]}
         votedCount={0}
         totalCount={1}
-        deletedParticipantIds={deletedParticipantIds}
+        reestimatingParticipantIds={reestimatingParticipantIds}
       />,
     );
     expect(screen.getByText(/Re-estimerer\.\.\./)).toBeInTheDocument();
     expect(screen.queryByText('Venter…')).not.toBeInTheDocument();
   });
 
-  it('viser "Venter…" (ikke "Re-estimerer...") for deltaker som aldri har stemt', () => {
+  it('viser offline separat uten å overstyre en registrert stemme', () => {
     const p = [makeParticipant('1', 'Ola')];
-    // deletedParticipantIds er tom – deltaker har aldri stemt
+    const v = [makeVote('1')];
     render(
       <VotesPanel
         {...defaultProps}
         participants={p}
-        votes={[]}
-        votedCount={0}
+        votes={v}
+        votedCount={1}
         totalCount={1}
-        deletedParticipantIds={new Set()}
+        presentParticipantIds={new Set()}
       />,
     );
-    expect(screen.getByText('Venter…')).toBeInTheDocument();
-    expect(screen.queryByText(/Re-estimerer\.\.\./)).not.toBeInTheDocument();
+    expect(screen.getByText('Klar ✓')).toBeInTheDocument();
+    expect(screen.getByLabelText('Ola er offline')).toBeInTheDocument();
   });
 
   it('viser "Klar ✓" (ikke "Re-estimerer...") når deltaker har stemt på nytt etter Amalie', () => {
     const p = [makeParticipant('1', 'Ola')];
     const v = [makeVote('1', 'm', 'gold')];
     // Deltaker hadde slettet stemme men har nå stemt på nytt
-    const deletedParticipantIds = new Set(['1']);
+    const reestimatingParticipantIds = new Set(['1']);
     render(
       <VotesPanel
         {...defaultProps}
@@ -330,7 +304,7 @@ describe('VotesPanel', () => {
         votedCount={1}
         totalCount={1}
         revealed={false}
-        deletedParticipantIds={deletedParticipantIds}
+        reestimatingParticipantIds={reestimatingParticipantIds}
       />,
     );
     // Stemmen vises (har stemme) → "Klar ✓", ikke "Re-estimerer..."
@@ -338,7 +312,7 @@ describe('VotesPanel', () => {
     expect(screen.queryByText(/Re-estimerer\.\.\./)).not.toBeInTheDocument();
   });
 
-  it('viser "Venter…" når deletedParticipantIds er undefined (bakoverkompatibilitet)', () => {
+  it('viser "Venter…" når reestimatingParticipantIds ikke er oppgitt', () => {
     const p = [makeParticipant('1', 'Ola')];
     render(
       <VotesPanel
@@ -347,70 +321,10 @@ describe('VotesPanel', () => {
         votes={[]}
         votedCount={0}
         totalCount={1}
-        // deletedParticipantIds er ikke oppgitt
+        // reestimatingParticipantIds er ikke oppgitt
       />,
     );
     expect(screen.getByText('Venter…')).toBeInTheDocument();
   });
 
-  it('viser IKKE rydd-opp-knapp når ingen duplikater', () => {
-    const p = [
-      makeParticipant('1', 'Ola'),
-      makeParticipant('2', 'Kari'),
-    ];
-    render(<VotesPanel {...defaultProps} participants={p} totalCount={2} />);
-    expect(screen.queryByRole('button', { name: /rydd opp/i })).not.toBeInTheDocument();
-  });
-
-  it('viser rydd-opp-knapp med riktig antall når duplikater finnes', () => {
-    // Lag to deltakere med samme navn (duplikat)
-    const now = new Date();
-    const earlier = new Date(now.getTime() - 10000).toISOString();
-    const later = now.toISOString();
-    const p: Participant[] = [
-      { id: '1', session_id: 'sess-1', name: 'Ola', role: 'participant', joined_at: earlier },
-      { id: '2', session_id: 'sess-1', name: 'Ola', role: 'participant', joined_at: later },
-    ];
-    render(<VotesPanel {...defaultProps} participants={p} totalCount={2} />);
-    // aria-label er "Fjern 1 duplikat"
-    expect(screen.getByRole('button', { name: /fjern 1 duplikat/i })).toBeInTheDocument();
-    // teksten i knappen er "Rydd opp (1 duplikat)"
-    expect(screen.getByText(/Rydd opp \(1 duplikat\)/)).toBeInTheDocument();
-  });
-
-  it('klikk på rydd-opp-knapp kaller supabase for å slette duplikater', async () => {
-    const user = userEvent.setup();
-    const now = new Date();
-    const earlier = new Date(now.getTime() - 10000).toISOString();
-    const later = now.toISOString();
-    const p: Participant[] = [
-      { id: '1', session_id: 'sess-1', name: 'Ola', role: 'participant', joined_at: earlier },
-      { id: '2', session_id: 'sess-1', name: 'Ola', role: 'participant', joined_at: later },
-    ];
-
-    const { supabase } = await import('../../lib/supabase');
-    // Mock fra returnerer deltakerne for cleanup-fetchen
-    vi.mocked(supabase.from).mockImplementation(() => ({
-      select: vi.fn().mockReturnThis(),
-      eq: vi.fn().mockReturnThis(),
-      order: vi.fn().mockReturnThis(),
-      delete: vi.fn().mockReturnValue({ in: mockDeleteFn }),
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      then: vi.fn().mockImplementation((cb: (r: any) => void) => {
-        cb({ data: p, error: null });
-        return Promise.resolve();
-      }),
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    } as any));
-
-    render(<VotesPanel {...defaultProps} participants={p} totalCount={2} />);
-
-    // aria-label er "Fjern 1 duplikat"
-    const cleanupBtn = screen.getByRole('button', { name: /fjern 1 duplikat/i });
-    await user.click(cleanupBtn);
-
-    await waitFor(() => {
-      expect(mockDeleteFn).toHaveBeenCalled();
-    });
-  });
 });

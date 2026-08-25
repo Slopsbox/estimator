@@ -1,650 +1,384 @@
-import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
-import { renderHook, act, waitFor } from '@testing-library/react';
+import { act, renderHook, waitFor } from '@testing-library/react';
+import { createElement, type PropsWithChildren } from 'react';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { CREATE_REQUEST_ID_STORAGE_KEY, LOCAL_PARTICIPANT_STORAGE_KEY } from '../../lib/localStorage';
 
-// ============================================================
-// vi.hoisted() sikrer at disse variablene er tilgjengelige
-// når vi.mock() hoistet factory kjører
-// ============================================================
-
-const { chainable, channelMock } = vi.hoisted(() => {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const channelMock: Record<string, any> = {
+const { rpcMock, ensureIdentityMock, channelMock, removeChannelMock } = vi.hoisted(() => {
+  let subscription: ((status: string) => void) | undefined;
+  const channelMock = {
     on: vi.fn().mockReturnThis(),
-    subscribe: vi.fn().mockReturnThis(),
+    subscribe: vi.fn((callback: (status: string) => void) => {
+      subscription = callback;
+      return channelMock;
+    }),
+    trigger: (status: string) => subscription?.(status),
   };
-
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const chainable: Record<string, any> = {
-    from: vi.fn(),
-    select: vi.fn(),
-    insert: vi.fn(),
-    update: vi.fn(),
-    eq: vi.fn(),
-    ilike: vi.fn(),
-    order: vi.fn(),
-    single: vi.fn().mockResolvedValue({ data: null, error: null }),
-    then: vi.fn(),
-    channel: vi.fn().mockReturnValue(channelMock),
-    removeChannel: vi.fn().mockResolvedValue(undefined),
+  return {
+    rpcMock: vi.fn(),
+    ensureIdentityMock: vi.fn(),
+    channelMock,
+    removeChannelMock: vi.fn(),
   };
-
-  const syncMethods = ['from', 'select', 'insert', 'update', 'eq', 'ilike', 'order'];
-  syncMethods.forEach((m) => chainable[m].mockReturnValue(chainable));
-
-  return { chainable, channelMock };
 });
 
-// ============================================================
-// Mocks – hoistet til topp av vitest
-// ============================================================
+vi.mock('../../lib/supabase', () => ({
+  ensureAnonymousIdentity: ensureIdentityMock,
+  supabase: {
+    rpc: rpcMock,
+    channel: vi.fn(() => channelMock),
+    removeChannel: removeChannelMock,
+  },
+}));
 
-vi.mock('../../lib/supabase', () => ({ supabase: chainable }));
-vi.mock('../../lib/joinCode', () => ({ generateJoinCode: vi.fn() }));
-
-// ============================================================
-// Importer hooks og mocked hjelpere ETTER vi.mock()
-// ============================================================
-
+import { SessionProvider } from '../../hooks/SessionProvider';
 import { useSession } from '../../hooks/useSession';
-import { generateJoinCode } from '../../lib/joinCode';
-import { LAST_USED_NAME_STORAGE_KEY, LOCAL_PARTICIPANT_STORAGE_KEY } from '../../lib/localStorage';
 
-const mockGenerateJoinCode = vi.mocked(generateJoinCode);
-
-// ============================================================
-// Reset-hjelpere
-// ============================================================
-
-function resetChainable() {
-  vi.clearAllMocks();
-
-  const syncMethods = ['from', 'select', 'insert', 'update', 'eq', 'ilike', 'order'];
-  syncMethods.forEach((m) => chainable[m].mockReturnValue(chainable));
-
-  chainable.single.mockResolvedValue({ data: null, error: null });
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  chainable.then.mockImplementation((cb: (r: any) => void) => {
-    cb({ data: null, error: null });
-    return Promise.resolve();
-  });
-
-  channelMock.on.mockReturnThis();
-  channelMock.subscribe.mockReturnThis();
-  chainable.channel.mockReturnValue(channelMock);
-  chainable.removeChannel.mockResolvedValue(undefined);
-}
-
-// ============================================================
-// Faste testdata
-// ============================================================
-
-const MOCK_SESSION = {
-  id: 'session-123',
-  status: 'active' as const,
-  current_round: 1,
-  created_at: '2026-01-01T00:00:00Z',
-  join_code: 'ABCD',
-  votes_revealed: false,
-  started: false,
-  consensus_streak: 0,
+const SESSION = {
+  id: 'session-1', status: 'active', current_round: 1, created_at: '2026-01-01T00:00:00Z',
+  join_code: 'ABCD', votes_revealed: false, started: true, consensus_streak: 0,
+};
+const PARTICIPANT = {
+  id: 'participant-1', session_id: 'session-1', name: 'Kari', role: 'participant',
+  joined_at: '2026-01-01T00:00:00Z', left_at: null,
+};
+const ROUND_PARTICIPANT = {
+  session_id: 'session-1', round: 1, participant_id: 'participant-1',
+  joined_at: '2026-01-01T00:00:00Z', reestimate_used: false,
+};
+const VOTE = {
+  id: 'vote-1', session_id: 'session-1', participant_id: 'participant-1', round: 1,
+  size: 'm', value: 'gold', created_at: '2026-01-01T00:00:00Z',
 };
 
-const MOCK_PARTICIPANT = {
-  id: 'participant-456',
-  session_id: 'session-123',
-  name: 'Ola Nordmann',
-  role: 'facilitator' as const,
-  joined_at: '2026-01-01T00:00:00Z',
-};
-
-// Hjelpefunksjon: sett opp en ferdig opprettet sesjon
-async function setupCreatedSession(
-  result: ReturnType<typeof renderHook<ReturnType<typeof useSession>, void>>['result'],
-) {
-  mockGenerateJoinCode.mockReturnValue('ABCD');
-  chainable.single
-    .mockResolvedValueOnce({ data: MOCK_SESSION, error: null })
-    .mockResolvedValueOnce({ data: MOCK_PARTICIPANT, error: null });
-
-  await act(async () => {
-    await result.current.createSession('Ola Nordmann');
-  });
+function wrapper({ children }: PropsWithChildren) {
+  return createElement(SessionProvider, null, children);
 }
 
-// ============================================================
-// Tester
-// ============================================================
+function storePointer() {
+  localStorage.setItem(LOCAL_PARTICIPANT_STORAGE_KEY, JSON.stringify({
+    version: 1, sessionId: SESSION.id, participantId: PARTICIPANT.id,
+    name: 'Cached name', role: 'participant',
+  }));
+}
 
-describe('useSession', () => {
+function okRestore() {
+  return { data: { status: 'ok', session: SESSION, participant: PARTICIPANT, vote: VOTE, round_participant: ROUND_PARTICIPANT }, error: null };
+}
+
+describe('SessionProvider', () => {
   beforeEach(() => {
-    sessionStorage.clear();
     localStorage.clear();
-    resetChainable();
-  });
-
-  afterEach(() => {
-    sessionStorage.clear();
-    localStorage.clear();
-    vi.restoreAllMocks();
-  });
-
-  // -------------------------------------------------------
-  // createSession
-  // -------------------------------------------------------
-
-  describe('createSession', () => {
-    it('happy path: oppretter sesjon med riktige felter og registrerer fasilitator', async () => {
-      mockGenerateJoinCode.mockReturnValue('ABCD');
-
-      chainable.single
-        .mockResolvedValueOnce({ data: MOCK_SESSION, error: null })
-        .mockResolvedValueOnce({ data: MOCK_PARTICIPANT, error: null });
-
-      const { result } = renderHook(() => useSession());
-
-      let returnedSession = null;
-      await act(async () => {
-        returnedSession = await result.current.createSession('Ola Nordmann');
-      });
-
-      // Verifiser at sessions-insert ble kalt med riktige felter
-      expect(chainable.insert).toHaveBeenCalledWith(
-        expect.objectContaining({
-          status: 'active',
-          current_round: 1,
-          join_code: 'ABCD',
-          votes_revealed: false,
-          started: false,
-          consensus_streak: 0,
-        }),
-      );
-
-      // Verifiser at fasilitator ble registrert
-      expect(chainable.insert).toHaveBeenCalledWith(
-        expect.objectContaining({
-          session_id: MOCK_SESSION.id,
-          name: 'Ola Nordmann',
-          role: 'facilitator',
-        }),
-      );
-
-      // Returnert sesjon
-      expect(returnedSession).toEqual(MOCK_SESSION);
-
-      // State er oppdatert
-      expect(result.current.session).toEqual(MOCK_SESSION);
-      expect(result.current.localParticipant?.participantId).toBe(MOCK_PARTICIPANT.id);
-
-       const stored = localStorage.getItem(LOCAL_PARTICIPANT_STORAGE_KEY);
-      expect(stored).not.toBeNull();
-      const parsed = JSON.parse(stored!);
-      expect(parsed.sessionId).toBe(MOCK_SESSION.id);
-      expect(parsed.role).toBe('facilitator');
-    });
-
-    it('join_code kollisjon: retry ved 23505, lykkes på andre forsøk', async () => {
-      mockGenerateJoinCode
-        .mockReturnValueOnce('XXXX') // første kode → kollisjon
-        .mockReturnValueOnce('YYYY'); // andre kode → suksess
-
-      const collisionError = { code: '23505', message: 'unique constraint violation' };
-      const successSession = { ...MOCK_SESSION, join_code: 'YYYY', id: 'session-789' };
-      const successParticipant = { ...MOCK_PARTICIPANT, session_id: 'session-789' };
-
-      chainable.single
-        .mockResolvedValueOnce({ data: null, error: collisionError })
-        .mockResolvedValueOnce({ data: successSession, error: null })
-        .mockResolvedValueOnce({ data: successParticipant, error: null });
-
-      const { result } = renderHook(() => useSession());
-
-      let returnedSession = null;
-      await act(async () => {
-        returnedSession = await result.current.createSession('Ola Nordmann');
-      });
-
-      // generateJoinCode skal ha blitt kalt to ganger
-      expect(mockGenerateJoinCode).toHaveBeenCalledTimes(2);
-
-      // Sesjon fra andre forsøk
-      expect(returnedSession).toEqual(successSession);
-      expect(result.current.session?.join_code).toBe('YYYY');
-    });
-
-    it('ikke-23505 feil: returnerer null og setter error-melding', async () => {
-      mockGenerateJoinCode.mockReturnValue('ABCD');
-
-      chainable.single.mockResolvedValueOnce({
-        data: null,
-        error: { code: '42501', message: 'permission denied' },
-      });
-
-      const { result } = renderHook(() => useSession());
-
-      let returnedSession = null;
-      await act(async () => {
-        returnedSession = await result.current.createSession('Ola Nordmann');
-      });
-
-      expect(returnedSession).toBeNull();
-      expect(result.current.error).not.toBeNull();
+    vi.clearAllMocks();
+    ensureIdentityMock.mockResolvedValue({ id: 'user-1' });
+    rpcMock.mockResolvedValue({ data: null, error: null });
+    channelMock.on.mockReturnThis();
+    channelMock.subscribe.mockImplementation((callback: (status: string) => void) => {
+      channelMock.trigger = (status: string) => callback(status);
+      queueMicrotask(() => callback('SUBSCRIBED'));
+      return channelMock;
     });
   });
 
-  // -------------------------------------------------------
-  // joinSession
-  // -------------------------------------------------------
+  it('useSession kaster en meningsfull feil uten provider', () => {
+    expect(() => renderHook(() => useSession())).toThrow('useSession må brukes innenfor SessionProvider');
+  });
 
-  describe('joinSession', () => {
-    it('gyldig kode: finner sesjon, registrerer deltaker, returnerer true', async () => {
-      const memberSession = { ...MOCK_SESSION, join_code: 'EFGH' };
-      const memberParticipant = { ...MOCK_PARTICIPANT, role: 'participant' as const };
+  it('gjenoppretter autoritativ session, participant, vote og round membership', async () => {
+    storePointer();
+    rpcMock.mockResolvedValueOnce(okRestore());
+    const { result } = renderHook(() => useSession(), { wrapper });
 
-      chainable.single
-        .mockResolvedValueOnce({ data: memberSession, error: null })   // sessions-lookup
-        .mockResolvedValueOnce({ data: null, error: { code: 'PGRST116' } }) // existing-check → ingen eksisterende
-        .mockResolvedValueOnce({ data: memberParticipant, error: null }); // ny deltaker
+    await waitFor(() => expect(result.current.restoreStatus).toBe('ready'));
 
-      const { result } = renderHook(() => useSession());
+    expect(result.current.session).toEqual(SESSION);
+    expect(result.current.localParticipant?.name).toBe('Kari');
+    expect(result.current.ownVote).toEqual(VOTE);
+    expect(result.current.roundParticipant).toEqual(ROUND_PARTICIPANT);
+  });
 
-      let success = false;
-      await act(async () => {
-        success = await result.current.joinSession('EFGH', 'Kari Nordmann');
-      });
+  it('starter restore uten å vente på SUBSCRIBED', async () => {
+    storePointer();
+    channelMock.subscribe.mockImplementation(() => channelMock);
+    rpcMock.mockResolvedValueOnce(okRestore());
 
-      expect(success).toBe(true);
-      expect(result.current.session).toEqual(memberSession);
-      expect(result.current.localParticipant?.role).toBe('participant');
+    const { result } = renderHook(() => useSession(), { wrapper });
 
-       const stored = localStorage.getItem(LOCAL_PARTICIPANT_STORAGE_KEY);
-      expect(stored).not.toBeNull();
-      const parsed = JSON.parse(stored!);
-      expect(parsed.name).toBe('Kari Nordmann');
-    });
-
-    it('gjenbruker eksisterende deltaker ved duplikat-navn (upsert)', async () => {
-      const memberSession = { ...MOCK_SESSION, join_code: 'EFGH' };
-      const existingParticipant = { ...MOCK_PARTICIPANT, role: 'participant' as const, name: 'Kari Nordmann' };
-
-      chainable.single
-        .mockResolvedValueOnce({ data: memberSession, error: null })       // sessions-lookup
-        .mockResolvedValueOnce({ data: existingParticipant, error: null }); // existing-check → finner eksisterende
-
-      const { result } = renderHook(() => useSession());
-
-      let success = false;
-      await act(async () => {
-        success = await result.current.joinSession('EFGH', 'Kari Nordmann');
-      });
-
-      expect(success).toBe(true);
-      expect(result.current.localParticipant?.participantId).toBe(existingParticipant.id);
-      // insert skal IKKE ha blitt kalt for ny deltaker (gjenbrukt eksisterende)
-      // Vi sjekker at insert kun ble kalt 0 ganger etter sessions-oppslag
-      // (insertMock ble kalt 0 ganger siden vi tok existing-branchen)
-    });
-
-    it('ugyldig kode: sessions-lookup returnerer error, returnerer false', async () => {
-      chainable.single.mockResolvedValueOnce({
-        data: null,
-        error: { code: 'PGRST116', message: 'not found' },
-      });
-
-      const { result } = renderHook(() => useSession());
-
-      let success = true;
-      await act(async () => {
-        success = await result.current.joinSession('ZZZZ', 'Kari Nordmann');
-      });
-
-      expect(success).toBe(false);
-      expect(result.current.session).toBeNull();
-      expect(result.current.error).not.toBeNull();
-    });
-
-    it('normaliserer kode til uppercase ved eq-oppslag', async () => {
-      chainable.single
-        .mockResolvedValueOnce({ data: MOCK_SESSION, error: null })
-        .mockResolvedValueOnce({ data: null, error: { code: 'PGRST116' } }) // existing-check
-        .mockResolvedValueOnce({ data: MOCK_PARTICIPANT, error: null });
-
-      const { result } = renderHook(() => useSession());
-
-      await act(async () => {
-        await result.current.joinSession('abcd', 'Kari');
-      });
-
-      expect(chainable.eq).toHaveBeenCalledWith('join_code', 'ABCD');
+    await waitFor(() => expect(result.current.restoreStatus).toBe('ready'));
+    expect(result.current.session).toEqual(SESSION);
+    expect((await import('../../lib/supabase')).supabase.channel).toHaveBeenCalledWith('session-watch:session-1:0', {
+      config: { private: true },
     });
   });
 
-  // -------------------------------------------------------
-  // Gjenoppretting fra localStorage
-  // -------------------------------------------------------
+  it('beholder pointer og cached identity ved transient restore-feil', async () => {
+    storePointer();
+    rpcMock.mockResolvedValueOnce({ data: null, error: { code: 'PGRST000' } });
+    const { result } = renderHook(() => useSession(), { wrapper });
 
-  describe('gjenoppretting fra localStorage', () => {
-    it('fjerner korrupt deltakerdata og fullfører initialisering', async () => {
-      localStorage.setItem(LOCAL_PARTICIPANT_STORAGE_KEY, '{ugyldig json');
+    await waitFor(() => expect(result.current.restoreStatus).toBe('reconnecting'));
 
-      const { result } = renderHook(() => useSession());
+    expect(result.current.localParticipant?.name).toBe('Cached name');
+    expect(localStorage.getItem(LOCAL_PARTICIPANT_STORAGE_KEY)).not.toBeNull();
+  });
 
-      await waitFor(() => expect(result.current.initialized).toBe(true));
-      expect(result.current.localParticipant).toBeNull();
-      expect(localStorage.getItem(LOCAL_PARTICIPANT_STORAGE_KEY)).toBeNull();
-    });
+  it.each(['membership_missing', 'session_completed'])('rydder pointer ved %s', async (status) => {
+    storePointer();
+    rpcMock.mockResolvedValueOnce({ data: { status }, error: null });
+    const { result } = renderHook(() => useSession(), { wrapper });
 
-    it('fjerner deltakerdata med ugyldig objektform', async () => {
-      localStorage.setItem(LOCAL_PARTICIPANT_STORAGE_KEY, JSON.stringify({ participantId: 'p-1' }));
+    await waitFor(() => expect(result.current.restoreStatus).toBe('invalid'));
 
-      const { result } = renderHook(() => useSession());
+    expect(result.current.localParticipant).toBeNull();
+    expect(localStorage.getItem(LOCAL_PARTICIPANT_STORAGE_KEY)).toBeNull();
+  });
 
-      await waitFor(() => expect(result.current.initialized).toBe(true));
-      expect(localStorage.getItem(LOCAL_PARTICIPANT_STORAGE_KEY)).toBeNull();
-    });
+  it('retry på online lykkes etter transient feil', async () => {
+    storePointer();
+    rpcMock.mockResolvedValueOnce({ data: null, error: { code: 'network' } }).mockResolvedValueOnce(okRestore());
+    const { result } = renderHook(() => useSession(), { wrapper });
+    await waitFor(() => expect(result.current.restoreStatus).toBe('reconnecting'));
 
-    it('fjerner deltakerdata med tomme ID-er', async () => {
-      localStorage.setItem(LOCAL_PARTICIPANT_STORAGE_KEY, JSON.stringify({
-        participantId: '  ',
-        sessionId: '',
-        name: 'Ola Nordmann',
-        role: 'facilitator',
-      }));
+    act(() => window.dispatchEvent(new Event('online')));
 
-      const { result } = renderHook(() => useSession());
+    await waitFor(() => expect(result.current.restoreStatus).toBe('ready'));
+    expect(result.current.ownVote).toEqual(VOTE);
+  });
 
-      await waitFor(() => expect(result.current.initialized).toBe(true));
-      expect(localStorage.getItem(LOCAL_PARTICIPANT_STORAGE_KEY)).toBeNull();
-    });
-    it('gjenoppretter sesjon fra DB når localStorage har data', async () => {
-      const localData = {
-        participantId: MOCK_PARTICIPANT.id,
-        sessionId: MOCK_SESSION.id,
-        name: 'Ola Nordmann',
-        role: 'facilitator',
-      };
-      localStorage.setItem(LOCAL_PARTICIPANT_STORAGE_KEY, JSON.stringify(localData));
-
-      chainable.single.mockResolvedValueOnce({ data: MOCK_SESSION, error: null });
-
-      const { result } = renderHook(() => useSession());
-
-      await waitFor(() => {
-        expect(result.current.initialized).toBe(true);
+  it('kjører en ny restore når session-event kommer under pågående restore', async () => {
+    storePointer();
+    channelMock.subscribe.mockImplementation(() => channelMock);
+    const staleSession = { ...SESSION, current_round: 1 };
+    const currentSession = { ...SESSION, current_round: 2 };
+    let resolveFirst!: (value: ReturnType<typeof okRestore>) => void;
+    rpcMock
+      .mockReturnValueOnce(new Promise((resolve) => { resolveFirst = resolve; }))
+      .mockResolvedValueOnce({
+        data: {
+          ...okRestore().data,
+          session: currentSession,
+          vote: null,
+          round_participant: { ...ROUND_PARTICIPANT, round: 2 },
+        },
+        error: null,
       });
+    const { result } = renderHook(() => useSession(), { wrapper });
+    await waitFor(() => expect(rpcMock).toHaveBeenCalledTimes(1));
+    const updateHandler = channelMock.on.mock.calls.find((call) => call[1].event === 'UPDATE')?.[2] as (() => void) | undefined;
 
-      expect(result.current.session).toEqual(MOCK_SESSION);
-      expect(result.current.localParticipant?.participantId).toBe(MOCK_PARTICIPANT.id);
+    act(() => updateHandler?.());
+    await act(async () => resolveFirst({
+      data: { ...okRestore().data, session: staleSession },
+      error: null,
+    }));
+
+    await waitFor(() => expect(rpcMock).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(result.current.session?.current_round).toBe(2));
+  });
+
+  it('ignorerer stale restore etter logout', async () => {
+    storePointer();
+    let resolveRestore!: (value: ReturnType<typeof okRestore>) => void;
+    rpcMock.mockReturnValueOnce(new Promise((resolve) => { resolveRestore = resolve; }));
+    const { result } = renderHook(() => useSession(), { wrapper });
+    await waitFor(() => expect(ensureIdentityMock).toHaveBeenCalled());
+
+    act(() => result.current.logout());
+    await act(async () => resolveRestore(okRestore()));
+
+    expect(result.current.session).toBeNull();
+    expect(result.current.localParticipant).toBeNull();
+  });
+
+  it('create bruker stabil request-ID og rydder den bare ved bekreftet suksess', async () => {
+    const createPayload = { status: 'ok', session: SESSION, participant: { ...PARTICIPANT, role: 'facilitator' }, round_participant: ROUND_PARTICIPANT };
+    rpcMock.mockResolvedValueOnce({ data: null, error: { code: 'network' } });
+    const { result } = renderHook(() => useSession(), { wrapper });
+    await waitFor(() => expect(result.current.restoreStatus).toBe('ready'));
+
+    await act(async () => { await result.current.createSession('Ola'); });
+    const firstRequest = rpcMock.mock.calls.find((call) => call[0] === 'create_session')?.[1].p_request_id;
+    rpcMock.mockResolvedValueOnce({ data: createPayload, error: null });
+    await act(async () => { await result.current.createSession('Ola'); });
+
+    const createCalls = rpcMock.mock.calls.filter((call) => call[0] === 'create_session');
+    expect(createCalls[1][1].p_request_id).toBe(firstRequest);
+    expect(result.current.session).toEqual(SESSION);
+    expect(localStorage.getItem(CREATE_REQUEST_ID_STORAGE_KEY)).toBeNull();
+  });
+
+  it('join skiller ugyldig kode fra transient feil', async () => {
+    const { result } = renderHook(() => useSession(), { wrapper });
+    await waitFor(() => expect(result.current.restoreStatus).toBe('ready'));
+    rpcMock.mockResolvedValueOnce({ data: { status: 'session_not_found' }, error: null });
+    let invalidResult: Awaited<ReturnType<typeof result.current.joinSession>> | undefined;
+    await act(async () => { invalidResult = await result.current.joinSession('ZZZZ', 'Kari'); });
+    expect(invalidResult).toEqual({ ok: false, reason: 'session_not_found' });
+    rpcMock.mockResolvedValueOnce({ data: null, error: { code: 'network' } });
+    let transientResult: Awaited<ReturnType<typeof result.current.joinSession>> | undefined;
+    await act(async () => { transientResult = await result.current.joinSession('ABCD', 'Kari'); });
+    expect(transientResult).toEqual({ ok: false, reason: 'transient' });
+  });
+
+  it('join returnerer eksplisitt rolle-konflikt', async () => {
+    const { result } = renderHook(() => useSession(), { wrapper });
+    await waitFor(() => expect(result.current.restoreStatus).toBe('ready'));
+    rpcMock.mockResolvedValueOnce({ data: { status: 'role_conflict' }, error: null });
+
+    let joinResult: Awaited<ReturnType<typeof result.current.joinSession>> | undefined;
+    await act(async () => { joinResult = await result.current.joinSession('ABCD', 'Kari'); });
+
+    expect(joinResult).toEqual({ ok: false, reason: 'role_conflict' });
+  });
+
+  it('cast duplicate er idempotent suksess og oppdaterer ownVote', async () => {
+    storePointer();
+    rpcMock.mockResolvedValueOnce(okRestore());
+    const { result } = renderHook(() => useSession(), { wrapper });
+    await waitFor(() => expect(result.current.restoreStatus).toBe('ready'));
+    rpcMock.mockResolvedValueOnce({ data: { status: 'duplicate', vote: VOTE }, error: null });
+
+    let castResult: Awaited<ReturnType<typeof result.current.castVote>> | undefined;
+    await act(async () => { castResult = await result.current.castVote({ size: 'm', value: 'gold' }); });
+    expect(castResult).toEqual({ ok: true });
+    expect(result.current.ownVote).toEqual(VOTE);
+  });
+
+  it.each([
+    ['startSession', 'start_session'],
+    ['revealVotes', 'reveal_votes'],
+    ['nextRound', 'next_round'],
+    ['endSession', 'end_session'],
+  ] as const)('%s bruker RPC og setter returnert session', async (method, rpcName) => {
+    storePointer();
+    rpcMock.mockResolvedValueOnce(okRestore());
+    const { result } = renderHook(() => useSession(), { wrapper });
+    await waitFor(() => expect(result.current.restoreStatus).toBe('ready'));
+    const updated = { ...SESSION, current_round: 2, votes_revealed: true };
+    rpcMock.mockResolvedValueOnce({ data: { status: 'ok', session: updated }, error: null });
+
+    let mutationResult: { ok: boolean } | undefined;
+    await act(async () => { mutationResult = await result.current[method](); });
+
+    expect(mutationResult).toEqual({ ok: true });
+    expect(rpcMock).toHaveBeenLastCalledWith(rpcName, { p_session_id: SESSION.id });
+    expect(result.current.session).toEqual(updated);
+  });
+
+  it('claimRound bruker RPC og setter roundParticipant', async () => {
+    storePointer();
+    rpcMock.mockResolvedValueOnce(okRestore());
+    const { result } = renderHook(() => useSession(), { wrapper });
+    await waitFor(() => expect(result.current.restoreStatus).toBe('ready'));
+    const claimed = { ...ROUND_PARTICIPANT };
+    rpcMock.mockResolvedValueOnce({ data: { status: 'ok', round_participant: claimed }, error: null });
+
+    let claimResult: { ok: boolean } | undefined;
+    await act(async () => { claimResult = await result.current.claimRound(); });
+
+    expect(claimResult).toEqual({ ok: true });
+    expect(rpcMock).toHaveBeenLastCalledWith('claim_round', { p_session_id: SESSION.id });
+    expect(result.current.roundParticipant).toEqual(claimed);
+  });
+
+  it('avviser malformed og cross-scope RPC payloads', async () => {
+    storePointer();
+    rpcMock.mockResolvedValueOnce(okRestore());
+    const { result } = renderHook(() => useSession(), { wrapper });
+    await waitFor(() => expect(result.current.restoreStatus).toBe('ready'));
+
+    rpcMock.mockResolvedValueOnce({ data: { status: 'ok', session: { ...SESSION, id: 'other-session' } }, error: null });
+    let startResult: Awaited<ReturnType<typeof result.current.startSession>> | undefined;
+    await act(async () => { startResult = await result.current.startSession(); });
+    expect(startResult).toEqual({
+      ok: false,
+      message: 'Kunne ikke starte sesjonen. Prøv igjen.',
     });
 
-    it('rydder storage når DB-fetch feiler under gjenoppretting', async () => {
-      const localData = {
-        participantId: MOCK_PARTICIPANT.id,
-        sessionId: MOCK_SESSION.id,
-        name: 'Ola Nordmann',
-        role: 'facilitator',
-      };
-      localStorage.setItem(LOCAL_PARTICIPANT_STORAGE_KEY, JSON.stringify(localData));
-
-      chainable.single.mockResolvedValueOnce({
-        data: null,
-        error: { code: 'PGRST116', message: 'not found' },
-      });
-
-      const { result } = renderHook(() => useSession());
-
-      await waitFor(() => {
-        expect(result.current.initialized).toBe(true);
-      });
-
-      expect(result.current.session).toBeNull();
-      expect(result.current.localParticipant).toBeNull();
-      expect(localStorage.getItem(LOCAL_PARTICIPANT_STORAGE_KEY)).toBeNull();
+    rpcMock.mockResolvedValueOnce({ data: { status: 'ok', round_participant: { ...ROUND_PARTICIPANT, participant_id: 'other' } }, error: null });
+    let claimResult: Awaited<ReturnType<typeof result.current.claimRound>> | undefined;
+    await act(async () => { claimResult = await result.current.claimRound(); });
+    expect(claimResult).toEqual({
+      ok: false,
+      message: 'Kunne ikke klargjøre runden. Prøv igjen.',
     });
 
-    it('initialized blir true selv uten localStorage', async () => {
-      const { result } = renderHook(() => useSession());
-
-      await waitFor(() => {
-        expect(result.current.initialized).toBe(true);
-      });
-
-      expect(result.current.session).toBeNull();
+    rpcMock.mockResolvedValueOnce({ data: { status: 'ok', vote: { ...VOTE, round: 2 } }, error: null });
+    let castResult: Awaited<ReturnType<typeof result.current.castVote>> | undefined;
+    await act(async () => { castResult = await result.current.castVote({ size: 'm', value: 'gold' }); });
+    expect(castResult).toEqual({
+      ok: false,
+      message: 'Kunne ikke registrere stemme. Prøv igjen.',
     });
   });
 
-  // -------------------------------------------------------
-  // Sesjonsoperasjoner
-  // -------------------------------------------------------
+  it.each(['claimRound', 'castVote', 'retractVote'] as const)('ignorerer stale %s-svar etter logout', async (method) => {
+    storePointer();
+    rpcMock.mockResolvedValueOnce(okRestore());
+    const { result } = renderHook(() => useSession(), { wrapper });
+    await waitFor(() => expect(result.current.restoreStatus).toBe('ready'));
+    let resolveMutation!: (value: { data: Record<string, unknown>; error: null }) => void;
+    rpcMock.mockReturnValueOnce(new Promise((resolve) => { resolveMutation = resolve; }));
 
-  describe('startSession', () => {
-    it('kaller update med { started: true } og riktig session id', async () => {
-      const { result } = renderHook(() => useSession());
-      await setupCreatedSession(result);
-
-      chainable.update.mockClear();
-      chainable.eq.mockClear();
-      chainable.eq.mockResolvedValue({ error: null });
-
-      await act(async () => {
-        await result.current.startSession();
+    let mutation: Promise<unknown>;
+    await act(async () => {
+      mutation = method === 'castVote'
+        ? result.current.castVote({ size: 'm', value: 'gold' })
+        : result.current[method]();
+      result.current.logout();
+      resolveMutation({
+        data: method === 'claimRound'
+          ? { status: 'ok', round_participant: ROUND_PARTICIPANT }
+          : method === 'castVote'
+            ? { status: 'ok', vote: VOTE }
+            : { status: 'ok' },
+        error: null,
       });
-
-      expect(chainable.update).toHaveBeenCalledWith({ started: true });
-      expect(chainable.eq).toHaveBeenCalledWith('id', MOCK_SESSION.id);
+      await mutation!;
     });
 
-    it('fjerner feilmeldingen når en retry lykkes', async () => {
-      const { result } = renderHook(() => useSession());
-      await setupCreatedSession(result);
-
-      chainable.eq.mockResolvedValueOnce({ error: { code: '42501' } });
-      await act(async () => {
-        await result.current.startSession();
-      });
-
-      expect(result.current.error).toBe('Kunne ikke starte sesjonen. Prøv igjen.');
-
-      chainable.eq.mockResolvedValueOnce({ error: null });
-      await act(async () => {
-        await result.current.startSession();
-      });
-
-      expect(result.current.error).toBeNull();
-    });
+    expect(result.current.session).toBeNull();
+    expect(result.current.ownVote).toBeNull();
+    expect(result.current.roundParticipant).toBeNull();
   });
 
-  describe('revealVotes', () => {
-    it('kaller update med { votes_revealed: true, consensus_streak: 0 } når ingen stemmer (ingen konsensus)', async () => {
-      const { result } = renderHook(() => useSession());
-      await setupCreatedSession(result);
+  it('retract nuller vote og markerer reestimate brukt', async () => {
+    storePointer();
+    rpcMock.mockResolvedValueOnce(okRestore());
+    const { result } = renderHook(() => useSession(), { wrapper });
+    await waitFor(() => expect(result.current.restoreStatus).toBe('ready'));
+    rpcMock.mockResolvedValueOnce({ data: { status: 'ok' }, error: null });
 
-      chainable.update.mockClear();
-      chainable.eq.mockClear();
-      chainable.eq.mockResolvedValue({ error: null });
-
-      await act(async () => {
-        await result.current.revealVotes([]);
-      });
-
-      expect(chainable.update).toHaveBeenCalledWith({
-        votes_revealed: true,
-        consensus_streak: 0,
-      });
-      expect(chainable.eq).toHaveBeenCalledWith('id', MOCK_SESSION.id);
-    });
-
-    it('inkrementerer consensus_streak ved konsensus (alle like størrelse)', async () => {
-      const { result } = renderHook(() => useSession());
-      await setupCreatedSession(result);
-
-      chainable.update.mockClear();
-      chainable.eq.mockClear();
-      chainable.eq.mockResolvedValue({ error: null });
-
-      const unanimousVotes = [
-        { size: 'm' },
-        { size: 'm' },
-        { size: 'm' },
-      ];
-
-      await act(async () => {
-        await result.current.revealVotes(unanimousVotes);
-      });
-
-      // MOCK_SESSION.consensus_streak = 0, ny streak = 1
-      expect(chainable.update).toHaveBeenCalledWith({
-        votes_revealed: true,
-        consensus_streak: 1,
-      });
-    });
-
-    it('resetter consensus_streak til 0 ved uenighet', async () => {
-      const { result } = renderHook(() => useSession());
-      await setupCreatedSession(result);
-
-      chainable.update.mockClear();
-      chainable.eq.mockClear();
-      chainable.eq.mockResolvedValue({ error: null });
-
-      const disagreedVotes = [
-        { size: 'm' },
-        { size: 'xl' },
-      ];
-
-      await act(async () => {
-        await result.current.revealVotes(disagreedVotes);
-      });
-
-      expect(chainable.update).toHaveBeenCalledWith({
-        votes_revealed: true,
-        consensus_streak: 0,
-      });
-    });
+    let retractResult: Awaited<ReturnType<typeof result.current.retractVote>> | undefined;
+    await act(async () => { retractResult = await result.current.retractVote(); });
+    expect(retractResult).toEqual({ ok: true });
+    expect(result.current.ownVote).toBeNull();
+    expect(result.current.roundParticipant?.reestimate_used).toBe(true);
   });
 
-  describe('nextRound', () => {
-    it('kaller update med { current_round: 2, votes_revealed: false }', async () => {
-      const { result } = renderHook(() => useSession());
-      await setupCreatedSession(result);
+  it('refetcher restore når session-kanalen blir SUBSCRIBED', async () => {
+    storePointer();
+    rpcMock.mockResolvedValue(okRestore());
+    renderHook(() => useSession(), { wrapper });
+    await waitFor(() => expect(rpcMock).toHaveBeenCalledTimes(1));
 
-      chainable.update.mockClear();
-      chainable.eq.mockClear();
-      chainable.eq.mockResolvedValue({ error: null });
+    act(() => channelMock.trigger('SUBSCRIBED'));
 
-      await act(async () => {
-        await result.current.nextRound();
-      });
-
-      // MOCK_SESSION.current_round = 1, neste runde = 2
-      expect(chainable.update).toHaveBeenCalledWith({
-        current_round: 2,
-        votes_revealed: false,
-      });
-      expect(chainable.eq).toHaveBeenCalledWith('id', MOCK_SESSION.id);
-    });
+    await waitFor(() => expect(rpcMock).toHaveBeenCalledTimes(2));
   });
 
-  describe('endSession', () => {
-    it('kaller update med { status: "completed" }', async () => {
-      const { result } = renderHook(() => useSession());
-      await setupCreatedSession(result);
+  it('leaveSession kaller RPC og rydder app-state uten auth signOut', async () => {
+    storePointer();
+    rpcMock.mockResolvedValueOnce(okRestore());
+    const { result } = renderHook(() => useSession(), { wrapper });
+    await waitFor(() => expect(result.current.restoreStatus).toBe('ready'));
+    rpcMock.mockResolvedValueOnce({ data: { status: 'ok' }, error: null });
 
-      chainable.update.mockClear();
-      chainable.eq.mockClear();
-      chainable.eq.mockResolvedValue({ error: null });
+    let leaveResult: Awaited<ReturnType<typeof result.current.leaveSession>> | undefined;
+    await act(async () => { leaveResult = await result.current.leaveSession(); });
 
-      await act(async () => {
-        await result.current.endSession();
-      });
-
-      expect(chainable.update).toHaveBeenCalledWith({ status: 'completed' });
-      expect(chainable.eq).toHaveBeenCalledWith('id', MOCK_SESSION.id);
-    });
-
-    it('returnerer feilresultat og setter feilmelding når avslutting feiler', async () => {
-      const { result } = renderHook(() => useSession());
-      await setupCreatedSession(result);
-      chainable.eq.mockResolvedValue({ error: { code: '42501' } });
-
-      let mutationResult: Awaited<ReturnType<typeof result.current.endSession>> | undefined;
-      await act(async () => {
-        mutationResult = await result.current.endSession();
-      });
-
-      expect(mutationResult).toEqual({ ok: false, message: 'Kunne ikke avslutte sesjonen. Prøv igjen.' });
-      expect(result.current.error).toBe('Kunne ikke avslutte sesjonen. Prøv igjen.');
-    });
-  });
-
-  // -------------------------------------------------------
-  // logout
-  // -------------------------------------------------------
-
-  describe('logout', () => {
-    it('beholder navnecachen når deltakerdata ryddes', async () => {
-      localStorage.setItem(LAST_USED_NAME_STORAGE_KEY, 'Kari');
-      const { result } = renderHook(() => useSession());
-      await setupCreatedSession(result);
-
-      act(() => result.current.logout());
-
-      expect(localStorage.getItem(LAST_USED_NAME_STORAGE_KEY)).toBe('Kari');
-    });
-    it('rydder localStorage og nullstiller state', async () => {
-      const { result } = renderHook(() => useSession());
-      await setupCreatedSession(result);
-
-      expect(result.current.session).not.toBeNull();
-      expect(localStorage.getItem(LOCAL_PARTICIPANT_STORAGE_KEY)).not.toBeNull();
-
-      act(() => {
-        result.current.logout();
-      });
-
-      expect(result.current.session).toBeNull();
-      expect(result.current.localParticipant).toBeNull();
-      expect(localStorage.getItem(LOCAL_PARTICIPANT_STORAGE_KEY)).toBeNull();
-    });
-  });
-
-  // -------------------------------------------------------
-  // initialized-state
-  // -------------------------------------------------------
-
-  describe('initialized', () => {
-    it('er false initialt mens DB-fetch pågår, true etterpå', async () => {
-      const localData = {
-        participantId: MOCK_PARTICIPANT.id,
-        sessionId: MOCK_SESSION.id,
-        name: 'Ola Nordmann',
-        role: 'facilitator',
-      };
-      localStorage.setItem(LOCAL_PARTICIPANT_STORAGE_KEY, JSON.stringify(localData));
-
-      // Delay DB-fetch for å observere initialized=false
-      let resolveDbFetch!: (val: { data: typeof MOCK_SESSION; error: null }) => void;
-      const dbFetchPromise = new Promise<{ data: typeof MOCK_SESSION; error: null }>((resolve) => {
-        resolveDbFetch = resolve;
-      });
-      chainable.single.mockReturnValueOnce(dbFetchPromise);
-
-      const { result } = renderHook(() => useSession());
-
-      // Rett etter mount: initialized skal være false
-      expect(result.current.initialized).toBe(false);
-
-      // Løs DB-fetch
-      await act(async () => {
-        resolveDbFetch({ data: MOCK_SESSION, error: null });
-        await dbFetchPromise;
-      });
-
-      await waitFor(() => {
-        expect(result.current.initialized).toBe(true);
-      });
-    });
+    expect(leaveResult).toEqual({ ok: true });
+    expect(rpcMock).toHaveBeenLastCalledWith('leave_session', { p_session_id: SESSION.id });
+    expect(result.current.session).toBeNull();
+    expect(localStorage.getItem(LOCAL_PARTICIPANT_STORAGE_KEY)).toBeNull();
   });
 });
-
-// Eksporter ingenting – test-only fil
-export {};

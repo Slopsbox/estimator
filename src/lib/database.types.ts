@@ -6,6 +6,9 @@ export type Json =
   | { [key: string]: Json | undefined }
   | Json[]
 
+// Midlertidig eksplisitt snapshot av de lokale 20260825-migrasjonene.
+// Regenerer denne filen med Supabase CLI etter at migrasjonene er anvendt.
+
 export type Database = {
   // Allows to automatically instantiate createClient with right options
   // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
@@ -18,23 +21,29 @@ export type Database = {
         Row: {
           id: string
           joined_at: string
+          left_at: string | null
           name: string
           role: string
           session_id: string
+          user_id: string | null
         }
         Insert: {
           id?: string
           joined_at?: string
+          left_at?: string | null
           name: string
           role: string
           session_id: string
+          user_id?: string | null
         }
         Update: {
           id?: string
           joined_at?: string
+          left_at?: string | null
           name?: string
           role?: string
           session_id?: string
+          user_id?: string | null
         }
         Relationships: [
           {
@@ -51,6 +60,8 @@ export type Database = {
           consensus_streak: number
           created_at: string
           current_round: number
+          create_request_id: string | null
+          facilitator_user_id: string | null
           id: string
           join_code: string | null
           started: boolean
@@ -61,6 +72,8 @@ export type Database = {
           consensus_streak?: number
           created_at?: string
           current_round?: number
+          create_request_id?: string | null
+          facilitator_user_id?: string | null
           id?: string
           join_code?: string | null
           started?: boolean
@@ -71,6 +84,8 @@ export type Database = {
           consensus_streak?: number
           created_at?: string
           current_round?: number
+          create_request_id?: string | null
+          facilitator_user_id?: string | null
           id?: string
           join_code?: string | null
           started?: boolean
@@ -78,6 +93,45 @@ export type Database = {
           votes_revealed?: boolean
         }
         Relationships: []
+      }
+      round_participants: {
+        Row: {
+          joined_at: string
+          participant_id: string
+          reestimate_used: boolean
+          round: number
+          session_id: string
+        }
+        Insert: {
+          joined_at?: string
+          participant_id: string
+          reestimate_used?: boolean
+          round: number
+          session_id: string
+        }
+        Update: {
+          joined_at?: string
+          participant_id?: string
+          reestimate_used?: boolean
+          round?: number
+          session_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "round_participants_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "sessions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "round_participants_session_participant_fkey"
+            columns: ["session_id", "participant_id"]
+            isOneToOne: false
+            referencedRelation: "participants"
+            referencedColumns: ["session_id", "id"]
+          },
+        ]
       }
       votes: {
         Row: {
@@ -129,7 +183,24 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      cast_vote: {
+        Args: { p_round: number; p_session_id: string; p_size: string; p_value: string }
+        Returns: Json
+      }
+      claim_round: { Args: { p_session_id: string }; Returns: Json }
+      create_session: {
+        Args: { p_facilitator_name: string; p_request_id: string }
+        Returns: Json
+      }
+      get_round_vote_statuses: { Args: { p_round: number; p_session_id: string }; Returns: Json }
+      end_session: { Args: { p_session_id: string }; Returns: Json }
+      join_session: { Args: { p_join_code: string; p_name: string }; Returns: Json }
+      leave_session: { Args: { p_session_id: string }; Returns: Json }
+      next_round: { Args: { p_session_id: string }; Returns: Json }
+      restore_session: { Args: { p_session_id: string }; Returns: Json }
+      retract_vote: { Args: { p_round: number; p_session_id: string }; Returns: Json }
+      reveal_votes: { Args: { p_session_id: string }; Returns: Json }
+      start_session: { Args: { p_session_id: string }; Returns: Json }
     }
     Enums: {
       [_ in never]: never

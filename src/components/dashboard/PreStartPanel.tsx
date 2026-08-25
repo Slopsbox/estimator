@@ -3,11 +3,13 @@ import { avatarColor, initials } from '../../lib/utils';
 
 export interface PreStartPanelProps {
   participants: Participant[];
+  presentParticipantIds?: ReadonlySet<string>;
+  presenceReady?: boolean;
   actionLoading: boolean;
   onStart: () => void;
 }
 
-export function PreStartPanel({ participants, actionLoading, onStart }: PreStartPanelProps) {
+export function PreStartPanel({ participants, presentParticipantIds = new Set(), presenceReady = false, actionLoading, onStart }: PreStartPanelProps) {
   const nonFacilitators = participants.filter((p) => p.role === 'participant');
 
   return (
@@ -33,8 +35,10 @@ export function PreStartPanel({ participants, actionLoading, onStart }: PreStart
       {/* Deltakerliste */}
       {nonFacilitators.length > 0 && (
         <ul className="space-y-2">
-          {nonFacilitators.map((p) => (
-            <li key={p.id} className="flex items-center gap-3 py-1">
+          {nonFacilitators.map((p) => {
+            const online = presentParticipantIds.has(p.id);
+            const status = presenceReady ? (online ? 'online' : 'offline') : 'status kobles til';
+            return <li key={p.id} className="flex items-center gap-3 py-1">
               <div
                 className="w-9 h-9 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0"
                 style={{ background: avatarColor(p.name) }}
@@ -47,13 +51,12 @@ export function PreStartPanel({ participants, actionLoading, onStart }: PreStart
               >
                 {p.name}
               </span>
-              {/* Online-dot */}
-              <div
-                className="w-2 h-2 rounded-full"
-                style={{ background: 'var(--color-success)' }}
-              />
-            </li>
-          ))}
+              <span className="flex items-center gap-1.5 text-xs" style={{ color: online ? 'var(--color-success)' : 'var(--color-neutral-500)' }} aria-label={`${p.name} er ${status}`}>
+                <span className="w-2 h-2 rounded-full" style={{ background: online ? 'var(--color-success)' : 'var(--color-neutral-300)' }} aria-hidden="true" />
+                {status}
+              </span>
+            </li>;
+          })}
         </ul>
       )}
 

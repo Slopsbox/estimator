@@ -7,74 +7,84 @@ import { VoteWaiting } from '../components/vote/VoteWaiting';
 import { useConfetti } from '../hooks/useConfetti';
 import { useRealtimeVotes } from '../hooks/useRealtimeVotes';
 import { useSession } from '../hooks/useSession';
+import { useSessionPresence } from '../hooks/useSessionPresence';
 import { useWakeLock } from '../hooks/useWakeLock';
-import { supabase } from '../lib/supabase';
 import { readLastUsedName } from '../lib/localStorage';
 import type { Size, Value } from '../lib/types';
 
-/**
- * Deltaker Vote-side – fire states:
- * W) Venter på fasilitator (session.started === false)
- * A) notVoted: stemmeform
- * B) hasVoted && !revealed: venter på avsløring
- * C) hasVoted && revealed: vis resultater med konfetti
- */
+function isSize(value: string): value is Size {
+  return value === 'xs' || value === 's' || value === 'm' || value === 'l' || value === 'xl';
+}
+
+function isValue(value: string): value is Value {
+  return value === 'gold' || value === 'silver' || value === 'bronze';
+}
+
 export function VotePage() {
   const navigate = useNavigate();
-  const { session, localParticipant, logout, initialized } = useSession();
+  const {
+    session,
+    localParticipant,
+    ownVote,
+    roundParticipant,
+    restoreStatus,
+    logout,
+    leaveSession,
+    claimRound,
+    castVote,
+    retractVote,
+  } = useSession();
   const { triggerConfetti } = useConfetti();
-  useWakeLock(); // Holder skjermen våken under estimering
+  useWakeLock();
+  useSessionPresence(session?.id ?? null, localParticipant?.participantId ?? null);
 
-  // Navn hentes fra localStorage (satt ved join)
-  const name = readLastUsedName() || localParticipant?.name || '';
-
+  const name = localParticipant?.name || readLastUsedName();
   const [selectedSize, setSelectedSize] = useState<Size | null>(null);
   const [selectedValue, setSelectedValue] = useState<Value | null>(null);
-  const [hasVoted, setHasVoted] = useState(false);
-  const [hasUsedAmalie, setHasUsedAmalie] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [claimRetry, setClaimRetry] = useState(0);
+  const claimKeyRef = useRef<string | null>(null);
+  const confettiTriggeredRef = useRef(false);
 
-  // Sanntids-stemmer og revealed via useRealtimeVotes
-  const { votes, revealed } = useRealtimeVotes(
+  const { votes, ownVote: realtimeOwnVote, revealed } = useRealtimeVotes(
     session?.id ?? null,
     session?.current_round ?? 1,
     session?.votes_revealed ?? false,
+    localParticipant?.participantId,
   );
+  const [suppressRealtimeVote, setSuppressRealtimeVote] = useState(false);
+  const effectiveOwnVote = ownVote ?? (suppressRealtimeVote ? null : realtimeOwnVote);
 
-  // Konfetti trigges kun én gang per reveal
-  const confettiTriggeredRef = useRef(false);
-  // Runde-tracking for reset
-  const prevRoundRef = useRef<number | null>(null);
-
-  // Trigger konfetti ved reveal
   useEffect(() => {
-    if (revealed && hasVoted && !confettiTriggeredRef.current) {
+    if (revealed && effectiveOwnVote && !confettiTriggeredRef.current) {
       confettiTriggeredRef.current = true;
       triggerConfetti();
     }
-  }, [revealed, hasVoted, triggerConfetti]);
+    if (!revealed) confettiTriggeredRef.current = false;
+  }, [revealed, effectiveOwnVote, triggerConfetti]);
 
-  // Reset ved ny runde
-  const currentRound = session?.current_round ?? null;
   useEffect(() => {
-    if (currentRound === null) return;
-    if (prevRoundRef.current === null) {
-      prevRoundRef.current = currentRound;
-      return;
-    }
-    if (currentRound !== prevRoundRef.current) {
-      prevRoundRef.current = currentRound;
-      setSelectedSize(null);
-      setSelectedValue(null);
-      setHasVoted(false);
-      setHasUsedAmalie(false);
-      setSubmitError(null);
-      confettiTriggeredRef.current = false;
-    }
-  }, [currentRound]);
+    if (!session || !session.started || session.votes_revealed || roundParticipant) return;
+    const claimKey = `${session.id}:${session.current_round}`;
+    if (claimKeyRef.current === claimKey) return;
+    let retryTimer: ReturnType<typeof setTimeout> | undefined;
+    let active = true;
+    void claimRound().then((result) => {
+      if (!active) return;
+      if (result.ok) claimKeyRef.current = claimKey;
+      else retryTimer = setTimeout(() => setClaimRetry((attempt) => attempt + 1), 2000);
+    });
+    return () => {
+      active = false;
+      if (retryTimer) clearTimeout(retryTimer);
+    };
+  }, [claimRound, claimRetry, roundParticipant, session]);
 
-  // Sesjon avsluttet
+  useEffect(() => {
+    if (localParticipant?.role === 'facilitator') navigate('/dashboard');
+  }, [localParticipant?.role, navigate]);
+
   useEffect(() => {
     if (session?.status === 'completed') {
       logout();
@@ -82,116 +92,93 @@ export function VotePage() {
     }
   }, [session?.status, logout, navigate]);
 
-  // Redirect til join hvis ingen sesjon – men BARE etter at gjenoppretting er forsøkt.
   useEffect(() => {
-    if (initialized && !session && !localParticipant) {
+    if ((restoreStatus === 'ready' || restoreStatus === 'invalid') && !session && !localParticipant) {
       navigate('/join');
     }
-  }, [initialized, session, localParticipant, navigate]);
+  }, [restoreStatus, session, localParticipant, navigate]);
 
   const handleVote = async () => {
-    if (!selectedSize || !selectedValue || !session || !localParticipant) return;
-
+    if (!selectedSize || !selectedValue) return;
     setSubmitting(true);
     setSubmitError(null);
-
-    const { error: voteError } = await supabase.from('votes').insert({
-      session_id: session.id,
-      participant_id: localParticipant.participantId,
-      round: session.current_round,
-      size: selectedSize,
-      value: selectedValue,
-    });
-
+    const result = await castVote({ size: selectedSize, value: selectedValue });
     setSubmitting(false);
-
-    if (voteError) {
-      if (voteError.code === '23505') {
-        setSubmitError('Du har allerede stemt i denne runden.');
-      } else {
-        setSubmitError('Kunne ikke registrere stemme. Prøv igjen.');
-      }
-      return;
-    }
-
-    setHasVoted(true);
-    // Realtime (INSERT) fanger opp stemmen automatisk innen noen ms
+    if (!result.ok) setSubmitError(result.message);
+    else setSuppressRealtimeVote(false);
   };
 
-  /**
-   * Amalieknappen – slett stemme og la deltaker re-estimere (én gang per runde).
-   * Sletter stemmen fra DB og nullstiller lokal state.
-   * Forutsetter at migrasjon 009_allow_vote_delete.sql er kjørt i Supabase.
-   */
   const handleAmalie = async () => {
-    if (!session || !localParticipant || hasUsedAmalie || revealed) return;
-
-    const { error: deleteError } = await supabase
-      .from('votes')
-      .delete()
-      .eq('participant_id', localParticipant.participantId)
-      .eq('session_id', session.id)
-      .eq('round', session.current_round);
-
-    if (deleteError) {
-      setSubmitError('Kunne ikke endre stemmen. Prøv igjen.');
+    if (!effectiveOwnVote || roundParticipant?.reestimate_used || revealed) return;
+    setSubmitError(null);
+    const result = await retractVote();
+    if (!result.ok) {
+      setSubmitError(result.message);
       return;
     }
-
-    setHasVoted(false);
-    setHasUsedAmalie(true);
     setSelectedSize(null);
     setSelectedValue(null);
+    setSuppressRealtimeVote(true);
   };
 
-  // ── State W: Venter på fasilitator ─────────────────────────
-  if (session && !session.started) {
-    return <VoteWaiting session={session} name={name} />;
+  const handleLeave = async () => {
+    const result = await leaveSession();
+    if (!result.ok) {
+      setSubmitError(result.message);
+      return;
+    }
+    navigate('/');
+  };
+
+  if (!session && (restoreStatus === 'initializing' || restoreStatus === 'reconnecting')) {
+    return <div className="min-h-screen flex items-center justify-center">{restoreStatus === 'initializing' ? 'Gjenoppretter sesjon…' : 'Kobler til sesjonen på nytt…'}</div>;
   }
 
-  // ── State A: Stemmeform ─────────────────────────────────────
-  if (!hasVoted) {
+  if (session && !session.started) return <VoteWaiting session={session} name={name} onLeave={() => { void handleLeave(); }} />;
+
+  if (revealed) {
     return (
-      <VoteForm
+      <VoteResults
         name={name}
-        currentRound={session?.current_round ?? 1}
-        selectedSize={selectedSize}
-        selectedValue={selectedValue}
-        submitting={submitting}
-        submitError={submitError}
-        onSelectSize={setSelectedSize}
-        onSelectValue={setSelectedValue}
-        onVote={handleVote}
-        onBack={() => { logout(); navigate('/'); }}
+        votes={votes}
+        selectedSize={effectiveOwnVote && isSize(effectiveOwnVote.size) ? effectiveOwnVote.size : null}
+        selectedValue={effectiveOwnVote && isValue(effectiveOwnVote.value) ? effectiveOwnVote.value : null}
+        localParticipant={localParticipant}
+        consensusStreak={session?.consensus_streak ?? 0}
+        currentRound={session?.current_round}
+        onLeave={() => { void handleLeave(); }}
       />
     );
   }
 
-  // ── State B: Venter på reveal ───────────────────────────────
-  if (!revealed) {
+  if (effectiveOwnVote) {
     return (
       <VoteAwaitReveal
         name={name}
-        selectedSize={selectedSize!}
-        selectedValue={selectedValue!}
+        selectedSize={isSize(effectiveOwnVote.size) ? effectiveOwnVote.size : 'm'}
+        selectedValue={isValue(effectiveOwnVote.value) ? effectiveOwnVote.value : 'silver'}
         currentRound={session?.current_round}
-        hasUsedAmalie={hasUsedAmalie}
+        hasUsedAmalie={roundParticipant?.reestimate_used ?? false}
         onAmalie={handleAmalie}
         error={submitError}
+        onLeave={() => { void handleLeave(); }}
       />
     );
   }
 
-  // ── State C: Resultater ─────────────────────────────────────
   return (
-    <VoteResults
+    <VoteForm
       name={name}
-      votes={votes}
+      currentRound={session?.current_round ?? 1}
       selectedSize={selectedSize}
       selectedValue={selectedValue}
-      localParticipant={localParticipant}
-      consensusStreak={session?.consensus_streak ?? 0}
-      currentRound={session?.current_round}
+      submitting={submitting}
+      canSubmit={Boolean(roundParticipant)}
+      submitError={submitError}
+      onSelectSize={setSelectedSize}
+      onSelectValue={setSelectedValue}
+      onVote={handleVote}
+      onBack={() => { void handleLeave(); }}
     />
   );
 }

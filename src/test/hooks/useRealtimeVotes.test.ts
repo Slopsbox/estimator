@@ -70,6 +70,7 @@ function resetChainable() {
     return channelMock;
   });
   channelMock._triggerSubscribed = () => subscribeCb?.('SUBSCRIBED');
+  channelMock._getSubscribeCb = () => subscribeCb;
   chainable.channel.mockReturnValue(channelMock);
   chainable.removeChannel.mockResolvedValue(undefined);
 }
@@ -114,7 +115,7 @@ describe('useRealtimeVotes', () => {
     expect(result.current.votes).toEqual([]);
   });
 
-  it('henter initial votes etter subscription bekreftes (SUBSCRIBED)', async () => {
+  it('henter initial votes umiddelbart på privat session-topic', async () => {
     const initialVotes = [makeVote({ id: 'vote-001' }), makeVote({ id: 'vote-002' })];
 
     // .then() trigges når fetchInitialData kalles (etter SUBSCRIBED)
@@ -126,17 +127,72 @@ describe('useRealtimeVotes', () => {
 
     const { result } = renderHook(() => useRealtimeVotes(SESSION_ID, CURRENT_ROUND));
 
-    // Trigger SUBSCRIBED-callback
-    act(() => {
-      channelMock._triggerSubscribed();
-    });
-
     await waitFor(() => {
       expect(result.current.loading).toBe(false);
     });
 
     expect(result.current.votes).toHaveLength(2);
     expect(result.current.votes[0].id).toBe('vote-001');
+    expect(chainable.channel).toHaveBeenCalledWith(`votes:${SESSION_ID}:${CURRENT_ROUND}:0`, {
+      config: { private: true },
+    });
+  });
+
+  it('replayer INSERT som skjer mens initial fetch er in-flight uten å abonnere på DELETE', async () => {
+    let resolveFetch!: (result: { data: Vote[]; error: null }) => void;
+    chainable.then.mockImplementation((resolve: typeof resolveFetch) => {
+      resolveFetch = resolve;
+      return Promise.resolve();
+    });
+    const inserted = makeVote({ id: 'vote-new' });
+    const { result } = renderHook(() => useRealtimeVotes(SESSION_ID, CURRENT_ROUND));
+    await waitFor(() => expect(resolveFetch).toBeTypeOf('function'));
+    const calls = channelMock.on.mock.calls as Array<[string, { event: string }, (payload: { new: Vote; old: Vote }) => void]>;
+    const insert = calls.find((call) => call[1].event === 'INSERT')?.[2];
+
+    act(() => {
+      insert?.({ new: inserted, old: inserted });
+    });
+    await act(async () => resolveFetch({ data: [], error: null }));
+
+    expect(result.current.votes).toEqual([inserted]);
+    expect(calls.map((call) => call[1].event)).toEqual(['INSERT']);
+  });
+
+  it('utleder egen stemme når participantId gis', async () => {
+    chainable.then.mockImplementation((cb: (r: { data: Vote[]; error: null }) => void) => {
+      cb({ data: [makeVote({ participant_id: 'participant-own' })], error: null });
+      return Promise.resolve();
+    });
+    const { result } = renderHook(() => useRealtimeVotes(SESSION_ID, CURRENT_ROUND, false, 'participant-own'));
+
+    act(() => channelMock._triggerSubscribed());
+
+    await waitFor(() => expect(result.current.ownVote?.participant_id).toBe('participant-own'));
+  });
+
+  it('beholder votes ved CLOSED mens samme scope reconnecter', async () => {
+    vi.useFakeTimers();
+    try {
+      chainable.then.mockImplementation((cb: (r: { data: Vote[]; error: null }) => void) => {
+        cb({ data: [makeVote()], error: null });
+        return Promise.resolve();
+      });
+      const { result } = renderHook(() => useRealtimeVotes(SESSION_ID, CURRENT_ROUND));
+      act(() => channelMock._triggerSubscribed());
+      await act(async () => { await Promise.resolve(); });
+      expect(result.current.votes).toHaveLength(1);
+
+      act(() => channelMock._getSubscribeCb()?.('CLOSED'));
+      expect(result.current.connectionState).toBe('disconnected');
+      await act(async () => {
+        vi.advanceTimersByTime(2000);
+        await Promise.resolve();
+      });
+      expect(result.current.votes).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('legger til ny stemme fra realtime INSERT-event', async () => {
@@ -173,154 +229,6 @@ describe('useRealtimeVotes', () => {
 
     expect(result.current.votes).toHaveLength(2);
     expect(result.current.votes[1].id).toBe('vote-002');
-  });
-
-  it('fjerner stemme fra state ved realtime DELETE-event', async () => {
-    const initialVote = makeVote({ id: 'vote-001', participant_id: 'participant-001' });
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    chainable.then.mockImplementation((cb: (r: any) => void) => {
-      cb({ data: [initialVote], error: null });
-      return Promise.resolve();
-    });
-
-    const { result } = renderHook(() => useRealtimeVotes(SESSION_ID, CURRENT_ROUND));
-
-    act(() => {
-      channelMock._triggerSubscribed();
-    });
-
-    await waitFor(() => {
-      expect(result.current.votes).toHaveLength(1);
-    });
-
-    // Hent DELETE-handler fra channel.on() og simuler sletting
-    const onCalls = channelMock.on.mock.calls as Array<[string, unknown, (payload: { old: { id: string; participant_id?: string } }) => void]>;
-    const deleteHandler = onCalls.find(([_e, config]) =>
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (config as any)?.event === 'DELETE'
-    );
-    expect(deleteHandler).toBeDefined();
-    const handler = deleteHandler![2];
-
-    act(() => {
-      handler({ old: { id: 'vote-001', participant_id: 'participant-001' } });
-    });
-
-    expect(result.current.votes).toHaveLength(0);
-  });
-
-  it('trackes deltaker i deletedParticipantIds ved DELETE-event', async () => {
-    const initialVote = makeVote({ id: 'vote-001', participant_id: 'participant-001' });
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    chainable.then.mockImplementation((cb: (r: any) => void) => {
-      cb({ data: [initialVote], error: null });
-      return Promise.resolve();
-    });
-
-    const { result } = renderHook(() => useRealtimeVotes(SESSION_ID, CURRENT_ROUND));
-
-    act(() => {
-      channelMock._triggerSubscribed();
-    });
-
-    await waitFor(() => {
-      expect(result.current.votes).toHaveLength(1);
-    });
-
-    // Verifiser at deltaker IKKE er i deletedParticipantIds ennå
-    expect(result.current.deletedParticipantIds.has('participant-001')).toBe(false);
-
-    const onCalls = channelMock.on.mock.calls as Array<[string, unknown, (payload: { old: { id: string; participant_id?: string } }) => void]>;
-    const deleteHandler = onCalls.find(([_e, config]) =>
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (config as any)?.event === 'DELETE'
-    );
-    const handler = deleteHandler![2];
-
-    act(() => {
-      handler({ old: { id: 'vote-001', participant_id: 'participant-001' } });
-    });
-
-    // Deltaker skal nå være tracket som "re-estimerer"
-    expect(result.current.deletedParticipantIds.has('participant-001')).toBe(true);
-    // Stemmen er fjernet
-    expect(result.current.votes).toHaveLength(0);
-  });
-
-  it('ignorerer DELETE-event uten id', async () => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    chainable.then.mockImplementation((cb: (r: any) => void) => {
-      cb({ data: [makeVote({ id: 'vote-001' })], error: null });
-      return Promise.resolve();
-    });
-
-    const { result } = renderHook(() => useRealtimeVotes(SESSION_ID, CURRENT_ROUND));
-
-    act(() => {
-      channelMock._triggerSubscribed();
-    });
-
-    await waitFor(() => {
-      expect(result.current.votes).toHaveLength(1);
-    });
-
-    const onCalls = channelMock.on.mock.calls as Array<[string, unknown, (payload: { old: Record<string, unknown> }) => void]>;
-    const deleteHandler = onCalls.find(([_e, config]) =>
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (config as any)?.event === 'DELETE'
-    );
-    const handler = deleteHandler![2];
-
-    // Send DELETE-event uten id-felt
-    act(() => {
-      handler({ old: {} });
-    });
-
-    // Stemmen skal fortsatt være i state
-    expect(result.current.votes).toHaveLength(1);
-  });
-
-  it('nullstiller deletedParticipantIds ved ny runde', async () => {
-    const initialVote = makeVote({ id: 'vote-001', participant_id: 'participant-001' });
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    chainable.then.mockImplementation((cb: (r: any) => void) => {
-      cb({ data: [initialVote], error: null });
-      return Promise.resolve();
-    });
-
-    const { result, rerender } = renderHook(
-      ({ round }: { round: number }) => useRealtimeVotes(SESSION_ID, round),
-      { initialProps: { round: 1 } },
-    );
-
-    act(() => {
-      channelMock._triggerSubscribed();
-    });
-
-    await waitFor(() => {
-      expect(result.current.votes).toHaveLength(1);
-    });
-
-    // Simuler DELETE (deltaker re-estimerer)
-    const onCalls = channelMock.on.mock.calls as Array<[string, unknown, (payload: { old: { id: string; participant_id?: string } }) => void]>;
-    const deleteHandler = onCalls.find(([_e, config]) =>
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (config as any)?.event === 'DELETE'
-    );
-    const handler = deleteHandler![2];
-
-    act(() => {
-      handler({ old: { id: 'vote-001', participant_id: 'participant-001' } });
-    });
-
-    expect(result.current.deletedParticipantIds.has('participant-001')).toBe(true);
-
-    // Ny runde → reset
-    rerender({ round: 2 });
-
-    await waitFor(() => {
-      expect(result.current.deletedParticipantIds.size).toBe(0);
-    });
   });
 
   it('unngår duplikater (samme vote id sendes to ganger)', async () => {
@@ -452,6 +360,24 @@ describe('useRealtimeVotes', () => {
     await waitFor(() => {
       expect(result.current.votes).toHaveLength(2);
     });
+  });
+
+  it('nullstiller tidligere fetch-feil etter vellykket refetch', async () => {
+    chainable.then.mockImplementationOnce((cb: (r: { data: null; error: object }) => void) => {
+      cb({ data: null, error: { code: 'network' } });
+      return Promise.resolve();
+    });
+    const { result } = renderHook(() => useRealtimeVotes(SESSION_ID, CURRENT_ROUND));
+    await waitFor(() => expect(result.current.error).not.toBeNull());
+
+    chainable.then.mockImplementation((cb: (r: { data: Vote[]; error: null }) => void) => {
+      cb({ data: [makeVote()], error: null });
+      return Promise.resolve();
+    });
+    await act(async () => { await result.current.refetch(); });
+
+    expect(result.current.error).toBeNull();
+    expect(result.current.votes).toEqual([makeVote()]);
   });
 });
 

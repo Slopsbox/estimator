@@ -7,11 +7,13 @@ import { LAST_USED_NAME_STORAGE_KEY } from '../../lib/localStorage';
 
 // Mock useSession – loading styres av mockLoading-flagg for fleksibilitet i tester
 let mockLoading = false;
+let mockRestoreStatus = 'ready';
 const mockJoinSession = vi.fn();
 vi.mock('../../hooks/useSession', () => ({
   useSession: () => ({
     joinSession: mockJoinSession,
     loading: mockLoading,
+    restoreStatus: mockRestoreStatus,
     session: null,
     localParticipant: null,
     error: null,
@@ -23,6 +25,7 @@ vi.mock('../../hooks/useSession', () => ({
     nextRound: vi.fn(),
     endSession: vi.fn(),
     logout: vi.fn(),
+    leaveSession: vi.fn(),
   }),
 }));
 
@@ -39,6 +42,7 @@ vi.mock('react-router-dom', async (importOriginal) => {
 describe('DeltagerJoinPage', () => {
   beforeEach(() => {
     mockLoading = false;
+    mockRestoreStatus = 'ready';
     mockJoinSession.mockReset();
     mockNavigate.mockReset();
     sessionStorage.clear();
@@ -54,6 +58,12 @@ describe('DeltagerJoinPage', () => {
     expect(screen.getByText('Bli med i sesjon')).toBeInTheDocument();
     expect(screen.getByText(/skriv inn koden fra fasilitator/i)).toBeInTheDocument();
     expect(screen.getByText('Deltager')).toBeInTheDocument();
+  });
+
+  it('viser autoritativ utløpt-status etter ugyldig restore', () => {
+    mockRestoreStatus = 'invalid';
+    render(<MemoryRouter><DeltagerJoinPage /></MemoryRouter>);
+    expect(screen.getByRole('alert')).toHaveTextContent(/forrige sesjon er utløpt/i);
   });
 
   it('viser navneinput og kodeinput', () => {
@@ -121,23 +131,8 @@ describe('DeltagerJoinPage', () => {
   });
 
   it('navigerer til /vote ved vellykket join, kaller joinSession med navn og kode', async () => {
-    // Etter fix: bruker window.location.href i stedet for React Router navigate()
-    // for å unngå race condition der en ny useSession-instans ikke har rukket å
-    // gjenopprette session fra localStorage før Vote.tsx redirecter til /join.
-    // jsdom støtter ikke full navigasjon, men vi kan mocke window.location.href.
-    const hrefSpy = vi.spyOn(window, 'location', 'get').mockReturnValue({
-      ...window.location,
-      href: '',
-    });
-    const setHrefSpy = vi.fn();
-    Object.defineProperty(window, 'location', {
-      value: { ...window.location, set href(val: string) { setHrefSpy(val); } },
-      writable: true,
-      configurable: true,
-    });
-
     const user = userEvent.setup();
-    mockJoinSession.mockResolvedValueOnce(true);
+    mockJoinSession.mockResolvedValueOnce({ ok: true });
     render(
       <MemoryRouter>
         <DeltagerJoinPage />
@@ -148,21 +143,14 @@ describe('DeltagerJoinPage', () => {
     await user.click(screen.getByRole('button', { name: /bli med/i }));
     await waitFor(() => {
       expect(mockJoinSession).toHaveBeenCalledWith('ABCD', 'Ola');
-      expect(setHrefSpy).toHaveBeenCalledWith('/vote');
+      expect(mockNavigate).toHaveBeenCalledWith('/vote');
     });
 
-    hrefSpy.mockRestore();
-    // Gjenopprett window.location etter test
-    Object.defineProperty(window, 'location', {
-      value: window.location,
-      writable: true,
-      configurable: true,
-    });
   });
 
   it('viser feilmelding ved mislykket join (feil kode)', async () => {
     const user = userEvent.setup();
-    mockJoinSession.mockResolvedValueOnce(false);
+    mockJoinSession.mockResolvedValueOnce({ ok: false, reason: 'session_not_found' });
     render(
       <MemoryRouter>
         <DeltagerJoinPage />
@@ -178,6 +166,28 @@ describe('DeltagerJoinPage', () => {
       expect(alert).toBeInTheDocument();
       expect(alert).toHaveTextContent(/feil kode/i);
     });
+  });
+
+  it('viser nettverksfeil separat fra ugyldig kode', async () => {
+    const user = userEvent.setup();
+    mockJoinSession.mockResolvedValueOnce({ ok: false, reason: 'transient' });
+    render(<MemoryRouter><DeltagerJoinPage /></MemoryRouter>);
+    await user.type(screen.getByLabelText(/ditt navn/i), 'Ola');
+    await user.type(screen.getByLabelText(/sesjonskode/i), 'ABCD');
+    await user.click(screen.getByRole('button', { name: /bli med/i }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(/sjekk nettet/i);
+  });
+
+  it('viser generisk konflikt når nettleseren allerede er fasilitator', async () => {
+    const user = userEvent.setup();
+    mockJoinSession.mockResolvedValueOnce({ ok: false, reason: 'role_conflict' });
+    render(<MemoryRouter><DeltagerJoinPage /></MemoryRouter>);
+    await user.type(screen.getByLabelText(/ditt navn/i), 'Ola');
+    await user.type(screen.getByLabelText(/sesjonskode/i), 'ABCD');
+    await user.click(screen.getByRole('button', { name: /bli med/i }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(/denne nettleseren er fasilitator/i);
   });
 
   it('placeholder i sesjonskode-feltet er "– – – –" (ikke ABCD)', () => {

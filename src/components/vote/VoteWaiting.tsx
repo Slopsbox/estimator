@@ -5,16 +5,19 @@ import type { Session, LocalParticipant } from '../../lib/types';
 interface VoteWaitingProps {
   session: Session;
   name: string;
+  onLeave?: () => void;
 }
 
 /**
  * State W – Venter på fasilitator (session.started === false).
  * Navy-topp-mønster: #0B1D3A øverst, #F5F4F0 bunn.
  */
-export function VoteWaiting({ session, name }: VoteWaitingProps) {
+export function VoteWaiting({ session, name, onLeave }: VoteWaitingProps) {
   return (
     <NavyPageLayout
       roleLabel="Deltager"
+      onBack={onLeave}
+      backLabel="Forlat sesjon"
       navyContent={
         <div className="text-center">
           <AppLogo size={48} className="mx-auto mb-4" />
