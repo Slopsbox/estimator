@@ -41,13 +41,17 @@ export type SessionStatus = 'active' | 'completed';
 /** Deltaker-rolle (speiler CHECK-constraint i DB) */
 export type ParticipantRole = 'facilitator' | 'participant';
 
+/** Aktivitet som kjøres i et felles rom. */
+export type RoomActivityType = 'estimation' | 'health_check';
+
 // ============================================================
 // Frontend-spesifikke typer (ingen DB-ekvivalent)
 // ============================================================
 
 /** Versjonert lokal peker. Rolle og navn er kun cache frem til restore-RPC svarer. */
 export interface SessionPointer {
-  version: 1;
+  version: 2;
+  activityType: RoomActivityType;
   updatedAt?: string;
   participantId: string;
   sessionId: string;
@@ -56,7 +60,12 @@ export interface SessionPointer {
 }
 
 /** Autoritativ deltakeridentitet i aktiv app-state. */
-export type LocalParticipant = Omit<SessionPointer, 'version'>;
+export interface LocalParticipant {
+  participantId: string;
+  sessionId: string;
+  name: string;
+  role: ParticipantRole;
+}
 
 /** Props for stemme-komponent */
 export interface VoteSubmission {

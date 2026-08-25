@@ -56,7 +56,7 @@ function wrapper({ children }: PropsWithChildren) {
 
 function storePointer() {
   localStorage.setItem(LOCAL_PARTICIPANT_STORAGE_KEY, JSON.stringify({
-    version: 1, sessionId: SESSION.id, participantId: PARTICIPANT.id,
+    version: 2, activityType: 'estimation', sessionId: SESSION.id, participantId: PARTICIPANT.id,
     name: 'Cached name', role: 'participant',
   }));
 }
@@ -94,6 +94,70 @@ describe('SessionProvider', () => {
     expect(result.current.localParticipant?.name).toBe('Kari');
     expect(result.current.ownVote).toEqual(VOTE);
     expect(result.current.roundParticipant).toEqual(ROUND_PARTICIPANT);
+    expect(result.current.activityType).toBe('estimation');
+  });
+
+  it('bruker estimation når activity_type mangler i hele membership-payloaden', async () => {
+    storePointer();
+    rpcMock.mockResolvedValueOnce(okRestore());
+    const { result } = renderHook(() => useSession(), { wrapper });
+
+    await waitFor(() => expect(result.current.restoreStatus).toBe('ready'));
+
+    expect(result.current.activityType).toBe('estimation');
+  });
+
+  it.each([
+    ['envelope', { activity_type: 'health_check', session: SESSION }],
+    ['session', { session: { ...SESSION, activity_type: 'health_check' } }],
+  ])('leser eksplisitt activity_type fra %s', async (_source, overrides) => {
+    storePointer();
+    rpcMock.mockResolvedValueOnce({
+      ...okRestore(),
+      data: { ...okRestore().data, ...overrides },
+    });
+    const { result } = renderHook(() => useSession(), { wrapper });
+
+    await waitFor(() => expect(result.current.restoreStatus).toBe('ready'));
+
+    expect(result.current.activityType).toBe('health_check');
+  });
+
+  it.each([
+    ['konflikt', { activity_type: 'estimation', session: { ...SESSION, activity_type: 'health_check' } }],
+    ['ukjent envelope-verdi', { activity_type: 'retro', session: SESSION }],
+    ['ukjent session-verdi', { session: { ...SESSION, activity_type: 'retro' } }],
+  ])('avviser activity_type ved %s', async (_scenario, overrides) => {
+    storePointer();
+    rpcMock.mockResolvedValueOnce({
+      ...okRestore(),
+      data: { ...okRestore().data, ...overrides },
+    });
+    const { result } = renderHook(() => useSession(), { wrapper });
+
+    await waitFor(() => expect(result.current.restoreStatus).toBe('reconnecting'));
+
+    expect(result.current.session).toBeNull();
+  });
+
+  it('restore lar serverens activity type overstyre pointer-cache', async () => {
+    localStorage.setItem(LOCAL_PARTICIPANT_STORAGE_KEY, JSON.stringify({
+      version: 2, activityType: 'estimation', sessionId: SESSION.id, participantId: PARTICIPANT.id,
+      name: 'Cached name', role: 'participant', updatedAt: new Date().toISOString(),
+    }));
+    rpcMock.mockResolvedValueOnce({
+      ...okRestore(),
+      data: { ...okRestore().data, activity_type: 'health_check' },
+    });
+    const { result } = renderHook(() => useSession(), { wrapper });
+
+    await waitFor(() => expect(result.current.restoreStatus).toBe('ready'));
+
+    expect(result.current.activityType).toBe('health_check');
+    expect(JSON.parse(localStorage.getItem(LOCAL_PARTICIPANT_STORAGE_KEY)!)).toMatchObject({
+      version: 2,
+      activityType: 'health_check',
+    });
   });
 
   it('starter restore uten å vente på SUBSCRIBED', async () => {
@@ -203,6 +267,7 @@ describe('SessionProvider', () => {
     const createCalls = rpcMock.mock.calls.filter((call) => call[0] === 'create_session');
     expect(createCalls[1][1].p_request_id).toBe(firstRequest);
     expect(result.current.session).toEqual(SESSION);
+    expect(result.current.activityType).toBe('estimation');
     expect(localStorage.getItem(CREATE_REQUEST_ID_STORAGE_KEY)).toBeNull();
   });
 
@@ -228,6 +293,21 @@ describe('SessionProvider', () => {
     await act(async () => { joinResult = await result.current.joinSession('ABCD', 'Kari'); });
 
     expect(joinResult).toEqual({ ok: false, reason: 'role_conflict' });
+  });
+
+  it('join returnerer og lagrer autoritativ activity type', async () => {
+    const { result } = renderHook(() => useSession(), { wrapper });
+    await waitFor(() => expect(result.current.restoreStatus).toBe('ready'));
+    rpcMock.mockResolvedValueOnce({
+      data: { ...okRestore().data, activity_type: 'health_check' },
+      error: null,
+    });
+
+    let joinResult: Awaited<ReturnType<typeof result.current.joinSession>> | undefined;
+    await act(async () => { joinResult = await result.current.joinSession('ABCD', 'Kari'); });
+
+    expect(joinResult).toEqual({ ok: true, activityType: 'health_check' });
+    expect(result.current.activityType).toBe('health_check');
   });
 
   it('cast duplicate er idempotent suksess og oppdaterer ownVote', async () => {
@@ -379,6 +459,7 @@ describe('SessionProvider', () => {
     expect(leaveResult).toEqual({ ok: true });
     expect(rpcMock).toHaveBeenLastCalledWith('leave_session', { p_session_id: SESSION.id });
     expect(result.current.session).toBeNull();
+    expect(result.current.activityType).toBeNull();
     expect(localStorage.getItem(LOCAL_PARTICIPANT_STORAGE_KEY)).toBeNull();
   });
 });

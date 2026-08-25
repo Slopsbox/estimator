@@ -4,6 +4,12 @@ import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { LandingPage } from '../../pages/Landing';
 
+const mockNavigate = vi.fn();
+vi.mock('react-router-dom', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('react-router-dom')>();
+  return { ...actual, useNavigate: () => mockNavigate };
+});
+
 // Mock Turnstile – vi vil ikke laste ekstern script i tester
 vi.mock('@marsidev/react-turnstile', () => ({
   Turnstile: ({ onSuccess }: { onSuccess: (token: string) => void }) => (
@@ -25,6 +31,7 @@ function mockFetch(response: { success: boolean }, status = 200) {
 describe('LandingPage', () => {
   afterEach(() => {
     vi.restoreAllMocks();
+    mockNavigate.mockReset();
   });
 
   it('viser tittel Estimat', () => {
@@ -81,6 +88,18 @@ describe('LandingPage', () => {
       expect(screen.getByRole('button', { name: /deltager/i })).not.toBeDisabled();
       expect(screen.getByRole('button', { name: /fasilitator/i })).not.toBeDisabled();
     });
+  });
+
+  it('navigerer til kanoniske estimation-ruter', async () => {
+    const user = userEvent.setup();
+    mockFetch({ success: true });
+    render(<MemoryRouter><LandingPage /></MemoryRouter>);
+    await user.click(screen.getByTestId('mock-turnstile'));
+    await user.click(await screen.findByRole('button', { name: /deltager/i }));
+    expect(mockNavigate).toHaveBeenLastCalledWith('/estimation/join');
+
+    await user.click(screen.getByRole('button', { name: /fasilitator/i }));
+    expect(mockNavigate).toHaveBeenLastCalledWith('/estimation/dashboard');
   });
 
   it('viser feilmelding og beholder disabled når server avviser tokenet', async () => {

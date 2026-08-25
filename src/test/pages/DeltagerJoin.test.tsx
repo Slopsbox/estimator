@@ -130,9 +130,12 @@ describe('DeltagerJoinPage', () => {
     expect(screen.getByLabelText(/sesjonskode/i)).toHaveValue('ABCD');
   });
 
-  it('navigerer til /vote ved vellykket join, kaller joinSession med navn og kode', async () => {
+  it.each([
+    ['estimation', '/estimation/vote'],
+    ['health_check', '/health-check/respond'],
+  ] as const)('navigerer basert på activity type %s ved vellykket join', async (activityType, route) => {
     const user = userEvent.setup();
-    mockJoinSession.mockResolvedValueOnce({ ok: true });
+    mockJoinSession.mockResolvedValueOnce({ ok: true, activityType });
     render(
       <MemoryRouter>
         <DeltagerJoinPage />
@@ -143,9 +146,8 @@ describe('DeltagerJoinPage', () => {
     await user.click(screen.getByRole('button', { name: /bli med/i }));
     await waitFor(() => {
       expect(mockJoinSession).toHaveBeenCalledWith('ABCD', 'Ola');
-      expect(mockNavigate).toHaveBeenCalledWith('/vote');
+      expect(mockNavigate).toHaveBeenCalledWith(route);
     });
-
   });
 
   it('viser feilmelding ved mislykket join (feil kode)', async () => {

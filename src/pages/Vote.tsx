@@ -10,6 +10,7 @@ import { useSession } from '../hooks/useSession';
 import { useSessionPresence } from '../hooks/useSessionPresence';
 import { useWakeLock } from '../hooks/useWakeLock';
 import { readLastUsedName } from '../lib/localStorage';
+import { resolveRoomRoute } from '../lib/roomRoutes';
 import type { Size, Value } from '../lib/types';
 
 function isSize(value: string): value is Size {
@@ -82,7 +83,7 @@ export function VotePage() {
   }, [claimRound, claimRetry, roundParticipant, session]);
 
   useEffect(() => {
-    if (localParticipant?.role === 'facilitator') navigate('/dashboard');
+    if (localParticipant?.role === 'facilitator') navigate(resolveRoomRoute('estimation', 'facilitator'));
   }, [localParticipant?.role, navigate]);
 
   useEffect(() => {
@@ -94,7 +95,7 @@ export function VotePage() {
 
   useEffect(() => {
     if ((restoreStatus === 'ready' || restoreStatus === 'invalid') && !session && !localParticipant) {
-      navigate('/join');
+      navigate(resolveRoomRoute('estimation', 'join'));
     }
   }, [restoreStatus, session, localParticipant, navigate]);
 

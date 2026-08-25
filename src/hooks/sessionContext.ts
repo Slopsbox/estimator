@@ -1,13 +1,14 @@
 import { createContext } from 'react';
-import type { LocalParticipant, RoundParticipant, Session, Vote, VoteSubmission } from '../lib/types';
+import type { LocalParticipant, RoomActivityType, RoundParticipant, Session, Vote, VoteSubmission } from '../lib/types';
 
 export type RestoreStatus = 'initializing' | 'ready' | 'reconnecting' | 'invalid';
 export type ConnectionState = 'idle' | 'connecting' | 'connected' | 'disconnected';
 export type MutationResult = { ok: true } | { ok: false; message: string };
-export type JoinResult = { ok: true } | { ok: false; reason: 'session_not_found' | 'role_conflict' | 'transient' };
+export type JoinResult = { ok: true; activityType: RoomActivityType } | { ok: false; reason: 'session_not_found' | 'role_conflict' | 'transient' };
 
 export interface SessionContextValue {
   session: Session | null;
+  activityType: RoomActivityType | null;
   localParticipant: LocalParticipant | null;
   ownVote: Vote | null;
   roundParticipant: RoundParticipant | null;

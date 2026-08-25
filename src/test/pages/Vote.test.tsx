@@ -107,7 +107,7 @@ describe('VotePage – redirect-logikk', () => {
     sessionStorage.clear();
   });
 
-  it('redirecter til /join når initialized=true og ingen sesjon/deltaker', async () => {
+  it('redirecter til kanonisk estimation join når initialized=true og ingen sesjon/deltaker', async () => {
     mockInitialized = true;
     mockSession = null;
     mockLocalParticipant = null;
@@ -115,7 +115,7 @@ describe('VotePage – redirect-logikk', () => {
     renderVote();
 
     await waitFor(() => {
-      expect(mockNavigate).toHaveBeenCalledWith('/join');
+      expect(mockNavigate).toHaveBeenCalledWith('/estimation/join');
     });
   });
 
@@ -129,7 +129,7 @@ describe('VotePage – redirect-logikk', () => {
     // Gi React tid til å prosessere effects
     await new Promise((r) => setTimeout(r, 50));
 
-    expect(mockNavigate).not.toHaveBeenCalledWith('/join');
+    expect(mockNavigate).not.toHaveBeenCalledWith('/estimation/join');
   });
 
   it('redirecter IKKE til /join når sesjon finnes (selv om initialized=true)', async () => {
@@ -153,7 +153,7 @@ describe('VotePage – redirect-logikk', () => {
 
     await new Promise((r) => setTimeout(r, 50));
 
-    expect(mockNavigate).not.toHaveBeenCalledWith('/join');
+    expect(mockNavigate).not.toHaveBeenCalledWith('/estimation/join');
   });
 
   it('redirecter fasilitator bort fra participant-siden', async () => {
@@ -162,7 +162,7 @@ describe('VotePage – redirect-logikk', () => {
 
     renderVote();
 
-    await waitFor(() => expect(mockNavigate).toHaveBeenCalledWith('/dashboard'));
+    await waitFor(() => expect(mockNavigate).toHaveBeenCalledWith('/estimation/dashboard'));
   });
 });
 

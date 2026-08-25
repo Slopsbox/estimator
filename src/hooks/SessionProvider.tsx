@@ -13,6 +13,7 @@ import type {
   LocalParticipant,
   Participant,
   ParticipantRole,
+  RoomActivityType,
   RoundParticipant,
   Session,
   SessionPointer,
@@ -35,6 +36,10 @@ function isNullableString(value: unknown): value is string | null {
 
 function isRole(value: unknown): value is ParticipantRole {
   return value === 'facilitator' || value === 'participant';
+}
+
+function isActivityType(value: unknown): value is RoomActivityType {
+  return value === 'estimation' || value === 'health_check';
 }
 
 function isSize(value: unknown): value is Size {
@@ -127,27 +132,44 @@ function localFromParticipant(participant: Participant): LocalParticipant {
   };
 }
 
-function pointerFromParticipant(participant: Participant): SessionPointer {
-  return { version: 1, ...localFromParticipant(participant) };
+function pointerFromParticipant(participant: Participant, activityType: RoomActivityType): SessionPointer {
+  return { version: 2, activityType, ...localFromParticipant(participant) };
 }
 
 function parseMembershipPayload(value: unknown) {
   if (!isRecord(value) || (value.status !== 'ok' && value.status !== 'active_session_exists')) return null;
+  if (!isRecord(value.session)) return null;
   const session = parseSession(value.session);
   const participant = parseParticipant(value.participant);
   const roundParticipant = parseRoundParticipant(value.round_participant);
+  const sessionValue = value.session;
+  const hasEnvelopeActivityType = Object.prototype.hasOwnProperty.call(value, 'activity_type');
+  const hasSessionActivityType = Object.prototype.hasOwnProperty.call(sessionValue, 'activity_type');
+  const envelopeActivityType = value.activity_type;
+  const sessionActivityType = sessionValue.activity_type;
+  if (
+    (hasEnvelopeActivityType && !isActivityType(envelopeActivityType))
+    || (hasSessionActivityType && !isActivityType(sessionActivityType))
+    || (hasEnvelopeActivityType && hasSessionActivityType && envelopeActivityType !== sessionActivityType)
+  ) return null;
+  const activityType = hasEnvelopeActivityType
+    ? envelopeActivityType as RoomActivityType
+    : hasSessionActivityType
+      ? sessionActivityType as RoomActivityType
+      : 'estimation';
   if (!session || !participant || participant.session_id !== session.id) return null;
   if (roundParticipant && (
     roundParticipant.session_id !== session.id
     || roundParticipant.participant_id !== participant.id
     || roundParticipant.round !== session.current_round
   )) return null;
-  return { session, participant, roundParticipant };
+  return { session, participant, roundParticipant, activityType };
 }
 
 export function SessionProvider({ children }: PropsWithChildren) {
   const [pointer, setPointer] = useState<SessionPointer | null>(readSessionPointer);
   const [session, setSession] = useState<Session | null>(null);
+  const [activityType, setActivityType] = useState<RoomActivityType | null>(() => readSessionPointer()?.activityType ?? null);
   const [localParticipant, setLocalParticipant] = useState<LocalParticipant | null>(() => {
     const initial = readSessionPointer();
     if (!initial) return null;
@@ -176,6 +198,7 @@ export function SessionProvider({ children }: PropsWithChildren) {
     clearSessionPointer();
     setPointer(null);
     setSession(null);
+    setActivityType(null);
     setLocalParticipant(null);
     setOwnVote(null);
     setRoundParticipant(null);
@@ -215,10 +238,11 @@ export function SessionProvider({ children }: PropsWithChildren) {
           || vote.participant_id !== payload.participant.id
           || vote.round !== payload.session.current_round
         )) throw new Error('invalid_restore_vote_scope');
-        const authoritativePointer = pointerFromParticipant(payload.participant);
+        const authoritativePointer = pointerFromParticipant(payload.participant, payload.activityType);
         writeSessionPointer(authoritativePointer);
         setPointer(authoritativePointer);
         setSession(payload.session);
+        setActivityType(payload.activityType);
         setLocalParticipant(localFromParticipant(payload.participant));
         setOwnVote(vote);
         setRoundParticipant(payload.roundParticipant);
@@ -312,10 +336,11 @@ export function SessionProvider({ children }: PropsWithChildren) {
 
   const applyMembership = useCallback((payload: ReturnType<typeof parseMembershipPayload>) => {
     if (!payload) return false;
-    const authoritativePointer = pointerFromParticipant(payload.participant);
+    const authoritativePointer = pointerFromParticipant(payload.participant, payload.activityType);
     writeSessionPointer(authoritativePointer);
     setPointer(authoritativePointer);
     setSession(payload.session);
+    setActivityType(payload.activityType);
     setLocalParticipant(localFromParticipant(payload.participant));
     setOwnVote(null);
     setRoundParticipant(payload.roundParticipant);
@@ -367,7 +392,7 @@ export function SessionProvider({ children }: PropsWithChildren) {
       const payload = parseMembershipPayload(result.data);
       if (!payload || !applyMembership(payload)) throw new Error('invalid_join_payload');
       writeLastUsedName(payload.participant.name);
-      return { ok: true };
+      return { ok: true, activityType: payload.activityType };
     } catch {
       if (generation === generationRef.current) setError('Kunne ikke koble til sesjonen. Prøv igjen.');
       return { ok: false, reason: 'transient' };
@@ -494,6 +519,7 @@ export function SessionProvider({ children }: PropsWithChildren) {
 
   const value: SessionContextValue = {
     session,
+    activityType,
     localParticipant,
     ownVote,
     roundParticipant,

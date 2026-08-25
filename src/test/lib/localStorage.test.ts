@@ -4,7 +4,9 @@ import {
   LOCAL_PARTICIPANT_STORAGE_KEY,
   clearCreateRequestId,
   getOrCreateCreateRequestId,
+  readLocalParticipant,
   readSessionPointer,
+  writeLocalParticipant,
   writeSessionPointer,
 } from '../../lib/localStorage';
 
@@ -14,7 +16,7 @@ describe('session storage', () => {
     vi.restoreAllMocks();
   });
 
-  it('migrerer legacy participant-format til versjonert session-pointer', () => {
+  it('migrerer legacy participant-format til v2 estimation-pointer', () => {
     localStorage.setItem(LOCAL_PARTICIPANT_STORAGE_KEY, JSON.stringify({
       participantId: 'participant-1',
       sessionId: 'session-1',
@@ -23,19 +25,41 @@ describe('session storage', () => {
     }));
 
     expect(readSessionPointer()).toEqual({
-      version: 1,
+      version: 2,
+      activityType: 'estimation',
       updatedAt: expect.any(String),
       participantId: 'participant-1',
       sessionId: 'session-1',
       name: 'Kari',
       role: 'participant',
     });
-    expect(JSON.parse(localStorage.getItem(LOCAL_PARTICIPANT_STORAGE_KEY)!)).toHaveProperty('version', 1);
+    expect(JSON.parse(localStorage.getItem(LOCAL_PARTICIPANT_STORAGE_KEY)!)).toMatchObject({
+      version: 2,
+      activityType: 'estimation',
+    });
+  });
+
+  it('migrerer v1 til v2 estimation-pointer', () => {
+    localStorage.setItem(LOCAL_PARTICIPANT_STORAGE_KEY, JSON.stringify({
+      version: 1,
+      updatedAt: new Date().toISOString(),
+      participantId: 'participant-1',
+      sessionId: 'session-1',
+      name: 'Kari',
+      role: 'participant',
+    }));
+
+    expect(readSessionPointer()).toMatchObject({ version: 2, activityType: 'estimation' });
+    expect(JSON.parse(localStorage.getItem(LOCAL_PARTICIPANT_STORAGE_KEY)!)).toMatchObject({
+      version: 2,
+      activityType: 'estimation',
+    });
   });
 
   it('sletter korrupt pointer', () => {
     localStorage.setItem(LOCAL_PARTICIPANT_STORAGE_KEY, JSON.stringify({
-      version: 1,
+      version: 2,
+      activityType: 'estimation',
       participantId: '',
       sessionId: 'session-1',
       name: 'Kari',
@@ -48,20 +72,40 @@ describe('session storage', () => {
 
   it('leser pointer skrevet i gjeldende format', () => {
     writeSessionPointer({
-      version: 1,
+      version: 2,
+      activityType: 'health_check',
       participantId: 'participant-1',
       sessionId: 'session-1',
       name: 'Kari',
       role: 'participant',
     });
 
-    expect(readSessionPointer()?.sessionId).toBe('session-1');
+    expect(readSessionPointer()).toMatchObject({
+      sessionId: 'session-1',
+      activityType: 'health_check',
+    });
+  });
+
+  it.each(['unknown', null, undefined])('sletter v2 med ugyldig activityType: %s', (activityType) => {
+    localStorage.setItem(LOCAL_PARTICIPANT_STORAGE_KEY, JSON.stringify({
+      version: 2,
+      activityType,
+      updatedAt: new Date().toISOString(),
+      participantId: 'participant-1',
+      sessionId: 'session-1',
+      name: 'Kari',
+      role: 'participant',
+    }));
+
+    expect(readSessionPointer()).toBeNull();
+    expect(localStorage.getItem(LOCAL_PARTICIPANT_STORAGE_KEY)).toBeNull();
   });
 
   it('sletter pointer som er eldre enn 24 timer', () => {
     vi.spyOn(Date, 'now').mockReturnValue(new Date('2026-08-25T12:00:00Z').getTime());
     localStorage.setItem(LOCAL_PARTICIPANT_STORAGE_KEY, JSON.stringify({
-      version: 1,
+      version: 2,
+      activityType: 'estimation',
       participantId: 'participant-1',
       sessionId: 'session-1',
       name: 'Kari',
@@ -71,6 +115,26 @@ describe('session storage', () => {
 
     expect(readSessionPointer()).toBeNull();
     expect(localStorage.getItem(LOCAL_PARTICIPANT_STORAGE_KEY)).toBeNull();
+  });
+
+  it('writeLocalParticipant skriver v2 estimation uten at LocalParticipant arver metadata', () => {
+    writeLocalParticipant({
+      participantId: 'participant-1',
+      sessionId: 'session-1',
+      name: 'Kari',
+      role: 'participant',
+    });
+
+    expect(JSON.parse(localStorage.getItem(LOCAL_PARTICIPANT_STORAGE_KEY)!)).toMatchObject({
+      version: 2,
+      activityType: 'estimation',
+    });
+    expect(readLocalParticipant()).toEqual({
+      participantId: 'participant-1',
+      sessionId: 'session-1',
+      name: 'Kari',
+      role: 'participant',
+    });
   });
 
   it('beholder samme create request-ID frem til den ryddes', () => {

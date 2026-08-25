@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { TurnstileGate } from '../components/TurnstileGate';
 import { AppLogo } from '../components/AppLogo';
+import { resolveRoomRoute } from '../lib/roomRoutes';
 
 /**
  * Landingsside – Gjensidige Builders designsystem.
@@ -124,7 +125,7 @@ export function LandingPage() {
           <button
             type="button"
             disabled={!verified}
-            onClick={() => navigate('/join')}
+            onClick={() => navigate(resolveRoomRoute('estimation', 'join'))}
             className="w-full py-4 px-6 font-semibold text-white text-base transition-all flex items-center justify-center gap-2.5 focus:outline-none focus:ring-2 focus:ring-offset-2"
             style={{
               background: verified ? 'var(--color-red-600)' : 'var(--color-neutral-200)',
@@ -147,7 +148,7 @@ export function LandingPage() {
           <button
             type="button"
             disabled={!verified}
-            onClick={() => navigate('/dashboard')}
+            onClick={() => navigate(resolveRoomRoute('estimation', 'facilitator'))}
             className="w-full py-4 px-6 font-semibold text-base transition-all flex items-center justify-center gap-2.5 focus:outline-none focus:ring-2 focus:ring-offset-2"
             style={{
               background: 'transparent',

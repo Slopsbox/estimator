@@ -1,4 +1,4 @@
-import type { LocalParticipant, ParticipantRole, SessionPointer } from './types';
+import type { LocalParticipant, ParticipantRole, RoomActivityType, SessionPointer } from './types';
 
 export const LOCAL_PARTICIPANT_STORAGE_KEY = 'estimat_local_participant';
 export const LAST_USED_NAME_STORAGE_KEY = 'estimat_last_used_name';
@@ -10,7 +10,17 @@ function isParticipantRole(value: unknown): value is ParticipantRole {
   return value === 'facilitator' || value === 'participant';
 }
 
-function isPointerShape(value: unknown): value is LocalParticipant & { version?: unknown } {
+function isRoomActivityType(value: unknown): value is RoomActivityType {
+  return value === 'estimation' || value === 'health_check';
+}
+
+interface StoredPointerCandidate extends LocalParticipant {
+  version?: unknown;
+  activityType?: unknown;
+  updatedAt?: unknown;
+}
+
+function isPointerShape(value: unknown): value is StoredPointerCandidate {
   if (typeof value !== 'object' || value === null) return false;
 
   const candidate = value as Record<string, unknown>;
@@ -28,9 +38,15 @@ export function readSessionPointer(): SessionPointer | null {
 
   try {
     const parsed: unknown = JSON.parse(serialized);
-    if (isPointerShape(parsed) && (parsed.version === undefined || parsed.version === 1)) {
-      const updatedAt = typeof (parsed as Record<string, unknown>).updatedAt === 'string'
-        ? (parsed as Record<string, unknown>).updatedAt as string
+    if (isPointerShape(parsed) && (parsed.version === undefined || parsed.version === 1 || parsed.version === 2)) {
+      const activityType = parsed.version === 2
+        ? (isRoomActivityType(parsed.activityType)
+          ? parsed.activityType
+          : null)
+        : 'estimation';
+      if (!activityType) throw new Error('invalid_activity_type');
+      const updatedAt = typeof parsed.updatedAt === 'string'
+        ? parsed.updatedAt
         : new Date().toISOString();
       const updatedAtMs = Date.parse(updatedAt);
       if (!Number.isFinite(updatedAtMs) || Date.now() - updatedAtMs > POINTER_TTL_MS) {
@@ -38,14 +54,15 @@ export function readSessionPointer(): SessionPointer | null {
         return null;
       }
       const pointer: SessionPointer = {
-        version: 1,
+        version: 2,
+        activityType,
         updatedAt,
         participantId: parsed.participantId,
         sessionId: parsed.sessionId,
         name: parsed.name,
         role: parsed.role,
       };
-      if (parsed.version === undefined || typeof (parsed as Record<string, unknown>).updatedAt !== 'string') {
+      if (parsed.version !== 2 || typeof parsed.updatedAt !== 'string') {
         writeSessionPointer(pointer);
       }
       return pointer;
@@ -82,7 +99,7 @@ export function readLocalParticipant(): LocalParticipant | null {
 }
 
 export function writeLocalParticipant(participant: LocalParticipant): void {
-  writeSessionPointer({ version: 1, ...participant });
+  writeSessionPointer({ version: 2, activityType: 'estimation', ...participant });
 }
 
 export const clearLocalParticipant = clearSessionPointer;

@@ -1,9 +1,10 @@
 import { Suspense, lazy } from 'react';
-import { BrowserRouter, Route, Routes } from 'react-router-dom';
+import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { LandingPage } from './pages/Landing';
 import { AppLogo } from './components/AppLogo';
 import { ChunkErrorBoundary } from './components/ChunkErrorBoundary';
 import { SessionProvider } from './hooks/SessionProvider';
+import { resolveRoomRoute } from './lib/roomRoutes';
 
 function lazyWithRetry<T extends React.ComponentType<unknown>>(
   importFn: () => Promise<{ default: T }>,
@@ -59,9 +60,12 @@ export function App() {
           <Suspense fallback={<LoadingScreen />}>
             <Routes>
               <Route path="/" element={<LandingPage />} />
-              <Route path="/join" element={<DeltagerJoinPage />} />
-              <Route path="/vote" element={<VotePage />} />
-              <Route path="/dashboard" element={<DashboardPage />} />
+              <Route path={resolveRoomRoute('estimation', 'join')} element={<DeltagerJoinPage />} />
+              <Route path={resolveRoomRoute('estimation', 'participant')} element={<VotePage />} />
+              <Route path={resolveRoomRoute('estimation', 'facilitator')} element={<DashboardPage />} />
+              <Route path="/join" element={<Navigate to={resolveRoomRoute('estimation', 'join')} replace />} />
+              <Route path="/vote" element={<Navigate to={resolveRoomRoute('estimation', 'participant')} replace />} />
+              <Route path="/dashboard" element={<Navigate to={resolveRoomRoute('estimation', 'facilitator')} replace />} />
             </Routes>
           </Suspense>
         </SessionProvider>

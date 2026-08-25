@@ -4,6 +4,7 @@ import { AppLogo } from '../components/AppLogo';
 import { NavyPageLayout } from '../components/NavyPageLayout';
 import { useSession } from '../hooks/useSession';
 import { readLastUsedName } from '../lib/localStorage';
+import { resolveRoomRoute } from '../lib/roomRoutes';
 
 /**
  * Deltager-join-side – Gjensidige Builders designsystem (rev3).
@@ -70,7 +71,7 @@ export function DeltagerJoinPage() {
       return;
     }
 
-    navigate('/vote');
+    navigate(resolveRoomRoute(result.activityType, 'participant'));
   };
 
   const canSubmit = name.trim().length > 0 && code.length === 4;
