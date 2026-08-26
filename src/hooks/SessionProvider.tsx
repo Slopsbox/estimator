@@ -208,6 +208,36 @@ export function SessionProvider({ children }: PropsWithChildren) {
     }
   }, [applyMembership]);
 
+  const createHealthCheck = useCallback(async (
+    name: string,
+    squadName: string,
+    measurementDate: string,
+  ): Promise<Session | null> => {
+    const generation = ++generationRef.current;
+    setPointer(null);
+    setLoading(true);
+    setError(null);
+    try {
+      const result = await roomMembership.createHealth({
+        name,
+        squadName,
+        measurementDate,
+        requestId: storage.getOrCreateCreateRequestId(),
+        deliveryId: crypto.randomUUID(),
+      });
+      if (generation !== generationRef.current) return null;
+      if (!result.ok) throw new Error('create_health_failed');
+      roomMembership.persist(result.snapshot, { clearCreateRequestId: true });
+      applyMembership(result.snapshot);
+      return result.snapshot.session;
+    } catch {
+      if (generation === generationRef.current) setError('Kunne ikke opprette helsesjekken. Prøv igjen.');
+      return null;
+    } finally {
+      if (generation === generationRef.current) setLoading(false);
+    }
+  }, [applyMembership]);
+
   const joinSession = useCallback(async (code: string, name: string): Promise<JoinResult> => {
     const generation = ++generationRef.current;
     setPointer(null);
@@ -319,6 +349,7 @@ export function SessionProvider({ children }: PropsWithChildren) {
     restoreStatus,
     connectionState,
     createSession,
+    createHealthCheck,
     joinSession,
     startSession,
     revealVotes,
@@ -329,6 +360,7 @@ export function SessionProvider({ children }: PropsWithChildren) {
     castVote,
     retractVote,
     retryRestore: restore,
+    clearLocalSession: () => clearAppSession('ready'),
     logout: () => clearAppSession('ready'),
   };
 

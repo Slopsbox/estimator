@@ -53,7 +53,7 @@ export function NavyPageLayout({
             <button
               type="button"
               onClick={onBack}
-              className="flex items-center justify-center w-9 h-9 focus:outline-none"
+              className="flex min-h-11 min-w-11 items-center justify-center rounded-md focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--color-navy-900)]"
               style={{ color: 'white', background: 'transparent' }}
               aria-label={backLabel}
             >

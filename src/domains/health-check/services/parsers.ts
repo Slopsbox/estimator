@@ -5,11 +5,13 @@ import type {
   HealthCheckDownloadStatusResult,
   HealthCheckJobStatus,
   HealthCheckProgressRow,
+  HealthCheckPrototypeResult,
   HealthCheckState,
   RemoveHealthCheckRespondentResult,
   StartHealthCheckResult,
   SubmitHealthCheckResult,
 } from './types';
+import { SQUAD_HEALTH_TEMPLATE_V1 } from '../domain';
 
 type PlainRecord = Record<string, unknown>;
 
@@ -122,6 +124,97 @@ export function parseFinalizeHealthCheckResult(value: unknown): FinalizeHealthCh
   const expiresAt = dataValue(record, 'expires_at');
   if (!isUuid(jobId) || !isDownloadStatus(jobStatus) || !isRfc3339Timestamp(expiresAt)) return null;
   return { status: 'download_pending', jobId, jobStatus, expiresAt };
+}
+
+export function parseHealthCheckPrototypeResult(value: unknown): HealthCheckPrototypeResult | null {
+  const record = exactRecord(value, [
+    'status',
+    'report_schema_version',
+    'squad_name',
+    'measurement_date',
+    'template_version',
+    'response_count',
+    'areas',
+  ]);
+  if (!record) return null;
+  const squadName = dataValue(record, 'squad_name');
+  const measurementDate = dataValue(record, 'measurement_date');
+  const responseCount = dataValue(record, 'response_count');
+  const areaValues = arrayDataValues(dataValue(record, 'areas'));
+  if (
+    dataValue(record, 'status') !== 'completed'
+    || dataValue(record, 'report_schema_version') !== 'health-check-prototype-v1'
+    || dataValue(record, 'template_version') !== 'squad-health-v1'
+    || !isSafeName(squadName)
+    || !isIsoDate(measurementDate)
+    || typeof responseCount !== 'number'
+    || !Number.isSafeInteger(responseCount)
+    || responseCount < 1
+    || !areaValues
+    || areaValues.length !== SQUAD_HEALTH_TEMPLATE_V1.areas.length
+  ) return null;
+
+  const areas = [];
+  for (let areaIndex = 0; areaIndex < SQUAD_HEALTH_TEMPLATE_V1.areas.length; areaIndex += 1) {
+    const expectedArea = SQUAD_HEALTH_TEMPLATE_V1.areas[areaIndex];
+    const areaRecord = exactRecord(areaValues[areaIndex], [
+      'area_key', 'sequence', 'title', 'average', 'questions',
+    ]);
+    if (!areaRecord) return null;
+    const average = dataValue(areaRecord, 'average');
+    const questionValues = arrayDataValues(dataValue(areaRecord, 'questions'));
+    if (
+      dataValue(areaRecord, 'area_key') !== expectedArea.key
+      || dataValue(areaRecord, 'sequence') !== areaIndex + 1
+      || dataValue(areaRecord, 'title') !== expectedArea.title
+      || !isAverage(average)
+      || !questionValues
+      || questionValues.length !== expectedArea.questions.length
+    ) return null;
+
+    const questions = [];
+    for (let questionIndex = 0; questionIndex < expectedArea.questions.length; questionIndex += 1) {
+      const expectedQuestion = expectedArea.questions[questionIndex];
+      const questionRecord = exactRecord(questionValues[questionIndex], [
+        'question_key', 'sequence', 'text', 'average',
+      ]);
+      if (!questionRecord) return null;
+      const questionAverage = dataValue(questionRecord, 'average');
+      if (
+        dataValue(questionRecord, 'question_key') !== expectedQuestion.key
+        || dataValue(questionRecord, 'sequence') !== expectedQuestion.sequence
+        || dataValue(questionRecord, 'text') !== expectedQuestion.text
+        || !isAverage(questionAverage)
+      ) return null;
+      questions.push({
+        questionKey: expectedQuestion.key,
+        sequence: expectedQuestion.sequence,
+        text: expectedQuestion.text,
+        average: questionAverage,
+      });
+    }
+    areas.push({
+      areaKey: expectedArea.key,
+      sequence: areaIndex + 1,
+      title: expectedArea.title,
+      average,
+      questions,
+    });
+  }
+
+  return {
+    status: 'completed',
+    reportSchemaVersion: 'health-check-prototype-v1',
+    squadName,
+    measurementDate,
+    templateVersion: 'squad-health-v1',
+    responseCount,
+    areas,
+  };
+}
+
+function isAverage(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 1 && value <= 7;
 }
 
 export function parseHealthCheckDownloadStatus(

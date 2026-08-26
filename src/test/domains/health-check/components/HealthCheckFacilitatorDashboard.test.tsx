@@ -24,11 +24,9 @@ function renderDashboard(
     progressRows: mixedRows,
     actionLoading: false,
     error: null,
-    deliveryStatus: null,
     onRemoveInProgress: vi.fn(),
     onFinalize: vi.fn(),
     onAbort: vi.fn(),
-    onDownload: vi.fn(),
     ...overrides,
   };
 
@@ -142,49 +140,6 @@ describe('HealthCheckFacilitatorDashboard', () => {
     expect(screen.getByRole('main')).not.toContainElement(loadingStatus);
   });
 
-  it.each([
-    ['awaiting_materialization', 'Rapport klargjøres…'],
-    ['processing', 'Rapport klargjøres…'],
-    ['ready', 'Rapport klar for nedlasting'],
-    ['failed', 'Rapporten kunne ikke klargjøres'],
-    ['expired', 'Nedlastingsvinduet er utløpt'],
-  ] as const)('viser generisk leveringsstatus for %s og låser alle mutasjoner', async (deliveryStatus, label) => {
-    const user = userEvent.setup();
-    const onRemoveInProgress = vi.fn();
-    const onFinalize = vi.fn();
-    const onAbort = vi.fn();
-    renderDashboard({ deliveryStatus, onRemoveInProgress, onFinalize, onAbort });
-
-    expect(screen.getByRole('status', { name: 'Rapportstatus' })).toHaveTextContent(label);
-    expect(screen.getByRole('button', { name: 'Fullfør helsesjekk' })).toBeDisabled();
-    expect(screen.queryByRole('button', { name: 'Avbryt helsesjekk' })).not.toBeInTheDocument();
-    const remove = screen.getByRole('button', { name: 'Fjern David' });
-    expect(remove).toBeDisabled();
-    await user.click(remove);
-    expect(onRemoveInProgress).not.toHaveBeenCalled();
-    expect(onFinalize).not.toHaveBeenCalled();
-    expect(onAbort).not.toHaveBeenCalled();
-  });
-
-  it('laster ned klar rapport, forklarer automatisk retry og skjuler handling ved utløp', async () => {
-    const user = userEvent.setup();
-    const onDownload = vi.fn();
-    const { rerender, props } = renderDashboard({ deliveryStatus: 'ready', onDownload });
-    expect(screen.getByText(/blir liggende på enheten/)).toBeVisible();
-    await user.click(screen.getByRole('button', { name: 'Last ned resultat' }));
-    expect(onDownload).toHaveBeenCalledOnce();
-
-    rerender(<HealthCheckFacilitatorDashboard {...props} deliveryStatus="failed" />);
-    expect(screen.getByText(/nytt forsøk skjer automatisk/i)).toBeVisible();
-    expect(screen.queryByRole('button', { name: 'Last ned resultat' })).not.toBeInTheDocument();
-
-    rerender(<HealthCheckFacilitatorDashboard {...props} deliveryStatus="expired" />);
-    expect(screen.getByText(
-      'Nedlastingsvinduet er utløpt, og rapporten kan ikke lenger lastes ned. Pakken slettes av planlagt opprydding.',
-    )).toBeVisible();
-    expect(screen.queryByRole('button', { name: 'Last ned resultat' })).not.toBeInTheDocument();
-  });
-
   it('har minst 44 px berøringsmål og synlige fokusstiler', () => {
     renderDashboard();
 
@@ -204,7 +159,7 @@ describe('HealthCheckFacilitatorDashboard', () => {
     expect(container.querySelector('script')).toBeNull();
   });
 
-  it('bruker ikke Storage eller console ved fjerning eller eksplisitt nedlasting', async () => {
+  it('bruker ikke Storage eller console ved fjerning', async () => {
     const user = userEvent.setup();
     const storageSpies = [
       vi.spyOn(Storage.prototype, 'getItem'),
@@ -216,11 +171,9 @@ describe('HealthCheckFacilitatorDashboard', () => {
       vi.spyOn(console, 'warn').mockImplementation(() => undefined),
       vi.spyOn(console, 'error').mockImplementation(() => undefined),
     ];
-    const { rerender, props } = renderDashboard({ confirmRemove: () => true });
+    renderDashboard({ confirmRemove: () => true });
 
     await user.click(screen.getByRole('button', { name: 'Fjern David' }));
-    rerender(<HealthCheckFacilitatorDashboard {...props} deliveryStatus="ready" />);
-    await user.click(screen.getByRole('button', { name: 'Last ned resultat' }));
 
     storageSpies.forEach((spy) => expect(spy).not.toHaveBeenCalled());
     consoleSpies.forEach((spy) => expect(spy).not.toHaveBeenCalled());

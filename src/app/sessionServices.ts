@@ -1,4 +1,6 @@
 import { createEstimationService } from '../domains/estimation/services/estimationService';
+import { createHealthCheckService } from '../domains/health-check/services/healthCheckService';
+import type { HealthCheckRpcPort } from '../domains/health-check/services/types';
 import {
   clearCreateRequestId,
   clearSessionPointer,
@@ -18,6 +20,16 @@ const rpc: RpcClient = {
   },
 };
 
+const healthRpc: HealthCheckRpcPort = {
+  rpc: async (name, args) => {
+    const result = await supabase.rpc(name, args);
+    return {
+      data: result.data,
+      error: result.error ? { code: result.error.code } : null,
+    };
+  },
+};
+
 const storage = {
   readSessionPointer,
   writeSessionPointer,
@@ -30,6 +42,7 @@ const storage = {
 export const sessionServices = {
   roomMembership: createRoomMembershipService({ rpc, ensureIdentity: ensureAnonymousIdentity, storage }),
   estimation: createEstimationService({ rpc, ensureIdentity: ensureAnonymousIdentity }),
+  health: createHealthCheckService({ rpc: healthRpc, ensureIdentity: ensureAnonymousIdentity }),
   storage,
   realtime: supabase,
 };

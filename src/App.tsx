@@ -35,8 +35,14 @@ const VotePage = lazyWithRetry(() =>
 const DashboardPage = lazyWithRetry(() =>
   import('./pages/Dashboard').then((m) => ({ default: m.DashboardPage })),
 );
-const HealthCheckPreviewPage = lazyWithRetry(() =>
-  import('./pages/HealthCheckPreview').then((m) => ({ default: m.HealthCheckPreviewPage })),
+const FacilitatorActivityChooserPage = lazyWithRetry(() =>
+  import('./pages/FacilitatorActivityChooser').then((m) => ({ default: m.FacilitatorActivityChooserPage })),
+);
+const HealthCheckDashboardPage = lazyWithRetry(() =>
+  import('./pages/HealthCheckDashboard').then((m) => ({ default: m.HealthCheckDashboardPage })),
+);
+const HealthCheckRespondPage = lazyWithRetry(() =>
+  import('./pages/HealthCheckRespond').then((m) => ({ default: m.HealthCheckRespondPage })),
 );
 const SessionRoutes = lazyWithRetry(() =>
   import('./app/SessionRoutes').then((m) => ({ default: m.SessionRoutes })),
@@ -63,12 +69,15 @@ export function App() {
       <ChunkErrorBoundary>
         <Suspense fallback={<LoadingScreen />}>
           <Routes>
-            <Route path="/health-check-preview" element={<HealthCheckPreviewPage />} />
             <Route element={<SessionRoutes />}>
               <Route path="/" element={<LandingPage />} />
+              <Route path="/facilitator" element={<FacilitatorActivityChooserPage />} />
               <Route path={resolveRoomRoute('estimation', 'join')} element={<DeltagerJoinPage />} />
+              <Route path={resolveRoomRoute('health_check', 'join')} element={<DeltagerJoinPage />} />
               <Route path={resolveRoomRoute('estimation', 'participant')} element={<VotePage />} />
               <Route path={resolveRoomRoute('estimation', 'facilitator')} element={<DashboardPage />} />
+              <Route path={resolveRoomRoute('health_check', 'facilitator')} element={<HealthCheckDashboardPage />} />
+              <Route path={resolveRoomRoute('health_check', 'participant')} element={<HealthCheckRespondPage />} />
               <Route path="/join" element={<Navigate to={resolveRoomRoute('estimation', 'join')} replace />} />
               <Route path="/vote" element={<Navigate to={resolveRoomRoute('estimation', 'participant')} replace />} />
               <Route path="/dashboard" element={<Navigate to={resolveRoomRoute('estimation', 'facilitator')} replace />} />

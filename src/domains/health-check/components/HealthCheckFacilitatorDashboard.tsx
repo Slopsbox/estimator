@@ -1,5 +1,4 @@
 import { NavyPageLayout } from '../../../components/NavyPageLayout';
-import type { ReactNode } from 'react';
 
 export type HealthCheckProgressStatus = 'in_progress' | 'completed';
 
@@ -10,38 +9,20 @@ export interface HealthCheckProgressRow {
   readonly isOnline?: boolean;
 }
 
-export type HealthCheckDeliveryStatus =
-  | 'awaiting_materialization'
-  | 'processing'
-  | 'ready'
-  | 'failed'
-  | 'expired';
-
 export interface HealthCheckFacilitatorDashboardProps {
   readonly squadName: string;
   readonly progressRows: readonly HealthCheckProgressRow[];
   readonly minimum?: number;
   readonly actionLoading: boolean;
+  readonly finalizeLocked?: boolean;
   readonly error: string | null | undefined;
-  readonly deliveryStatus?: HealthCheckDeliveryStatus | null;
-  readonly readyDescription?: string;
-  readonly readyContent?: ReactNode;
   readonly onRemoveInProgress: (memberId: string) => void;
   readonly onFinalize: () => void;
   readonly onAbort: () => void;
-  readonly onDownload: () => void;
   readonly confirmRemove?: (row: HealthCheckProgressRow) => boolean;
   readonly confirmAbort?: () => boolean;
   readonly confirmFinalize?: () => boolean;
 }
-
-const deliveryStatusLabels: Record<HealthCheckDeliveryStatus, string> = {
-  awaiting_materialization: 'Rapport klargjøres…',
-  processing: 'Rapport klargjøres…',
-  ready: 'Rapport klar for nedlasting',
-  failed: 'Rapporten kunne ikke klargjøres',
-  expired: 'Nedlastingsvinduet er utløpt',
-};
 
 const actionClassName =
   'min-h-11 touch-manipulation rounded-md px-4 font-bold transition-colors hover:opacity-90 focus-visible:ring-2 focus-visible:ring-[var(--color-navy-700)] focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-40';
@@ -51,26 +32,22 @@ export function HealthCheckFacilitatorDashboard({
   progressRows,
   minimum = 1,
   actionLoading,
+  finalizeLocked = false,
   error,
-  deliveryStatus = null,
-  readyDescription = 'ZIP-filen kan lastes ned i inntil 15 minutter. Den nedlastede filen blir liggende på enheten og er ditt ansvar.',
-  readyContent,
   onRemoveInProgress,
   onFinalize,
   onAbort,
-  onDownload,
   confirmRemove = (row) => window.confirm(`Vil du fjerne ${row.displayName} fra helsesjekken?`),
   confirmAbort = () => window.confirm('Vil du avbryte helsesjekken?'),
   confirmFinalize = () => window.confirm('Vil du avslutte helsesjekken og klargjøre rapporten? Dette kan ikke angres.'),
 }: HealthCheckFacilitatorDashboardProps) {
   const enforcedMinimum = Math.max(1, minimum);
   const completedCount = progressRows.filter((row) => row.status === 'completed').length;
-  const deliveryLocked = deliveryStatus !== null;
   const canFinalize =
     progressRows.length >= enforcedMinimum
     && completedCount === progressRows.length
     && !actionLoading
-    && !deliveryLocked;
+    && !finalizeLocked;
 
   return (
     <NavyPageLayout
@@ -102,44 +79,6 @@ export function HealthCheckFacilitatorDashboard({
             {error}
           </p>
         ) : null}
-
-        {deliveryStatus ? (
-          <section
-            role="status"
-            aria-label="Rapportstatus"
-            className="rounded-xl border bg-white p-5 text-center"
-            style={{ borderColor: 'var(--color-neutral-200)' }}
-          >
-            <h2 className="text-lg font-bold" style={{ color: 'var(--color-navy-900)' }}>
-              {deliveryStatusLabels[deliveryStatus]}
-            </h2>
-            <p
-              className="mt-1 text-sm"
-              style={{ color: deliveryStatus === 'failed' ? 'var(--color-danger)' : 'var(--color-neutral-500)' }}
-            >
-              {deliveryStatus === 'ready'
-                ? readyDescription
-                : deliveryStatus === 'expired'
-                  ? 'Nedlastingsvinduet er utløpt, og rapporten kan ikke lenger lastes ned. Pakken slettes av planlagt opprydding.'
-                : deliveryStatus === 'failed'
-                    ? 'Rapporten kunne ikke klargjøres. Et nytt forsøk skjer automatisk så lenge rommets lagringstid gjelder.'
-                    : 'Ingen handlinger er tilgjengelige mens rapporten behandles.'}
-            </p>
-            {deliveryStatus === 'ready' ? (
-              <button
-                type="button"
-                disabled={actionLoading}
-                onClick={onDownload}
-                className={`${actionClassName} mt-4 text-white`}
-                style={{ background: 'var(--color-red-600)' }}
-              >
-                Last ned resultat
-              </button>
-            ) : null}
-          </section>
-        ) : null}
-
-        {deliveryStatus === 'ready' ? readyContent : null}
 
         <section
           aria-labelledby="progress-heading"
@@ -189,7 +128,7 @@ export function HealthCheckFacilitatorDashboard({
                     {row.status === 'in_progress' ? (
                       <button
                         type="button"
-                        disabled={actionLoading || deliveryLocked}
+                        disabled={actionLoading}
                         aria-label={`Fjern ${row.displayName}`}
                         onClick={() => {
                           if (confirmRemove(row)) onRemoveInProgress(row.memberId);
@@ -221,21 +160,19 @@ export function HealthCheckFacilitatorDashboard({
             className={`${actionClassName} w-full text-white`}
             style={{ background: 'var(--color-red-600)' }}
           >
-            {actionLoading ? 'Fullfører…' : 'Fullfør helsesjekk'}
+            {finalizeLocked ? 'Fullføring må avklares' : actionLoading ? 'Fullfører…' : 'Fullfør helsesjekk'}
           </button>
-          {!deliveryLocked ? (
-            <button
-              type="button"
-              disabled={actionLoading}
-              onClick={() => {
-                if (confirmAbort()) onAbort();
-              }}
-              className={`${actionClassName} w-full border bg-transparent text-sm`}
-              style={{ borderColor: 'var(--color-neutral-300)', color: 'var(--color-danger)' }}
-            >
-              Avbryt helsesjekk
-            </button>
-          ) : null}
+          <button
+            type="button"
+            disabled={actionLoading || finalizeLocked}
+            onClick={() => {
+              if (confirmAbort()) onAbort();
+            }}
+            className={`${actionClassName} w-full border bg-transparent text-sm`}
+            style={{ borderColor: 'var(--color-neutral-300)', color: 'var(--color-danger)' }}
+          >
+            Avbryt helsesjekk
+          </button>
         </div>
       </main>
     </NavyPageLayout>

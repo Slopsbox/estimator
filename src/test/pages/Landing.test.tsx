@@ -63,22 +63,17 @@ describe('LandingPage', () => {
     expect(screen.getByRole('button', { name: /fasilitator/i })).toBeDisabled();
   });
 
-  it('viser prototypeinngangen som eksakt preview-lenke før verifisering', () => {
+  it('viser ingen separat prototypeinngang', () => {
     render(
       <MemoryRouter>
         <LandingPage />
       </MemoryRouter>,
     );
 
-    expect(screen.getByText('Squad Health – prototype')).toBeVisible();
-    expect(screen.getByText('Bruker kun demodata')).toBeVisible();
+    expect(screen.queryByText(/Squad Health.*prototype/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /prototype/i })).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Deltager' })).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Fasilitator' })).toBeDisabled();
-
-    expect(screen.getByRole('link', { name: 'Åpne Squad Health – prototype' })).toHaveAttribute(
-      'href',
-      '/health-check-preview',
-    );
   });
 
   it('viser veiledningstest om verifisering', () => {
@@ -108,7 +103,7 @@ describe('LandingPage', () => {
     });
   });
 
-  it('navigerer til kanoniske estimation-ruter', async () => {
+  it('navigerer deltaker til felles join og fasilitator til aktivitetsvelger', async () => {
     const user = userEvent.setup();
     mockFetch({ success: true });
     render(<MemoryRouter><LandingPage /></MemoryRouter>);
@@ -117,7 +112,7 @@ describe('LandingPage', () => {
     expect(mockNavigate).toHaveBeenLastCalledWith('/estimation/join');
 
     await user.click(screen.getByRole('button', { name: /fasilitator/i }));
-    expect(mockNavigate).toHaveBeenLastCalledWith('/estimation/dashboard');
+    expect(mockNavigate).toHaveBeenLastCalledWith('/facilitator');
   });
 
   it('viser feilmelding og beholder disabled når server avviser tokenet', async () => {

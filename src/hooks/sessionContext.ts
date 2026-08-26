@@ -18,6 +18,7 @@ export interface SessionContextValue {
   restoreStatus: RestoreStatus;
   connectionState: ConnectionState;
   createSession: (name: string) => Promise<Session | null>;
+  createHealthCheck: (name: string, squadName: string, measurementDate: string) => Promise<Session | null>;
   joinSession: (code: string, name: string) => Promise<JoinResult>;
   startSession: () => Promise<MutationResult>;
   revealVotes: () => Promise<MutationResult>;
@@ -28,6 +29,7 @@ export interface SessionContextValue {
   castVote: (vote: VoteSubmission) => Promise<MutationResult>;
   retractVote: () => Promise<MutationResult>;
   retryRestore: () => Promise<void>;
+  clearLocalSession: () => void;
   /** Clears only the local app pointer. It does not leave the database membership. */
   logout: () => void;
 }

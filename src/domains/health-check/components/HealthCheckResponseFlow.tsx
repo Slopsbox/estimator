@@ -40,7 +40,7 @@ export function HealthCheckResponseFlow({
   const [announcementSequence, setAnnouncementSequence] = useState(0);
   const headingRef = useRef<HTMLHeadingElement>(null);
   const unsavedChangesCallbackRef = useRef(onUnsavedChangesChange);
-  const previousScreenRef = useRef(`${state.view}:${state.currentQuestionIndex}`);
+  const previousScreenRef = useRef('');
   const questions = flattenHealthCheckQuestions(template);
   const question = questions[state.currentQuestionIndex];
   const area = template.areas.find((candidate) =>

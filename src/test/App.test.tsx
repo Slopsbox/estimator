@@ -13,9 +13,9 @@ vi.mock('../pages/Landing', () => ({ LandingPage: () => <div>Landing route</div>
 vi.mock('../pages/DeltagerJoin', () => ({ DeltagerJoinPage: () => <div>Join route</div> }));
 vi.mock('../pages/Vote', () => ({ VotePage: () => <div>Vote route</div> }));
 vi.mock('../pages/Dashboard', () => ({ DashboardPage: () => <div>Dashboard route</div> }));
-vi.mock('../pages/HealthCheckPreview', () => ({
-  HealthCheckPreviewPage: () => <div>Health Check preview route</div>,
-}));
+vi.mock('../pages/FacilitatorActivityChooser', () => ({ FacilitatorActivityChooserPage: () => <div>Chooser route</div> }));
+vi.mock('../pages/HealthCheckDashboard', () => ({ HealthCheckDashboardPage: () => <div>Health dashboard route</div> }));
+vi.mock('../pages/HealthCheckRespond', () => ({ HealthCheckRespondPage: () => <div>Health respond route</div> }));
 
 import { App } from '../App';
 
@@ -35,6 +35,9 @@ describe('App', () => {
     ['/estimation/join', 'Join route'],
     ['/estimation/vote', 'Vote route'],
     ['/estimation/dashboard', 'Dashboard route'],
+    ['/facilitator', 'Chooser route'],
+    ['/health-check/dashboard', 'Health dashboard route'],
+    ['/health-check/respond', 'Health respond route'],
   ])('registrerer kanonisk route %s', async (path, content) => {
     window.history.pushState({}, '', path);
     render(<App />);
@@ -55,27 +58,18 @@ describe('App', () => {
     expect(window.history.length).toBe(historyLengthBeforeRedirect);
   });
 
-  it('viser den isolerte Health Check preview-ruten', async () => {
-    window.history.pushState({}, '', '/health-check-preview');
-    render(<App />);
-
-    expect(await screen.findByText('Health Check preview route')).toBeInTheDocument();
-    expect(providerSpy).not.toHaveBeenCalled();
-  });
-
-  it('holder sessionlaget ute av preview-bundlen', async () => {
+  it('lazy-laster sessionlaget', async () => {
     const appSource = await import('../App?raw').then((module) => module.default);
 
     expect(appSource).not.toContain("from './hooks/SessionProvider'");
     expect(appSource).toContain("import('./app/SessionRoutes')");
   });
 
-  it('eksponerer ingen andre Health Check-ruter i router-konfigurasjonen', async () => {
+  it('fjerner preview-ruten og eksponerer de autentiserte Health Check-rutene', async () => {
     const appSource = await import('../App?raw').then((module) => module.default);
 
-    expect(appSource).not.toContain("resolveRoomRoute('health_check'");
-    expect(appSource.match(/path="\/health-check[^"]*"/g)).toEqual([
-      'path="/health-check-preview"',
-    ]);
+    expect(appSource).not.toContain('/health-check-preview');
+    expect(appSource).toContain("resolveRoomRoute('health_check', 'facilitator')");
+    expect(appSource).toContain("resolveRoomRoute('health_check', 'participant')");
   });
 });

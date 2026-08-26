@@ -62,6 +62,31 @@ export interface FinalizeHealthCheckResult {
   readonly expiresAt: string;
 }
 
+export interface HealthCheckPrototypeQuestionResult {
+  readonly questionKey: string;
+  readonly sequence: number;
+  readonly text: string;
+  readonly average: number;
+}
+
+export interface HealthCheckPrototypeAreaResult {
+  readonly areaKey: string;
+  readonly sequence: number;
+  readonly title: string;
+  readonly average: number;
+  readonly questions: readonly HealthCheckPrototypeQuestionResult[];
+}
+
+export interface HealthCheckPrototypeResult {
+  readonly status: 'completed';
+  readonly reportSchemaVersion: 'health-check-prototype-v1';
+  readonly squadName: string;
+  readonly measurementDate: string;
+  readonly templateVersion: 'squad-health-v1';
+  readonly responseCount: number;
+  readonly areas: readonly HealthCheckPrototypeAreaResult[];
+}
+
 export interface HealthCheckDownloadStatusResult {
   readonly status: HealthCheckDownloadStatus;
   readonly filename: string | null;
@@ -88,6 +113,9 @@ export interface HealthCheckRpcMap {
     readonly args: { readonly p_room_id: string };
   };
   readonly finalize_health_check: {
+    readonly args: { readonly p_room_id: string };
+  };
+  readonly finalize_health_check_prototype: {
     readonly args: { readonly p_room_id: string };
   };
   readonly get_health_check_download_status: {

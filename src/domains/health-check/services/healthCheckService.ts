@@ -10,6 +10,7 @@ import {
   parseFinalizeHealthCheckResult,
   parseHealthCheckDownloadStatus,
   parseHealthCheckProgress,
+  parseHealthCheckPrototypeResult,
   parseHealthCheckState,
   parseRemoveHealthCheckRespondentResult,
   parseStartHealthCheckResult,
@@ -21,6 +22,7 @@ import type {
   HealthCheckFailureReason,
   HealthCheckDownloadStatusResult,
   HealthCheckProgressRow,
+  HealthCheckPrototypeResult,
   HealthCheckResponseMap,
   HealthCheckResult,
   HealthCheckRpcError,
@@ -49,6 +51,7 @@ export interface HealthCheckService {
   ): Promise<HealthCheckResult<RemoveHealthCheckRespondentResult>>;
   abort(roomId: string): Promise<HealthCheckResult<AbortHealthCheckResult>>;
   finalize(roomId: string): Promise<HealthCheckResult<FinalizeHealthCheckResult>>;
+  finalizePrototype(roomId: string): Promise<HealthCheckResult<HealthCheckPrototypeResult>>;
   getDownloadStatus(jobId: string): Promise<HealthCheckResult<HealthCheckDownloadStatusResult>>;
 }
 
@@ -141,6 +144,11 @@ export function createHealthCheckService({
       'finalize_health_check',
       roomId,
       parseFinalizeHealthCheckResult,
+    ),
+    finalizePrototype: (roomId) => roomCall(
+      'finalize_health_check_prototype',
+      roomId,
+      parseHealthCheckPrototypeResult,
     ),
     async getDownloadStatus(jobId) {
       if (!isUuid(jobId)) return { ok: false, reason: 'domain_conflict' };

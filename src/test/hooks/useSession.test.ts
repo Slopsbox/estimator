@@ -21,7 +21,7 @@ const {
   };
   return {
     roomMocks: {
-      create: vi.fn(), join: vi.fn(), restore: vi.fn(), leave: vi.fn(), persist: vi.fn(),
+      create: vi.fn(), createHealth: vi.fn(), join: vi.fn(), restore: vi.fn(), leave: vi.fn(), persist: vi.fn(),
     },
     estimationMocks: {
       start: vi.fn(), reveal: vi.fn(), next: vi.fn(), end: vi.fn(),
@@ -251,6 +251,25 @@ describe('SessionProvider', () => {
     expect(roomMocks.persist).toHaveBeenCalledWith(snapshot(), { clearCreateRequestId: true });
     expect(localStorage.getItem(CREATE_REQUEST_ID_STORAGE_KEY)).toBeNull();
     expect(result.current.session).toEqual(SESSION);
+  });
+
+  it('createHealthCheck genererer levering, committer health-pointer og rydder request-ID', async () => {
+    const healthSnapshot = snapshot('health_check');
+    roomMocks.createHealth.mockResolvedValueOnce({ ok: true, snapshot: healthSnapshot });
+    vi.spyOn(crypto, 'randomUUID').mockReturnValue('40000000-0000-4000-8000-000000000004');
+    const { result } = renderHook(() => useSession(), { wrapper });
+
+    await act(async () => { await result.current.createHealthCheck('Ola', 'Plattform', '2026-08-26'); });
+
+    expect(roomMocks.createHealth).toHaveBeenCalledWith({
+      name: 'Ola',
+      squadName: 'Plattform',
+      measurementDate: '2026-08-26',
+      requestId: 'request-1',
+      deliveryId: '40000000-0000-4000-8000-000000000004',
+    });
+    expect(roomMocks.persist).toHaveBeenCalledWith(healthSnapshot, { clearCreateRequestId: true });
+    expect(result.current.activityType).toBe('health_check');
   });
 
   it('stale create skriver ikke pointer eller rydder request-ID', async () => {

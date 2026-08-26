@@ -22,6 +22,26 @@ const VOTE = {
   id: 'vote-1', session_id: SESSION.id, participant_id: PARTICIPANT.id, round: 1,
   size: 'm', value: 'gold', created_at: '2026-01-01T00:00:00Z',
 };
+const HEALTH_SESSION = {
+  id: '10000000-0000-4000-8000-000000000001',
+  activity_type: 'health_check',
+  status: 'active',
+  join_code: 'WXYZ',
+  created_at: '2026-08-26T10:00:00Z',
+  phase: 'lobby',
+  template_version: 'squad-health-v1',
+  squad_name: 'Plattform',
+  measurement_date: '2026-08-26',
+  expires_at: '2026-08-27T09:55:00Z',
+};
+const HEALTH_PARTICIPANT = {
+  id: '20000000-0000-4000-8000-000000000002',
+  session_id: HEALTH_SESSION.id,
+  name: 'Ola',
+  role: 'facilitator',
+  joined_at: '2026-08-26T10:00:00Z',
+  left_at: null,
+};
 
 function membership(overrides: Record<string, unknown> = {}) {
   return {
@@ -54,6 +74,54 @@ describe('roomMembershipService', () => {
       p_request_id: 'request-1', p_facilitator_name: 'Ola',
     });
     expect(result).toMatchObject({ ok: true, snapshot: { activityType: 'estimation' } });
+  });
+
+  it('oppretter health-rom med eksakt prototype-RPC og normaliserer snapshot', async () => {
+    rpc.mockResolvedValue({
+      data: { status: 'ok', session: HEALTH_SESSION, participant: HEALTH_PARTICIPANT },
+      error: null,
+    });
+
+    const result = await service.createHealth({
+      name: '  Ola  ',
+      squadName: '  Plattform  ',
+      measurementDate: '2026-08-26',
+      requestId: '30000000-0000-4000-8000-000000000003',
+      deliveryId: '40000000-0000-4000-8000-000000000004',
+    });
+
+    expect(rpc).toHaveBeenCalledWith('create_health_check_room_prototype', {
+      p_facilitator_name: 'Ola',
+      p_squad_name: 'Plattform',
+      p_measurement_date: '2026-08-26',
+      p_request_id: '30000000-0000-4000-8000-000000000003',
+      p_delivery_id: '40000000-0000-4000-8000-000000000004',
+    });
+    expect(result).toMatchObject({
+      ok: true,
+      snapshot: {
+        activityType: 'health_check',
+        session: { id: HEALTH_SESSION.id, started: false, current_round: 1 },
+        localParticipant: { name: 'Ola', role: 'facilitator' },
+        ownVote: null,
+        roundParticipant: null,
+      },
+    });
+  });
+
+  it('avviser health-oppretting med ufullstendig metadata', async () => {
+    rpc.mockResolvedValue({
+      data: { status: 'ok', session: { ...HEALTH_SESSION, squad_name: undefined }, participant: HEALTH_PARTICIPANT },
+      error: null,
+    });
+
+    await expect(service.createHealth({
+      name: 'Ola',
+      squadName: 'Plattform',
+      measurementDate: '2026-08-26',
+      requestId: '30000000-0000-4000-8000-000000000003',
+      deliveryId: '40000000-0000-4000-8000-000000000004',
+    })).resolves.toEqual({ ok: false, reason: 'malformed' });
   });
 
   it('trimmer og uppercaser join-argumenter', async () => {

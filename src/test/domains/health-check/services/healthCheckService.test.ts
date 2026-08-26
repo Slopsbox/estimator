@@ -30,6 +30,29 @@ const validResponses = (): HealthCheckResponseMap => Object.fromEntries(
   ]),
 ) as HealthCheckResponseMap;
 
+function prototypeReport() {
+  return {
+    status: 'completed',
+    report_schema_version: 'health-check-prototype-v1',
+    squad_name: 'Plattform',
+    measurement_date: '2026-08-26',
+    template_version: 'squad-health-v1',
+    response_count: 3,
+    areas: SQUAD_HEALTH_TEMPLATE_V1.areas.map((area, areaIndex) => ({
+      area_key: area.key,
+      sequence: areaIndex + 1,
+      title: area.title,
+      average: 4.5,
+      questions: area.questions.map((question) => ({
+        question_key: question.key,
+        sequence: question.sequence,
+        text: question.text,
+        average: 4.5,
+      })),
+    })),
+  };
+}
+
 describe('healthCheckService', () => {
   const rpc = vi.fn<HealthCheckRpcPort['rpc']>();
   const ensureIdentity = vi.fn<() => Promise<unknown>>();
@@ -237,6 +260,37 @@ describe('healthCheckService', () => {
       p_room_id: ROOM_ID,
       p_scores: Array.from({ length: 31 }, (_, index) => (index % 7) + 1),
     });
+  });
+
+  it('parses the exact 7-area and 31-question terminal prototype result', async () => {
+    rpc.mockResolvedValue({ data: prototypeReport(), error: null });
+
+    const result = await service.finalizePrototype(ROOM_ID);
+
+    expect(rpc).toHaveBeenCalledWith('finalize_health_check_prototype', { p_room_id: ROOM_ID });
+    expect(result).toMatchObject({
+      ok: true,
+      value: {
+        status: 'completed',
+        reportSchemaVersion: 'health-check-prototype-v1',
+        squadName: 'Plattform',
+        responseCount: 3,
+      },
+    });
+    if (!result.ok) throw new Error('Expected terminal report');
+    expect(result.value.areas).toHaveLength(7);
+    expect(result.value.areas.flatMap((area) => area.questions)).toHaveLength(31);
+  });
+
+  it.each([
+    { response_count: 0 },
+    { areas: prototypeReport().areas.slice(0, 6) },
+    { areas: prototypeReport().areas.map((area, index) => index === 0 ? { ...area, average: 8 } : area) },
+    { areas: prototypeReport().areas.map((area, index) => index === 0 ? { ...area, area_key: 'unknown' } : area) },
+  ])('rejects malformed terminal prototype report %#', async (override) => {
+    rpc.mockResolvedValue({ data: { ...prototypeReport(), ...override }, error: null });
+
+    await expect(service.finalizePrototype(ROOM_ID)).resolves.toEqual({ ok: false, reason: 'malformed' });
   });
 
   it.each([

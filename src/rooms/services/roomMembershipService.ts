@@ -47,6 +47,14 @@ export type RestoreRoomResult = { ok: true; snapshot: RoomMembershipSnapshot }
   | { ok: false; reason: ServiceFailure | 'membership_missing' | 'session_completed' };
 export type LeaveRoomResult = { ok: true } | { ok: false; reason: ServiceFailure };
 
+export interface CreateHealthRoomInput {
+  name: string;
+  squadName: string;
+  measurementDate: string;
+  requestId: string;
+  deliveryId: string;
+}
+
 function isActivityType(value: unknown): value is RoomActivityType {
   return value === 'estimation' || value === 'health_check';
 }
@@ -103,6 +111,54 @@ function parseMembership(value: unknown): RoomMembershipSnapshot | null {
   };
 }
 
+function parseHealthMembership(value: unknown): RoomMembershipSnapshot | null {
+  if (!isRecord(value) || value.status !== 'ok' || !isRecord(value.session)) return null;
+  const healthSession = value.session;
+  const participant = parseParticipant(value.participant);
+  if (
+    healthSession.activity_type !== 'health_check'
+    || typeof healthSession.id !== 'string'
+    || typeof healthSession.status !== 'string'
+    || typeof healthSession.join_code !== 'string'
+    || typeof healthSession.created_at !== 'string'
+    || healthSession.phase !== 'lobby'
+    || healthSession.template_version !== 'squad-health-v1'
+    || typeof healthSession.squad_name !== 'string'
+    || typeof healthSession.measurement_date !== 'string'
+    || typeof healthSession.expires_at !== 'string'
+    || !participant
+    || participant.session_id !== healthSession.id
+    || participant.role !== 'facilitator'
+  ) return null;
+
+  const session: Session = {
+    id: healthSession.id,
+    activity_type: 'health_check',
+    status: healthSession.status,
+    join_code: healthSession.join_code,
+    created_at: healthSession.created_at,
+    current_round: 1,
+    votes_revealed: false,
+    started: false,
+    consensus_streak: 0,
+  };
+  const localParticipant: LocalParticipant = {
+    participantId: participant.id,
+    sessionId: participant.session_id,
+    name: participant.name,
+    role: participant.role,
+  };
+  return {
+    session,
+    participant,
+    localParticipant,
+    pointer: { version: 2, activityType: 'health_check', ...localParticipant },
+    activityType: 'health_check',
+    ownVote: null,
+    roundParticipant: null,
+  };
+}
+
 export function createRoomMembershipService({
   rpc,
   ensureIdentity,
@@ -142,6 +198,19 @@ export function createRoomMembershipService({
       });
       if ('reason' in result) return { ok: false, reason: result.reason };
       const snapshot = parseMembership(result.data);
+      return snapshot ? { ok: true, snapshot } : { ok: false, reason: 'malformed' };
+    },
+
+    async createHealth(input: CreateHealthRoomInput): Promise<CreateRoomResult> {
+      const result = await membershipRpc('create_health_check_room_prototype', {
+        p_request_id: input.requestId,
+        p_facilitator_name: input.name.trim(),
+        p_squad_name: input.squadName.trim(),
+        p_measurement_date: input.measurementDate,
+        p_delivery_id: input.deliveryId,
+      });
+      if ('reason' in result) return { ok: false, reason: result.reason };
+      const snapshot = parseHealthMembership(result.data);
       return snapshot ? { ok: true, snapshot } : { ok: false, reason: 'malformed' };
     },
 

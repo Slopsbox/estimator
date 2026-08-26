@@ -186,6 +186,7 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      abort_health_check: { Args: { p_room_id: string }; Returns: Json }
       cast_vote: {
         Args: { p_round: number; p_session_id: string; p_size: string; p_value: string }
         Returns: Json
@@ -206,15 +207,25 @@ export type Database = {
         Returns: Json
       }
       finalize_health_check_prototype: { Args: { p_room_id: string }; Returns: Json }
+      finalize_health_check: { Args: { p_room_id: string }; Returns: Json }
+      get_health_check_download_status: { Args: { p_job_id: string }; Returns: Json }
+      get_health_check_progress: { Args: { p_room_id: string }; Returns: Json }
+      get_health_check_state: { Args: { p_room_id: string }; Returns: Json }
       get_round_vote_statuses: { Args: { p_round: number; p_session_id: string }; Returns: Json }
       end_session: { Args: { p_session_id: string }; Returns: Json }
       join_session: { Args: { p_join_code: string; p_name: string }; Returns: Json }
       leave_session: { Args: { p_session_id: string }; Returns: Json }
       next_round: { Args: { p_session_id: string }; Returns: Json }
+      remove_health_check_respondent: {
+        Args: { p_member_id: string; p_room_id: string }
+        Returns: Json
+      }
       restore_session: { Args: { p_session_id: string }; Returns: Json }
       retract_vote: { Args: { p_round: number; p_session_id: string }; Returns: Json }
       reveal_votes: { Args: { p_session_id: string }; Returns: Json }
       start_session: { Args: { p_session_id: string }; Returns: Json }
+      start_health_check: { Args: { p_room_id: string }; Returns: Json }
+      submit_health_check: { Args: { p_room_id: string; p_scores: number[] }; Returns: Json }
     }
     Enums: {
       [_ in never]: never
