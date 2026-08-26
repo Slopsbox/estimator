@@ -16,6 +16,7 @@ export function HealthCheckRespondPage() {
   const [stateError, setStateError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [sessionEnded, setSessionEnded] = useState(false);
   const submitInFlightRef = useRef(false);
   const sessionId = session?.id ?? null;
   useSessionPresence(sessionId, localParticipant?.participantId ?? null);
@@ -24,22 +25,28 @@ export function HealthCheckRespondPage() {
     if (!sessionId) return;
     const result = await sessionServices.health.getState(sessionId);
     if (!result.ok) {
+      if (result.reason === 'forbidden') {
+        clearLocalSession();
+        setSessionEnded(true);
+        setStateError(null);
+        return;
+      }
       setStateError('Kunne ikke hente helsesjekken. Prøv igjen.');
       return;
     }
     setStateError(null);
     setHealthState(result.value);
-  }, [sessionId]);
+  }, [clearLocalSession, sessionId]);
 
   useEffect(() => {
     if (sessionId && activityType === 'health_check') queueMicrotask(() => void loadState());
   }, [activityType, loadState, sessionId]);
 
   useEffect(() => {
-    if (healthState?.phase !== 'lobby') return;
+    if (!sessionId || sessionEnded) return;
     const timer = window.setInterval(() => void loadState(), 2000);
     return () => window.clearInterval(timer);
-  }, [healthState?.phase, loadState]);
+  }, [loadState, sessionEnded, sessionId]);
 
   useVisibilityRefetch(() => void loadState());
 
@@ -53,10 +60,11 @@ export function HealthCheckRespondPage() {
   }, [activityType, localParticipant, navigate]);
 
   useEffect(() => {
+    if (sessionEnded) return;
     if ((restoreStatus === 'ready' || restoreStatus === 'invalid') && !session && !localParticipant) {
       navigate(resolveRoomRoute('estimation', 'join'), { replace: true });
     }
-  }, [localParticipant, navigate, restoreStatus, session]);
+  }, [localParticipant, navigate, restoreStatus, session, sessionEnded]);
 
   const handleLeave = async () => {
     const result = await leaveSession();
@@ -81,6 +89,18 @@ export function HealthCheckRespondPage() {
     }
     await loadState();
   };
+
+  if (sessionEnded) {
+    return (
+      <WaitingScreen
+        title="Helsesjekken er avsluttet"
+        message="Fasilitatoren har avsluttet eller avbrutt denne helsesjekken. Svar kan ikke sendes videre."
+        error={null}
+        actionLabel="Til forsiden"
+        onAction={() => navigate('/', { replace: true })}
+      />
+    );
+  }
 
   if (!session || !localParticipant || !healthState) {
     return (

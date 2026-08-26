@@ -1,7 +1,7 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
   getState: vi.fn(),
@@ -34,6 +34,7 @@ const BASE_STATE = {
 
 describe('HealthCheckRespondPage', () => {
   beforeEach(() => vi.clearAllMocks());
+  afterEach(() => vi.useRealTimers());
 
   it('shows a lobby waiting screen and allows leaving before start', async () => {
     const user = userEvent.setup();
@@ -66,5 +67,21 @@ describe('HealthCheckRespondPage', () => {
     const responses = mocks.submit.mock.calls[0][1];
     expect(Object.keys(responses)).toHaveLength(31);
     expect(await screen.findByRole('heading', { name: 'Svarene er registrert' })).toBeVisible();
+  });
+
+  it('stops the response flow when the facilitator aborts the server session', async () => {
+    vi.useFakeTimers();
+    mocks.getState
+      .mockResolvedValueOnce({ ok: true, value: { ...BASE_STATE, phase: 'collecting', respondentState: 'in_progress' } })
+      .mockResolvedValueOnce({ ok: false, reason: 'forbidden' });
+    render(<MemoryRouter><HealthCheckRespondPage /></MemoryRouter>);
+
+    await act(async () => { await Promise.resolve(); });
+    expect(screen.getByText('Spørsmål 1 av 31')).toBeVisible();
+    await act(async () => { await vi.advanceTimersByTimeAsync(2000); });
+
+    expect(screen.getByRole('heading', { name: 'Helsesjekken er avsluttet' })).toBeVisible();
+    expect(screen.queryByText('Spørsmål 1 av 31')).not.toBeInTheDocument();
+    expect(mocks.clearLocalSession).toHaveBeenCalledOnce();
   });
 });
