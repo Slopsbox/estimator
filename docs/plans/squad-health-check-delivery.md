@@ -40,12 +40,21 @@ device er fasilitatorens ansvar.
    respons etter commit kan ikke gjenopprettes, automatisk retry er ikke trygt,
    og UI-advarsel/gating gjenstår. Den fulle worker-/download-stien over er
    fortsatt fremtidig produksjonssti.
+9. Lokal prototypeinngang er autentisert direkte i databasen:
+   `create_health_check_room_prototype` utleder fasilitator fra `auth.uid()`, og
+   felles `join_session` serialiserer mot start på den aktive romraden og støtter
+   bare ikke utløpte health-lobbyer uten service-join. Ingen endpoint eller UI er
+   koblet til. Turnstile er ikke en
+   sikkerhetsgrense, distribuert rate limiting mangler, og firetegnskoden har en
+   kjent brute-force-risiko. Prototypen skal derfor forbli uutplassert.
 
 ## Neste steg
 
 ### Serververifisert inngang
 
 - bind create/join til Turnstile, JWT og distribuert rate limiting
+- behandle Turnstile som misbruksbrems, aldri som autorisasjon eller annen
+  sikkerhetsgrense
 - valider action, hostname og replay i samme operasjon
 - test brute force, replay, feil aktivitetstype og cross-room-angrep
 

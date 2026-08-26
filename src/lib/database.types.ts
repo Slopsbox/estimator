@@ -195,6 +195,17 @@ export type Database = {
         Args: { p_facilitator_name: string; p_request_id: string }
         Returns: Json
       }
+      create_health_check_room_prototype: {
+        Args: {
+          p_delivery_id: string
+          p_facilitator_name: string
+          p_measurement_date: string
+          p_request_id: string
+          p_squad_name: string
+        }
+        Returns: Json
+      }
+      finalize_health_check_prototype: { Args: { p_room_id: string }; Returns: Json }
       get_round_vote_statuses: { Args: { p_round: number; p_session_id: string }; Returns: Json }
       end_session: { Args: { p_session_id: string }; Returns: Json }
       join_session: { Args: { p_join_code: string; p_name: string }; Returns: Json }

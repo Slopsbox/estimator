@@ -3,7 +3,7 @@
 begin;
 
 create extension if not exists pgtap with schema extensions;
-select extensions.plan(38);
+select extensions.plan(40);
 
 insert into auth.users (id, aud, role, created_at, updated_at)
 values
@@ -133,6 +133,20 @@ select extensions.ok(
   and not has_function_privilege('authenticated', 'public.create_health_check_room(uuid,uuid,text,text,date,uuid)', 'EXECUTE')
   and not has_function_privilege('anon', 'public.create_health_check_room(uuid,uuid,text,text,date,uuid)', 'EXECUTE'),
   'health room creation is executable only by service_role among API roles'
+);
+select extensions.ok(
+  has_function_privilege('authenticated', 'public.create_health_check_room_prototype(uuid,text,text,date,uuid)', 'EXECUTE')
+  and not has_function_privilege('anon', 'public.create_health_check_room_prototype(uuid,text,text,date,uuid)', 'EXECUTE')
+  and not has_function_privilege('service_role', 'public.create_health_check_room_prototype(uuid,text,text,date,uuid)', 'EXECUTE')
+  and not exists (
+    select 1
+      from pg_proc p,
+           lateral aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) acl
+     where p.oid = 'public.create_health_check_room_prototype(uuid,text,text,date,uuid)'::regprocedure
+       and acl.grantee = 0
+       and acl.privilege_type = 'EXECUTE'
+  ),
+  'prototype room creation is executable only by authenticated among API roles and PUBLIC'
 );
 select extensions.ok(
   has_function_privilege('service_role', 'public.join_health_check_room(uuid,text,text)', 'EXECUTE')
@@ -292,6 +306,7 @@ select extensions.ok(
   (select bool_and(prosecdef and proconfig @> array['search_path=pg_catalog'])
    from pg_proc where oid in (
        'public.create_health_check_room(uuid,uuid,text,text,date,uuid)'::regprocedure,
+       'public.create_health_check_room_prototype(uuid,text,text,date,uuid)'::regprocedure,
       'public.join_health_check_room(uuid,text,text)'::regprocedure,
      'public.get_health_check_state(uuid)'::regprocedure,
      'public.start_health_check(uuid)'::regprocedure,
@@ -311,6 +326,10 @@ select extensions.ok(
       'private.cleanup_expired_health_checks()'::regprocedure
    )),
   'all health RPCs are security definer with fixed pg_catalog search path'
+);
+select extensions.ok(
+  to_regprocedure('public.create_health_check_room_prototype(uuid,uuid,text,text,date,uuid)') is null,
+  'prototype creation has no signature that accepts a spoofable user id'
 );
 select extensions.ok(
   not has_table_privilege('authenticated', 'public.health_check_question_aggregates', 'SELECT')

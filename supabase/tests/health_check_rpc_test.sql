@@ -3,7 +3,7 @@
 begin;
 
 create extension if not exists pgtap with schema extensions;
-select extensions.plan(155);
+select extensions.plan(162);
 
 insert into auth.users (id, aud, role, created_at, updated_at)
 values
@@ -46,10 +46,11 @@ create temporary table health_report_snapshot (
 grant all on health_report_snapshot to service_role;
 grant usage, select on sequence health_report_snapshot_line_number_seq to service_role;
 
-set local role service_role;
+set local role authenticated;
+select set_config('request.jwt.claim.role', 'authenticated', true);
+select set_config('request.jwt.claim.sub', '61000000-0000-0000-0000-000000000001', true);
 insert into health_test_context (key, value)
-select 'create_result', public.create_health_check_room(
-  '61000000-0000-0000-0000-000000000001',
+select 'create_result', public.create_health_check_room_prototype(
   '62000000-0000-0000-0000-000000000001',
   '  Ada  ',
   '  Squad Sikker  ',
@@ -57,6 +58,15 @@ select 'create_result', public.create_health_check_room(
   '63000000-0000-0000-0000-000000000001'
 )::text;
 reset role;
+
+select extensions.is(
+  (select facilitator_user_id::text
+     from public.sessions
+    where id = (select value::jsonb->'session'->>'id'
+                  from health_test_context where key = 'create_result')),
+  '61000000-0000-0000-0000-000000000001',
+  'authenticated prototype creation derives facilitator identity from auth.uid'
+);
 
 set local role authenticated;
 select set_config('request.jwt.claim.role', 'authenticated', true);
@@ -69,6 +79,45 @@ select extensions.throws_ok(
   )$$,
   '42501', null,
   'authenticated cannot directly execute service-only room creation'
+);
+reset role;
+
+set local role anon;
+select set_config('request.jwt.claim.role', 'anon', true);
+select extensions.throws_ok(
+  $$select public.create_health_check_room_prototype(
+    '62000000-0000-0000-0000-000000000097',
+    'Anon', 'Denied', date '2026-08-26',
+    '63000000-0000-0000-0000-000000000097'
+  )$$,
+  '42501', null,
+  'anon cannot execute authenticated prototype room creation'
+);
+reset role;
+
+set local role service_role;
+select extensions.throws_ok(
+  $$select public.create_health_check_room_prototype(
+    '62000000-0000-0000-0000-000000000098',
+    'Service', 'Denied', date '2026-08-26',
+    '63000000-0000-0000-0000-000000000098'
+  )$$,
+  '42501', null,
+  'service_role cannot execute authenticated prototype room creation'
+);
+reset role;
+
+set local role authenticated;
+select set_config('request.jwt.claim.role', 'authenticated', true);
+select set_config('request.jwt.claim.sub', '', true);
+select extensions.throws_ok(
+  $$select public.create_health_check_room_prototype(
+    '62000000-0000-0000-0000-000000000096',
+    'Missing identity', 'Denied', date '2026-08-26',
+    '63000000-0000-0000-0000-000000000096'
+  )$$,
+  '28000', 'authentication_required',
+  'prototype room creation requires auth.uid even with authenticated database role'
 );
 reset role;
 
@@ -139,14 +188,16 @@ select extensions.ok(
 );
 select extensions.ok(
   to_regprocedure('public.create_health_check_room(uuid,uuid,text,text,date,uuid)') is not null
+  and to_regprocedure('public.create_health_check_room_prototype(uuid,text,text,date,uuid)') is not null
+  and to_regprocedure('public.create_health_check_room_prototype(uuid,uuid,text,text,date,uuid)') is null
   and to_regprocedure('public.create_health_check_room(uuid,uuid,text,text,date,uuid,bytea,bytea,integer)') is null,
-  'room creation accepts no address or encryption envelope arguments'
+  'prototype creation exposes no caller-supplied user or delivery-envelope arguments'
 );
 
 select extensions.is(
   (select value::jsonb->>'status' from health_test_context where key = 'create_result'),
   'ok',
-  'service_role creates a health room atomically'
+  'authenticated prototype entry creates a health room atomically'
 );
 select extensions.ok(
   not ((select value::jsonb from health_test_context where key = 'create_result')::text ~ 'encrypted|nonce|request_id|facilitator_user_id'),
@@ -268,11 +319,18 @@ reset role;
 
 set local role authenticated;
 select set_config('request.jwt.claim.role', 'authenticated', true);
-select set_config('request.jwt.claim.sub', '61000000-0000-0000-0000-000000000008', true);
+select set_config('request.jwt.claim.sub', '61000000-0000-0000-0000-000000000001', true);
 select extensions.is(
   public.join_session((select value from health_test_context where key = 'join_code'), 'Bypass')->>'status',
-  'session_not_found',
-  'common authenticated join hides a lobby health room'
+  'role_conflict',
+  'common authenticated join preserves the facilitator role conflict'
+);
+select extensions.ok(
+  (select regexp_replace(lower(prosrc), '\s+', ' ', 'g')
+            like '%select s.* into v_session from public.sessions s where s.join_code = v_code and s.status = ''active'' and s.activity_type in (''estimation'', ''health_check'') for update; if not found then%if v_session.activity_type = ''health_check'' then select * into v_health from public.health_check_sessions where room_id = v_session.id; v_health_found := found; v_checked_at := clock_timestamp(); if not v_health_found or v_health.phase <> ''lobby'' or v_health.expires_at <= v_checked_at then%if v_session.facilitator_user_id = v_user_id%'
+     from pg_proc
+    where oid = 'public.join_session(text,text)'::regprocedure),
+  'common join locks the active allowed room before fresh health validity and role checks'
 );
 
 select set_config('request.jwt.claim.sub', '61000000-0000-0000-0000-000000000002', true);
@@ -297,7 +355,30 @@ select extensions.is(
   'collecting',
   'facilitator starts and freezes the health check'
 );
+select set_config('request.jwt.claim.sub', '61000000-0000-0000-0000-000000000008', true);
+select extensions.is(
+  public.join_session(
+    (select value from health_test_context where key = 'join_code'),
+    'Too late through common join'
+  )->>'status',
+  'session_not_found',
+  'common authenticated join cannot add a member after health collection starts'
+);
 reset role;
+select extensions.ok(
+  not exists (
+    select 1 from public.participants
+     where session_id = (select value::uuid from health_test_context where key = 'room_id')
+       and user_id = '61000000-0000-0000-0000-000000000008'
+  ) and not exists (
+    select 1
+      from public.health_check_respondents r
+      join public.participants p on p.id = r.member_id
+     where r.room_id = (select value::uuid from health_test_context where key = 'room_id')
+       and p.user_id = '61000000-0000-0000-0000-000000000008'
+  ),
+  'rejected post-start common join creates no membership or respondent state'
+);
 select extensions.is(
   (select count(*)::text from public.health_check_respondents where room_id = (select value::uuid from health_test_context where key = 'room_id')),
   '6',

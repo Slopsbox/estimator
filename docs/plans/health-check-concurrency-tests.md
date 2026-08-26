@@ -95,6 +95,156 @@ Start Session B's RPC and verify it waits in `pg_stat_activity`, then run A's RP
 and commit A. The shared room-row lock gives an explicit commit order without an
 unpaired advisory lock. Repeat each case with A/B reversed.
 
+## Join versus start
+
+Use a fresh health lobby and record `room_id`, `join_code`, a new authenticated
+`member_user_id`, and the facilitator identity in both terminals. Both RPCs lock
+the same `sessions` row. For each ordering, run the prerequisite fixture through
+line 52 but omit the `start_health_check` block at lines 53-57. Add a fresh
+`auth.users` identity that is not one of the six existing members, and use it as
+`member_user_id`. Do not call the service-only join wrapper for that identity.
+
+For join-first, Session A calls the common authenticated
+`join_session(join_code, name)` and remains open after it returns `ok`. Session B
+calls `start_health_check(room_id)` as facilitator and must wait. Commit A, then
+commit B. Expected: the new participant is included in the frozen respondent
+cohort exactly once.
+
+```sql
+-- Session A: member, before starting Session B
+begin;
+set local role authenticated;
+select set_config('request.jwt.claim.role', 'authenticated', true);
+select set_config('request.jwt.claim.sub', :'member_user_id', true);
+set local lock_timeout = '10s';
+select public.join_session(:'join_code', 'Join-first member');
+
+-- Session B: facilitator; this must wait until A commits
+begin;
+set local role authenticated;
+select set_config('request.jwt.claim.role', 'authenticated', true);
+select set_config('request.jwt.claim.sub', :'facilitator_user_id', true);
+set local lock_timeout = '10s';
+select public.start_health_check(:'room_id'::uuid);
+
+-- Session A, then Session B
+commit;
+commit;
+```
+
+For start-first, Session A calls `start_health_check(room_id)` and remains open
+after it returns `collecting`. Session B calls the common authenticated join and
+must wait. Commit A. Expected in B: `session_not_found`; commit B and verify that
+no participant or respondent exists for `member_user_id`. These two orders prove
+that a join cannot commit after collection has started.
+
+```sql
+-- Session A: facilitator, before starting Session B
+begin;
+set local role authenticated;
+select set_config('request.jwt.claim.role', 'authenticated', true);
+select set_config('request.jwt.claim.sub', :'facilitator_user_id', true);
+set local lock_timeout = '10s';
+select public.start_health_check(:'room_id'::uuid);
+
+-- Session B: member; this must wait and then return session_not_found
+begin;
+set local role authenticated;
+select set_config('request.jwt.claim.role', 'authenticated', true);
+select set_config('request.jwt.claim.sub', :'member_user_id', true);
+set local lock_timeout = '10s';
+select public.join_session(:'join_code', 'Start-first member');
+
+-- Session A, then Session B
+commit;
+commit;
+```
+
+```sql
+select
+  (select count(*) from public.participants
+    where session_id = :'room_id'::uuid
+      and user_id = :'member_user_id'::uuid) participants,
+  (select count(*) from public.health_check_respondents r
+    join public.participants p on p.id = r.member_id
+   where r.room_id = :'room_id'::uuid
+     and p.user_id = :'member_user_id'::uuid) respondents;
+```
+
+Expected join-first: `1, 1`. Expected start-first: `0, 0`.
+
+## Join waiting across expiry
+
+Use a fresh lobby whose exact `expires_at` is about 20 seconds in the future.
+Create it as described for `Join versus start`, then move only its expiry under
+the privileged fixture role and record the resulting exact value in both
+terminals:
+
+```sql
+set session_replication_role = replica;
+update public.health_check_sessions
+   set expires_at = clock_timestamp() + interval '20 seconds'
+ where room_id = :'room_id'::uuid
+returning expires_at \gset
+set session_replication_role = origin;
+\echo :expires_at
+```
+
+For lock-first, Session A locks its `sessions` row before expiry. Start the common
+authenticated join in Session B and confirm it waits. Keep A open until after
+the recorded expiry, then commit A. Expected in B: `session_not_found`, because
+join takes a fresh `clock_timestamp()` only after obtaining the room lock; commit
+B and verify no membership was created.
+
+```sql
+-- Session A: acquire before expiry and keep open
+begin;
+set local lock_timeout = '10s';
+select 1 from public.sessions where id = :'room_id'::uuid for update;
+
+-- Session B: authenticated member; this must wait
+begin;
+set local role authenticated;
+select set_config('request.jwt.claim.role', 'authenticated', true);
+select set_config('request.jwt.claim.sub', :'member_user_id', true);
+set local lock_timeout = '30s';
+select public.join_session(:'join_code', 'Post-expiry member');
+
+-- Session A, after B is waiting
+select pg_sleep_until(:'expires_at'::timestamptz + interval '1 second');
+commit;
+
+-- Session B, after session_not_found
+commit;
+```
+
+For the reverse order, use another fresh lobby. Let Session B call and commit the
+common join before expiry while Session A is waiting for the room lock. A may
+then hold that lock across expiry and commit. Expected: join returned `ok` and
+exactly one participant exists. Together the two commit orders prove that the
+lock acquisition order, followed by the fresh post-lock expiry check, determines
+the result without admitting a join after expiry.
+
+```sql
+-- Session B: authenticated member, before expiry; keep open after ok
+begin;
+set local role authenticated;
+select set_config('request.jwt.claim.role', 'authenticated', true);
+select set_config('request.jwt.claim.sub', :'member_user_id', true);
+set local lock_timeout = '10s';
+select public.join_session(:'join_code', 'Pre-expiry member');
+
+-- Session A: this lock must wait for B
+begin;
+set local lock_timeout = '30s';
+select 1 from public.sessions where id = :'room_id'::uuid for update;
+
+-- Session B commits before expiry; A may then hold the lock across expiry
+commit;
+select pg_sleep_until(:'expires_at'::timestamptz + interval '1 second');
+commit;
+```
+
 ## Submit versus remove
 
 Session A locks the room, then submits as the member:
@@ -171,14 +321,15 @@ testen.
 
 ## Remove versus finalize
 
-Use six respondents: five completed and one in progress. Race removal of the
-in-progress member against finalize. Remove-first allows finalization of five;
+Use a fresh two-respondent fixture: one completed and one in progress. Race
+removal of the in-progress member against finalize. Remove-first allows
+finalization of the one completed respondent;
 finalize-first gets `health_check_incomplete`. A job exists only for a fully
-completed cohort of at least five.
+completed cohort of at least one.
 
 ## Double finalize
 
-With five completed respondents, race two finalize calls. Both must return the
+With a fully completed non-empty cohort, race two finalize calls. Both must return the
 same delivery ID and `awaiting_materialization`; exactly one job may exist:
 
 ```sql

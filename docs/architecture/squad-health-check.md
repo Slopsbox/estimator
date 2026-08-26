@@ -34,7 +34,7 @@ fra et eksakt snitt. Produktet lover aldri anonymitet.
 
 ```text
 React PWA
-├── HealthCheckGateway: serververifisert create/join
+├── HealthCheckGateway: fremtidig serververifisert produksjons-create/join
 ├── HealthCheckService: start/submit/progress/remove/finalize/status
 ├── HealthCheckDownloadGateway: requestDownload(jobId), ingen pakkelagring
 └── HealthCheckDeliveryReceipt: separat operasjonell TTL-metadata
@@ -119,6 +119,16 @@ terminal og hele raden er uforanderlig, bortsett fra eksakte no-op updates.
 ### Prototype: terminalt resultat i RPC-responsen
 
 Den lokale, ikke utrullede prototypen bruker
+`create_health_check_room_prototype(request_id, facilitator_name, squad_name,
+measurement_date, delivery_id)` som autentisert inngang. Wrapperen utleder
+fasilitator-ID fra `auth.uid()` og eksponerer ikke et bruker-ID-argument.
+`join_session(code, name)` tar tilsvarende den autentiserte identiteten fra JWT,
+låser den aktive felles romraden før den leser health-fasen, og kan bare åpne et
+ikke utløpt health-rom som fortsatt er i lobbyfasen. Begge er
+prototypekontrakter direkte mot databasen; det finnes ingen server-endpoint eller
+UI-kobling i denne slicen.
+
+Terminalflyten bruker
 `finalize_health_check_prototype(room_id)` i stedet for rapportjobb-stien. RPC-en
 krever den aktive, autentiserte fasilitatoren, låser den felles `sessions`-raden
 før andre romdata, validerer komplett kohort, katalog og alle 31 aggregater, og
@@ -242,8 +252,12 @@ ignoreres og forsøkes slettet senest ved `expiresAt`.
 
 ## Sikkerhet og personvern
 
-- Create/join skal gå gjennom servergate med JWT, Turnstile og distribuert rate
-  limiting. Firetegnskode er aldri autorisasjon alene.
+- Prototype-create/join krever JWT i databasen, men har foreløpig ingen
+  distribuert rate limiting. Turnstile i en senere UI er bare en misbruksbrems,
+  ikke en sikkerhetsgrense. Firetegnskoden kan brute-forces og er aldri
+  autorisasjon alene; dette er en kjent prototypebegrensning som blokkerer pilot.
+- Produksjonsinngang skal gå gjennom servergate med JWT, verifisert Turnstile og
+  distribuert rate limiting.
 - Alle domeneoperasjoner verifiserer aktivitetstype og medlemskap/eierbinding.
 - Ingen klientrolle har direkte tabelltilgang til health-data eller report jobs.
 - `service_role` har ingen direkte tilgang til katalog, health-session eller

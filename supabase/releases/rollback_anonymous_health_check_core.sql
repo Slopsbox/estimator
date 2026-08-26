@@ -70,6 +70,7 @@ drop function public.submit_health_check(uuid, smallint[]);
 drop function public.start_health_check(uuid);
 drop function public.get_health_check_state(uuid);
 drop function public.join_health_check_room(uuid, text, text);
+drop function public.create_health_check_room_prototype(uuid, text, text, date, uuid);
 drop function public.create_health_check_room(uuid, uuid, text, text, date, uuid);
 
 -- Restore the common membership RPC definitions from

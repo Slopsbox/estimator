@@ -4,7 +4,7 @@
 begin;
 
 create extension if not exists pgtap with schema extensions;
-select extensions.plan(69);
+select extensions.plan(72);
 
 insert into auth.users (id, aud, role, email, created_at, updated_at)
 values
@@ -522,19 +522,20 @@ select extensions.is(
        and user_id = '10000000-0000-0000-0000-000000000006'
        and role = 'participant'
   ),
-  '0',
-  'common join_session never inserts a member into a health room'
+  '1',
+  'common join_session inserts the authenticated member into a lobby health room'
 );
 
 select extensions.is(
-  (select value::jsonb->>'status' from session_test_context where key = 'health_join_result'),
-  'session_not_found',
-  'common join_session hides health rooms behind the server gate'
+  (select value::jsonb->'session'->>'activity_type' from session_test_context where key = 'health_join_result'),
+  'health_check',
+  'common join_session returns the health activity type'
 );
 
-select extensions.ok(
-  not ((select value::jsonb from session_test_context where key = 'health_join_result') ? 'session'),
-  'denied common health join returns no room metadata'
+select extensions.is(
+  (select value::jsonb->'round_participant' from session_test_context where key = 'health_join_result'),
+  'null'::jsonb,
+  'common health join returns no estimation round membership'
 );
 
 set local role authenticated;
@@ -546,13 +547,13 @@ reset role;
 
 select extensions.is(
   (select value::jsonb->'session'->>'activity_type' from session_test_context where key = 'health_restore_result'),
-  null,
-  'restore_session returns no health room without gated membership'
+  'health_check',
+  'restore_session returns the joined health room'
 );
 
 select extensions.ok(
-  (select value::jsonb->>'status' from session_test_context where key = 'health_restore_result') = 'membership_missing',
-  'health restore fails closed without service-created membership'
+  (select value::jsonb->>'status' from session_test_context where key = 'health_restore_result') = 'ok',
+  'health restore accepts common authenticated membership'
 );
 
 insert into public.sessions (
@@ -583,20 +584,74 @@ select set_config('request.jwt.claim.role', 'authenticated', true);
 select set_config('request.jwt.claim.sub', '10000000-0000-0000-0000-000000000006', true);
 select extensions.is(
   public.leave_session('50000000-0000-0000-0000-000000000001')->>'status',
-  'membership_missing',
-  'leave_session reveals no ungated health membership'
+  'ok',
+  'leave_session deactivates common authenticated health membership'
 );
 
 select extensions.is(
   public.join_session('HLTH', 'Health Member returned')->>'status',
-  'session_not_found',
-  'common join remains closed on repeated health attempts'
+  'ok',
+  'common join reactivates health membership'
 );
 reset role;
 
-set local role service_role;
-select public.join_health_check_room(
-  '10000000-0000-0000-0000-000000000006', 'HLTH', 'Health Member'
+insert into public.sessions (
+  id, status, current_round, join_code, votes_revealed, started,
+  consensus_streak, facilitator_user_id, create_request_id, activity_type
+) values
+  (
+    '50000000-0000-0000-0000-000000000020', 'active', 1, 'CLSD', false, false,
+    0, '10000000-0000-0000-0000-000000000002',
+    '50000000-0000-0000-0000-000000000021', 'health_check'
+  ),
+  (
+    '50000000-0000-0000-0000-000000000030', 'active', 1, 'EXPD', false, false,
+    0, '10000000-0000-0000-0000-000000000004',
+    '50000000-0000-0000-0000-000000000031', 'health_check'
+  );
+insert into public.health_check_sessions (
+  room_id, delivery_id, template_version, phase, squad_name, measurement_date, expires_at
+) values
+  (
+    '50000000-0000-0000-0000-000000000020',
+    '50000000-0000-0000-0000-000000000022',
+    'squad-health-v1', 'collecting', 'Closed fixture', current_date,
+    statement_timestamp() + interval '23 hours 55 minutes'
+  ),
+  (
+    '50000000-0000-0000-0000-000000000030',
+    '50000000-0000-0000-0000-000000000032',
+    'squad-health-v1', 'lobby', 'Expired fixture', current_date,
+    statement_timestamp() + interval '23 hours 55 minutes'
+  );
+set local session_replication_role = replica;
+update public.health_check_sessions
+   set expires_at = statement_timestamp() - interval '1 minute'
+ where room_id = '50000000-0000-0000-0000-000000000030';
+set local session_replication_role = origin;
+
+set local role authenticated;
+select set_config('request.jwt.claim.role', 'authenticated', true);
+select set_config('request.jwt.claim.sub', '10000000-0000-0000-0000-000000000006', true);
+select extensions.is(
+  public.join_session('CLSD', 'Health Member')->>'status',
+  'session_not_found',
+  'common join hides a health room after the lobby closes'
+);
+select extensions.is(
+  public.join_session('EXPD', 'Health Member')->>'status',
+  'session_not_found',
+  'common join hides an expired lobby health room'
+);
+reset role;
+
+set local role authenticated;
+select set_config('request.jwt.claim.role', 'authenticated', true);
+select set_config('request.jwt.claim.sub', '10000000-0000-0000-0000-000000000004', true);
+select extensions.is(
+  public.join_session('EXPD', 'Expired health owner')->>'status',
+  'session_not_found',
+  'common join hides an expired health lobby from its facilitator'
 );
 reset role;
 

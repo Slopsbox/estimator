@@ -709,6 +709,36 @@ begin
 end;
 $function$;
 
+create function public.create_health_check_room_prototype(
+  p_request_id uuid,
+  p_facilitator_name text,
+  p_squad_name text,
+  p_measurement_date date,
+  p_delivery_id uuid
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = pg_catalog
+as $function$
+declare
+  v_user_id uuid := auth.uid();
+begin
+  if v_user_id is null then
+    raise exception 'authentication_required' using errcode = '28000';
+  end if;
+
+  return public.create_health_check_room(
+    v_user_id,
+    p_request_id,
+    p_facilitator_name,
+    p_squad_name,
+    p_measurement_date,
+    p_delivery_id
+  );
+end;
+$function$;
+
 create function public.join_health_check_room(
   p_user_id uuid,
   p_join_code text,
@@ -786,6 +816,9 @@ declare
   v_code text := upper(btrim(p_join_code));
   v_name text := btrim(p_name);
   v_session public.sessions%rowtype;
+  v_health public.health_check_sessions%rowtype;
+  v_health_found boolean;
+  v_checked_at timestamptz;
   v_participant public.participants%rowtype;
   v_round_participant public.round_participants%rowtype;
 begin
@@ -803,31 +836,33 @@ begin
     from public.sessions s
    where s.join_code = v_code
      and s.status = 'active'
-     and s.activity_type = 'estimation'
-     and s.facilitator_user_id is distinct from v_user_id
-     and not exists (
-       select 1 from public.participants p
-        where p.session_id = s.id and p.user_id = v_user_id and p.role = 'facilitator'
-     )
+     and s.activity_type in ('estimation', 'health_check')
    for update;
 
   if not found then
-    if exists (
-      select 1 from public.sessions s
-       where s.join_code = v_code
-         and s.status = 'active'
-         and s.activity_type = 'estimation'
-         and (
-           s.facilitator_user_id = v_user_id
-           or exists (
-             select 1 from public.participants p
-              where p.session_id = s.id and p.user_id = v_user_id and p.role = 'facilitator'
-           )
-         )
-    ) then
-      return jsonb_build_object('status', 'role_conflict');
-    end if;
     return jsonb_build_object('status', 'session_not_found');
+  end if;
+
+  if v_session.activity_type = 'health_check' then
+    select * into v_health
+      from public.health_check_sessions
+     where room_id = v_session.id;
+    v_health_found := found;
+    v_checked_at := clock_timestamp();
+    if not v_health_found
+       or v_health.phase <> 'lobby'
+       or v_health.expires_at <= v_checked_at then
+      return jsonb_build_object('status', 'session_not_found');
+    end if;
+  end if;
+
+  if v_session.facilitator_user_id = v_user_id or exists (
+    select 1 from public.participants p
+     where p.session_id = v_session.id
+       and p.user_id = v_user_id
+       and p.role = 'facilitator'
+  ) then
+    return jsonb_build_object('status', 'role_conflict');
   end if;
 
   insert into public.participants (session_id, name, role, user_id, left_at)
@@ -836,17 +871,20 @@ begin
   do update set name = excluded.name, left_at = null
   returning * into v_participant;
 
-  if v_session.started and not v_session.votes_revealed then
+  if v_session.activity_type = 'estimation'
+     and v_session.started and not v_session.votes_revealed then
     insert into public.round_participants (session_id, round, participant_id)
     values (v_session.id, v_session.current_round, v_participant.id)
     on conflict do nothing;
   end if;
 
-  select * into v_round_participant
-    from public.round_participants
-   where session_id = v_session.id
-     and round = v_session.current_round
-     and participant_id = v_participant.id;
+  if v_session.activity_type = 'estimation' then
+    select * into v_round_participant
+      from public.round_participants
+     where session_id = v_session.id
+       and round = v_session.current_round
+       and participant_id = v_participant.id;
+  end if;
 
   return jsonb_build_object(
     'status', 'ok',
@@ -2193,6 +2231,7 @@ revoke execute on function private.get_health_check_download_package(uuid, uuid)
 revoke execute on function private.is_session_member(uuid) from public, anon, authenticated;
 revoke execute on function private.can_access_presence_topic(text) from public, anon, authenticated;
 revoke execute on function public.create_health_check_room(uuid, uuid, text, text, date, uuid) from public, anon, authenticated;
+revoke execute on function public.create_health_check_room_prototype(uuid, text, text, date, uuid) from public, anon, authenticated, service_role;
 revoke execute on function public.join_health_check_room(uuid, text, text) from public, anon, authenticated;
 revoke execute on function public.get_health_check_state(uuid) from public, anon;
 revoke execute on function public.start_health_check(uuid) from public, anon;
@@ -2214,6 +2253,7 @@ grant execute on function private.get_health_check_download_package(uuid, uuid) 
 grant execute on function private.is_session_member(uuid) to authenticated;
 grant execute on function private.can_access_presence_topic(text) to authenticated;
 grant execute on function public.create_health_check_room(uuid, uuid, text, text, date, uuid) to service_role;
+grant execute on function public.create_health_check_room_prototype(uuid, text, text, date, uuid) to authenticated;
 grant execute on function public.join_health_check_room(uuid, text, text) to service_role;
 grant execute on function public.get_health_check_state(uuid) to authenticated;
 grant execute on function public.start_health_check(uuid) to authenticated;
