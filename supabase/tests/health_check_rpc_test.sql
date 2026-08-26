@@ -3,20 +3,20 @@
 begin;
 
 create extension if not exists pgtap with schema extensions;
-select extensions.plan(115);
+select extensions.plan(111);
 
-insert into auth.users (id, aud, role, email, created_at, updated_at)
+insert into auth.users (id, aud, role, created_at, updated_at)
 values
-  ('61000000-0000-0000-0000-000000000001', 'authenticated', 'authenticated', 'health-fac@test.invalid', now(), now()),
-  ('61000000-0000-0000-0000-000000000002', 'authenticated', 'authenticated', 'health-a@test.invalid', now(), now()),
-  ('61000000-0000-0000-0000-000000000003', 'authenticated', 'authenticated', 'health-b@test.invalid', now(), now()),
-  ('61000000-0000-0000-0000-000000000004', 'authenticated', 'authenticated', 'health-c@test.invalid', now(), now()),
-  ('61000000-0000-0000-0000-000000000005', 'authenticated', 'authenticated', 'health-d@test.invalid', now(), now()),
-  ('61000000-0000-0000-0000-000000000006', 'authenticated', 'authenticated', 'health-e@test.invalid', now(), now()),
-  ('61000000-0000-0000-0000-000000000007', 'authenticated', 'authenticated', 'health-f@test.invalid', now(), now()),
-  ('61000000-0000-0000-0000-000000000008', 'authenticated', 'authenticated', 'health-outsider@test.invalid', now(), now()),
-  ('61000000-0000-0000-0000-000000000009', 'authenticated', 'authenticated', 'abort-fac@test.invalid', now(), now()),
-  ('61000000-0000-0000-0000-000000000010', 'authenticated', 'authenticated', 'cleanup-fac@test.invalid', now(), now());
+  ('61000000-0000-0000-0000-000000000001', 'authenticated', 'authenticated', now(), now()),
+  ('61000000-0000-0000-0000-000000000002', 'authenticated', 'authenticated', now(), now()),
+  ('61000000-0000-0000-0000-000000000003', 'authenticated', 'authenticated', now(), now()),
+  ('61000000-0000-0000-0000-000000000004', 'authenticated', 'authenticated', now(), now()),
+  ('61000000-0000-0000-0000-000000000005', 'authenticated', 'authenticated', now(), now()),
+  ('61000000-0000-0000-0000-000000000006', 'authenticated', 'authenticated', now(), now()),
+  ('61000000-0000-0000-0000-000000000007', 'authenticated', 'authenticated', now(), now()),
+  ('61000000-0000-0000-0000-000000000008', 'authenticated', 'authenticated', now(), now()),
+  ('61000000-0000-0000-0000-000000000009', 'authenticated', 'authenticated', now(), now()),
+  ('61000000-0000-0000-0000-000000000010', 'authenticated', 'authenticated', now(), now());
 
 create temporary table health_test_context (key text primary key, value text not null);
 grant all on health_test_context to service_role, authenticated;
@@ -29,10 +29,7 @@ select 'create_result', public.create_health_check_room(
   '  Ada  ',
   '  Squad Sikker  ',
   date '2026-08-26',
-  '63000000-0000-0000-0000-000000000001',
-  decode(repeat('ab', 32), 'hex'),
-  decode(repeat('01', 12), 'hex'),
-  1
+  '63000000-0000-0000-0000-000000000001'
 )::text;
 reset role;
 
@@ -43,8 +40,7 @@ select extensions.throws_ok(
     '61000000-0000-0000-0000-000000000001',
     '62000000-0000-0000-0000-000000000099',
     'Ada', 'Denied', date '2026-08-26',
-    '63000000-0000-0000-0000-000000000099',
-    decode(repeat('12', 32), 'hex'), decode(repeat('05', 12), 'hex'), 1
+    '63000000-0000-0000-0000-000000000099'
   )$$,
   '42501', null,
   'authenticated cannot directly execute service-only room creation'
@@ -103,6 +99,24 @@ select extensions.ok(
   ),
   'no raw response or answer table exists'
 );
+select extensions.ok(
+  not exists (
+    select 1 from information_schema.columns
+     where table_schema = 'public'
+       and table_name in ('health_check_sessions', 'health_check_report_jobs')
+       and column_name in (
+         'encrypted_facilitator_email', 'email_nonce', 'email_key_version',
+         'encrypted_recipient', 'recipient_nonce', 'provider_message_id',
+         'encrypted_pdf', 'encrypted_csv'
+       )
+  ),
+  'health schema has no address or separate artifact columns'
+);
+select extensions.ok(
+  to_regprocedure('public.create_health_check_room(uuid,uuid,text,text,date,uuid)') is not null
+  and to_regprocedure('public.create_health_check_room(uuid,uuid,text,text,date,uuid,bytea,bytea,integer)') is null,
+  'room creation accepts no address or encryption envelope arguments'
+);
 
 select extensions.is(
   (select value::jsonb->>'status' from health_test_context where key = 'create_result'),
@@ -135,12 +149,11 @@ insert into public.sessions (
 select extensions.throws_ok(
   $$insert into public.health_check_sessions (
       room_id, delivery_id, template_version, squad_name, measurement_date,
-      encrypted_facilitator_email, email_nonce, email_key_version, expires_at
+       expires_at
     ) values (
       '64000000-0000-0000-0000-000000000001',
       '64000000-0000-0000-0000-000000000003', 'squad-health-v1',
-      'Too long', current_date, decode(repeat('aa', 32), 'hex'),
-      decode(repeat('09', 12), 'hex'), 1,
+       'Too long', current_date,
       statement_timestamp() + interval '23 hours 55 minutes 1 second'
     )$$,
   '22023', 'invalid_health_check_expiry',
@@ -154,8 +167,7 @@ select extensions.is(
     '61000000-0000-0000-0000-000000000001',
     '62000000-0000-0000-0000-000000000001',
     'Ignored', 'Ignored', date '2026-08-27',
-    '63000000-0000-0000-0000-000000000099',
-    decode(repeat('cd', 32), 'hex'), decode(repeat('02', 12), 'hex'), 2
+    '63000000-0000-0000-0000-000000000099'
   )->'session'->>'id',
   (select value from health_test_context where key = 'room_id'),
   'same facilitator and request id return the existing room snapshot'
@@ -165,8 +177,7 @@ select extensions.is(
     '61000000-0000-0000-0000-000000000001',
     '62000000-0000-0000-0000-000000000099',
     'Ada', 'Other squad', date '2026-08-27',
-    '63000000-0000-0000-0000-000000000099',
-    decode(repeat('cd', 32), 'hex'), decode(repeat('02', 12), 'hex'), 2
+    '63000000-0000-0000-0000-000000000099'
   )->>'status',
   'active_session_exists',
   'a conflicting active facilitator room is explicit and does not weaken the quota'
@@ -246,8 +257,8 @@ select extensions.is(
   'active member can retrieve safe lobby state'
 );
 select extensions.ok(
-  not (public.get_health_check_state((select value::uuid from health_test_context where key = 'room_id'))::text ~ 'email|aggregate|score|user_id'),
-  'member state excludes email, aggregates, scores and auth ids'
+  not (public.get_health_check_state((select value::uuid from health_test_context where key = 'room_id'))::text ~ 'aggregate|score|user_id'),
+  'member state excludes aggregates, scores and auth ids'
 );
 select extensions.throws_ok(
   format('select public.start_health_check(%L::uuid)', (select value from health_test_context where key = 'room_id')),
@@ -430,450 +441,311 @@ $complete_remaining$;
 select set_config('request.jwt.claim.sub', '61000000-0000-0000-0000-000000000001', true);
 select extensions.is(
   public.finalize_health_check((select value::uuid from health_test_context where key = 'room_id'))->>'status',
-  'delivery_pending',
+  'download_pending',
   'fully completed cohort of five finalizes successfully'
 );
 reset role;
 select extensions.results_eq(
-  format('select status, attempts, source_room_id, aad_room_id from public.health_check_report_jobs where id = %L::uuid', '63000000-0000-0000-0000-000000000001'),
-  format('values (%L::text, 0::integer, %L::uuid, %L::uuid)', 'awaiting_materialization', (select value from health_test_context where key = 'room_id'), (select value from health_test_context where key = 'room_id')),
-  'finalize creates an awaiting-materialization durable outbox job with stable AAD room'
+  format('select status, attempts, source_room_id, aad_room_id, facilitator_user_id from public.health_check_report_jobs where id = %L::uuid', '63000000-0000-0000-0000-000000000001'),
+  format('values (%L::text, 0::integer, %L::uuid, %L::uuid, %L::uuid)', 'awaiting_materialization', (select value from health_test_context where key = 'room_id'), (select value from health_test_context where key = 'room_id'), '61000000-0000-0000-0000-000000000001'),
+  'finalize creates an awaiting-materialization job bound to its facilitator and AAD room'
 );
 select extensions.ok(
-  (select encrypted_recipient = decode(repeat('ab', 32), 'hex')
-          and recipient_nonce = decode(repeat('01', 12), 'hex')
-          and encrypted_report_snapshot is null and snapshot_nonce is null
+  (select encrypted_package is null and package_nonce is null
+          and encryption_key_version is null and sanitized_filename is null
      from public.health_check_report_jobs
     where id = '63000000-0000-0000-0000-000000000001'),
-  'finalize copies the encrypted recipient envelope but does not claim a snapshot exists'
+  'finalize never claims a download package exists before materialization'
 );
 select extensions.throws_ok(
   $$update public.health_check_report_jobs
-       set status = 'pending'
+       set status = 'ready'
      where id = '63000000-0000-0000-0000-000000000001'$$,
   '23514', null,
-  'outbox cannot become pending before encrypted snapshot materialization'
+  'job cannot become ready before encrypted package materialization'
 );
 select extensions.throws_ok(
   $$update public.health_check_report_jobs
        set status = 'processing', claimed_by = 'premature-worker',
-           lease_expires_at = statement_timestamp() + interval '1 minute'
+           lease_expires_at = null
      where id = '63000000-0000-0000-0000-000000000001'$$,
-  '23514', 'health_check_report_job_transition_is_invalid',
-  'awaiting-materialization outbox cannot skip pending'
+  '23514', null,
+  'processing requires a complete claim and lease'
 );
 select extensions.throws_ok(
   $$update public.health_check_report_jobs
-       set claimed_by = 'worker-without-lease'
+       set facilitator_user_id = '61000000-0000-0000-0000-000000000008'
      where id = '63000000-0000-0000-0000-000000000001'$$,
-  '23514', null,
-  'outbox claim and lease nullity must match'
-);
-select extensions.throws_ok(
-  $$update public.health_check_report_jobs
-       set encrypted_report_snapshot = decode(repeat('31', 32), 'hex')
-     where id = '63000000-0000-0000-0000-000000000001'$$,
-  '23514', null,
-  'outbox snapshot ciphertext and nonce must materialize together'
-);
-select extensions.throws_ok(
-  $$update public.health_check_report_jobs
-       set encrypted_pdf = decode(repeat('32', 32), 'hex')
-     where id = '63000000-0000-0000-0000-000000000001'$$,
-  '23514', null,
-  'outbox artifact materialization requires a snapshot'
-);
-select extensions.throws_ok(
-  $$update public.health_check_report_jobs
-       set encrypted_pdf = ''::bytea
-     where id = '63000000-0000-0000-0000-000000000001'$$,
-  '23514', null,
-  'outbox rejects an empty encrypted PDF'
-);
-select extensions.throws_ok(
-  $$update public.health_check_report_jobs
-       set encrypted_csv = ''::bytea
-     where id = '63000000-0000-0000-0000-000000000001'$$,
-  '23514', null,
-  'outbox rejects an empty encrypted CSV'
-);
-select extensions.throws_ok(
-  $$update public.health_check_report_jobs
-       set provider_message_id = 'provider-before-sent'
-     where id = '63000000-0000-0000-0000-000000000001'$$,
-  '23514', null,
-  'provider message id is valid only for sent jobs'
+  '23514', 'health_check_report_job_identity_is_immutable',
+  'authorization binding is immutable'
 );
 select extensions.throws_ok(
   $$update public.health_check_report_jobs
        set aad_room_id = '00000000-0000-0000-0000-000000000001'
      where id = '63000000-0000-0000-0000-000000000001'$$,
   '23514', 'health_check_report_job_identity_is_immutable',
-  'outbox AAD room cannot diverge from source and delivery identity'
+  'AAD room is immutable'
 );
-select extensions.throws_ok(
-  $$update public.health_check_report_jobs
-       set id = '00000000-0000-0000-0000-000000000002'
-     where id = '63000000-0000-0000-0000-000000000001'$$,
-  '23514', 'health_check_report_job_identity_is_immutable',
-  'outbox delivery id is immutable'
-);
-select extensions.throws_ok(
-  $$update public.health_check_report_jobs
-       set source_room_id = '00000000-0000-0000-0000-000000000003'
-     where id = '63000000-0000-0000-0000-000000000001'$$,
-  '23514', 'health_check_report_job_identity_is_immutable',
-  'outbox source room is immutable'
-);
-select extensions.throws_ok(
-  $$update public.health_check_report_jobs
-       set encrypted_recipient = decode(repeat('41', 32), 'hex')
-     where id = '63000000-0000-0000-0000-000000000001'$$,
-  '23514', 'health_check_report_job_identity_is_immutable',
-  'outbox encrypted recipient is immutable'
-);
-select extensions.throws_ok(
-  $$update public.health_check_report_jobs
-       set recipient_nonce = decode(repeat('42', 12), 'hex')
-     where id = '63000000-0000-0000-0000-000000000001'$$,
-  '23514', 'health_check_report_job_identity_is_immutable',
-  'outbox recipient nonce is immutable'
-);
-select extensions.throws_ok(
-  $$update public.health_check_report_jobs
-       set encryption_key_version = 2
-     where id = '63000000-0000-0000-0000-000000000001'$$,
-  '23514', 'health_check_report_job_identity_is_immutable',
-  'outbox encryption key version is immutable'
-);
-select extensions.throws_ok(
-  $$update public.health_check_report_jobs
-       set idempotency_key = 'changed'
-     where id = '63000000-0000-0000-0000-000000000001'$$,
-  '23514', 'health_check_report_job_identity_is_immutable',
-  'outbox idempotency key is immutable'
-);
-select extensions.throws_ok(
-  $$update public.health_check_report_jobs
-       set expires_at = expires_at - interval '1 minute'
-     where id = '63000000-0000-0000-0000-000000000001'$$,
-  '23514', 'health_check_report_job_identity_is_immutable',
-  'outbox expiry must remain equal to source health expiry'
-);
-select extensions.throws_ok(
-  format('delete from public.sessions where id = %L::uuid', (select value from health_test_context where key = 'room_id')),
-  '23503', null,
-  'durable outbox source FK prevents deletion of the live source room'
-);
-select extensions.lives_ok(
-  $$update public.health_check_report_jobs
-       set encrypted_report_snapshot = decode(repeat('33', 32), 'hex'),
-           snapshot_nonce = decode(repeat('07', 12), 'hex')
-     where id = '63000000-0000-0000-0000-000000000001'$$,
-  'outbox snapshot and nonce can materialize exactly once together'
-);
-select extensions.lives_ok(
-  $$update public.health_check_report_jobs
-       set encrypted_pdf = decode(repeat('34', 32), 'hex')
-     where id = '63000000-0000-0000-0000-000000000001'$$,
-  'outbox PDF can materialize independently after the snapshot'
-);
-select extensions.lives_ok(
-  $$update public.health_check_report_jobs
-       set encrypted_csv = decode(repeat('35', 32), 'hex'), status = 'pending'
-     where id = '63000000-0000-0000-0000-000000000001'$$,
-  'fully materialized outbox can transition to pending'
-);
-select extensions.throws_ok(
-  $$update public.health_check_report_jobs
-       set status = 'processing'
-     where id = '63000000-0000-0000-0000-000000000001'$$,
-  '23514', null,
-  'processing jobs require a claim and lease'
-);
-select extensions.throws_ok(
-  $$update public.health_check_report_jobs
-       set status = 'sent'
-     where id = '63000000-0000-0000-0000-000000000001'$$,
-  '23514', null,
-  'sent jobs require a provider message id'
-);
-select extensions.lives_ok(
-  $$update public.health_check_report_jobs
-       set status = 'processing', claimed_by = 'provider-id-test-worker',
-           lease_expires_at = statement_timestamp() + interval '1 minute'
-     where id = '63000000-0000-0000-0000-000000000001'$$,
-  'pending outbox can enter processing with a claim and lease'
-);
-select extensions.throws_ok(
-  $$update public.health_check_report_jobs
-       set status = 'sent', provider_message_id = '   ',
-           claimed_by = null, lease_expires_at = null
-     where id = '63000000-0000-0000-0000-000000000001'$$,
-  '23514', null,
-  'processing outbox requires a nonempty provider message id before sent'
-);
-select extensions.lives_ok(
-  $$update public.health_check_report_jobs
-       set status = 'pending', claimed_by = null, lease_expires_at = null
-     where id = '63000000-0000-0000-0000-000000000001'$$,
-  'processing outbox can return to pending after the provider-id test'
-);
-select extensions.throws_ok(
-  $$update public.health_check_report_jobs
-       set status = 'awaiting_materialization'
-     where id = '63000000-0000-0000-0000-000000000001'$$,
-  '23514', 'health_check_report_job_transition_is_invalid',
-  'pending outbox cannot return to awaiting materialization'
-);
-select extensions.throws_ok(
-  $$update public.health_check_report_jobs
-       set status = 'failed', claimed_by = 'failed-worker',
-           lease_expires_at = statement_timestamp() + interval '1 minute'
-     where id = '63000000-0000-0000-0000-000000000001'$$,
-  '23514', null,
-  'failed jobs cannot retain a claim or lease'
-);
-select extensions.throws_ok(
-  $$update public.health_check_report_jobs
-       set status = 'sent', provider_message_id = 'provider-accepted',
-           claimed_by = 'sent-worker',
-           lease_expires_at = statement_timestamp() + interval '1 minute'
-     where id = '63000000-0000-0000-0000-000000000001'$$,
-  '23514', 'health_check_report_job_transition_is_invalid',
-  'pending outbox cannot skip processing even with a provider id and claim'
-);
-select extensions.throws_ok(
-  $$update public.health_check_report_jobs
-       set encrypted_report_snapshot = decode(repeat('36', 32), 'hex')
-     where id = '63000000-0000-0000-0000-000000000001'$$,
-  '23514', 'health_check_report_job_snapshot_is_immutable',
-  'materialized report snapshot can never be replaced'
-);
-select extensions.throws_ok(
-  $$update public.health_check_report_jobs
-       set encrypted_report_snapshot = null, snapshot_nonce = null
-     where id = '63000000-0000-0000-0000-000000000001'$$,
-  '23514', 'health_check_report_job_snapshot_is_immutable',
-  'materialized report snapshot and nonce can never be cleared'
-);
-select extensions.throws_ok(
-  $$update public.health_check_report_jobs
-       set snapshot_nonce = decode(repeat('08', 12), 'hex')
-     where id = '63000000-0000-0000-0000-000000000001'$$,
-  '23514', 'health_check_report_job_snapshot_is_immutable',
-  'materialized snapshot nonce can never be replaced'
-);
-select extensions.throws_ok(
-  $$update public.health_check_report_jobs
-       set encrypted_pdf = decode(repeat('37', 32), 'hex')
-     where id = '63000000-0000-0000-0000-000000000001'$$,
-  '23514', 'health_check_report_job_artifacts_are_immutable',
-  'materialized PDF can never be replaced'
-);
-select extensions.throws_ok(
-  $$update public.health_check_report_jobs
-       set encrypted_csv = decode(repeat('38', 32), 'hex')
-     where id = '63000000-0000-0000-0000-000000000001'$$,
-  '23514', 'health_check_report_job_artifacts_are_immutable',
-  'materialized CSV can never be replaced'
-);
-select extensions.throws_ok(
-  $$update public.health_check_report_jobs
-       set encrypted_pdf = null
-     where id = '63000000-0000-0000-0000-000000000001'$$,
-  '23514', 'health_check_report_job_artifacts_are_immutable',
-  'materialized PDF can never be cleared'
-);
-select extensions.throws_ok(
-  $$update public.health_check_report_jobs
-       set encrypted_csv = null
-     where id = '63000000-0000-0000-0000-000000000001'$$,
-  '23514', 'health_check_report_job_artifacts_are_immutable',
-  'materialized CSV can never be cleared'
-);
-select extensions.throws_ok(
-  $$update public.health_check_report_jobs
-       set attempts = attempts - 1
-     where id = '63000000-0000-0000-0000-000000000001'$$,
-  '23514', 'health_check_report_job_attempts_cannot_decrease',
-  'outbox attempts can never decrease'
-);
+set local session_replication_role = replica;
+update public.health_check_sessions
+   set expires_at = statement_timestamp() + interval '5 minutes'
+ where room_id = (select value::uuid from health_test_context where key = 'room_id');
 update public.health_check_report_jobs
-   set status = 'failed'
+   set expires_at = statement_timestamp() + interval '5 minutes'
  where id = '63000000-0000-0000-0000-000000000001';
+set local session_replication_role = origin;
 insert into health_test_context (key, value)
-select 'report_expires_at', expires_at::text
-  from public.health_check_report_jobs
- where id = '63000000-0000-0000-0000-000000000001';
-set local session_replication_role = replica;
-update public.health_check_sessions
-   set expires_at = statement_timestamp() - interval '1 minute'
+select 'source_expires_at', expires_at::text
+  from public.health_check_sessions
  where room_id = (select value::uuid from health_test_context where key = 'room_id');
-update public.health_check_report_jobs
-   set expires_at = statement_timestamp() - interval '1 minute'
- where id = '63000000-0000-0000-0000-000000000001';
-set local session_replication_role = origin;
-select extensions.throws_ok(
-  $$update public.health_check_report_jobs
-       set status = 'pending'
-     where id = '63000000-0000-0000-0000-000000000001'$$,
-  '23514', 'health_check_report_job_is_expired',
-  'expired failed outbox cannot be retried'
+set local role service_role;
+select extensions.lives_ok(
+  $$select private.claim_health_check_report_job(
+    '63000000-0000-0000-0000-000000000001', 'report-worker', interval '1 minute'
+  )$$,
+  'awaiting job can be claimed for processing'
 );
-set local session_replication_role = replica;
-update public.health_check_sessions
-   set expires_at = (select value::timestamptz from health_test_context where key = 'report_expires_at')
- where room_id = (select value::uuid from health_test_context where key = 'room_id');
-update public.health_check_report_jobs
-   set expires_at = (select value::timestamptz from health_test_context where key = 'report_expires_at'),
-       status = 'pending'
- where id = '63000000-0000-0000-0000-000000000001';
-set local session_replication_role = origin;
+select extensions.is(
+  private.fail_health_check_report_job(
+    '63000000-0000-0000-0000-000000000001', 'wrong-worker'
+  ),
+  false,
+  'a mismatched worker cannot fail a claimed report job'
+);
+select extensions.results_eq(
+  $$select status, claimed_by, lease_expires_at is not null
+      from public.health_check_report_jobs
+     where id = '63000000-0000-0000-0000-000000000001'$$,
+  $$values ('processing'::text, 'report-worker'::text, true)$$,
+  'a mismatched fail attempt retains processing state and its lease'
+);
+select extensions.is(
+  private.fail_health_check_report_job(
+    '63000000-0000-0000-0000-000000000001', 'report-worker'
+  ),
+  true,
+  'the claiming worker can fail its report job'
+);
+select extensions.results_eq(
+  $$select status, claimed_by, lease_expires_at
+      from public.health_check_report_jobs
+     where id = '63000000-0000-0000-0000-000000000001'$$,
+  $$values ('failed'::text, null::text, null::timestamptz)$$,
+  'failing a report job clears its claim and lease'
+);
+select extensions.is(
+  private.claim_health_check_report_job(
+    '63000000-0000-0000-0000-000000000001', 'report-worker', interval '1 minute'
+  ),
+  true,
+  'a failed report job can be reclaimed while unexpired'
+);
+select extensions.results_eq(
+  $$select status, attempts from public.health_check_report_jobs
+     where id = '63000000-0000-0000-0000-000000000001'$$,
+  $$values ('processing'::text, 2)$$,
+  'reclaim increments attempts monotonically and restores processing state'
+);
+reset role;
 set local role authenticated;
 select set_config('request.jwt.claim.role', 'authenticated', true);
 select set_config('request.jwt.claim.sub', '61000000-0000-0000-0000-000000000001', true);
-select extensions.ok(
-  not (public.finalize_health_check((select value::uuid from health_test_context where key = 'room_id'))::text ~ 'recipient|nonce|encrypted'),
-  'finalize response never returns recipient ciphertext or nonces'
+select extensions.throws_ok(
+  $$select private.claim_health_check_report_job(
+    '63000000-0000-0000-0000-000000000001', 'client-worker', interval '1 minute'
+  )$$,
+  '42501', null,
+  'authenticated cannot execute package claim at runtime'
 );
-select extensions.is(
-  public.finalize_health_check((select value::uuid from health_test_context where key = 'room_id'))->>'job_id',
-  '63000000-0000-0000-0000-000000000001',
-  'repeated finalize returns the existing delivery job idempotently'
+select extensions.throws_ok(
+  $$select private.fail_health_check_report_job(
+    '63000000-0000-0000-0000-000000000001', 'client-worker'
+  )$$,
+  '42501', null,
+  'authenticated cannot execute package failure at runtime'
 );
-select extensions.is(
-  public.finalize_health_check((select value::uuid from health_test_context where key = 'room_id'))->>'job_status',
-  'pending',
-  'repeated finalize returns the actual advanced job status'
+select extensions.throws_ok(
+  $$select private.materialize_health_check_download(
+    '63000000-0000-0000-0000-000000000001', 'report-worker', decode(repeat('ab', 64), 'hex'),
+    decode(repeat('01', 12), 'hex'), 1, 'squad-sikker-2026-08-26.zip'
+  )$$,
+  '42501', null,
+  'authenticated cannot execute package materialization at runtime'
+);
+reset role;
+set local role service_role;
+select extensions.throws_ok(
+  $$select private.materialize_health_check_download(
+    '63000000-0000-0000-0000-000000000001', 'report-worker', ''::bytea,
+    decode(repeat('01', 12), 'hex'), 1, 'squad-sikker-2026-08-26.zip'
+  )$$,
+  '22023', 'invalid_health_check_download_package',
+  'materialization rejects an empty encrypted package atomically'
 );
 reset role;
 select extensions.is(
-  (select count(*)::text from public.health_check_report_jobs where source_room_id = (select value::uuid from health_test_context where key = 'room_id')),
+  (select count(*)::text from public.sessions where id = (select value::uuid from health_test_context where key = 'room_id')),
   '1',
-  'repeated finalize never duplicates the outbox job'
+  'failed materialization retains live room data for retry'
+);
+set local role service_role;
+select extensions.lives_ok(
+  $$select private.materialize_health_check_download(
+    '63000000-0000-0000-0000-000000000001', 'report-worker', decode(repeat('ab', 64), 'hex'),
+    decode(repeat('01', 12), 'hex'), 1, 'squad-sikker-2026-08-26.zip'
+  )$$,
+  'claimed worker atomically materializes the encrypted ZIP'
+);
+reset role;
+select extensions.results_eq(
+  $$select status, source_room_id, octet_length(encrypted_package), octet_length(package_nonce), encryption_key_version, sanitized_filename
+      from public.health_check_report_jobs where id = '63000000-0000-0000-0000-000000000001'$$,
+  $$values ('ready'::text, null::uuid, 64, 12, 1, 'squad-sikker-2026-08-26.zip'::text)$$,
+  'ready job contains one encrypted package and no source relationship'
+);
+select extensions.ok(
+  (select expires_at > materialized_at
+          and expires_at <= materialized_at + interval '15 minutes'
+          and expires_at = (select value::timestamptz from health_test_context where key = 'source_expires_at')
+     from public.health_check_report_jobs where id = '63000000-0000-0000-0000-000000000001'),
+  'ready package expires at the earlier original source expiry near the main TTL'
+);
+select extensions.throws_ok(
+  $$update public.health_check_report_jobs
+       set encrypted_package = decode(repeat('cd', 64), 'hex'),
+           sanitized_filename = 'replacement.zip'
+     where id = '63000000-0000-0000-0000-000000000001'$$,
+  '23514', 'health_check_report_job_ready_is_immutable',
+  'ready package and filename are immutable'
+);
+select extensions.throws_ok(
+  $$update public.health_check_report_jobs
+       set status = 'failed'
+     where id = '63000000-0000-0000-0000-000000000001'$$,
+  '23514', 'health_check_report_job_ready_is_immutable',
+  'ready is terminal'
+);
+select extensions.throws_ok(
+  $$update public.health_check_report_jobs
+       set attempts = attempts + 1, next_attempt_at = statement_timestamp()
+     where id = '63000000-0000-0000-0000-000000000001'$$,
+  '23514', 'health_check_report_job_ready_is_immutable',
+  'ready retry metadata is immutable'
+);
+select extensions.throws_ok(
+  $$update public.health_check_report_jobs
+       set expires_at = expires_at - interval '1 second'
+     where id = '63000000-0000-0000-0000-000000000001'$$,
+  '23514', 'health_check_report_job_ready_is_immutable',
+  'ready expiry is immutable'
 );
 select extensions.lives_ok(
   $$update public.health_check_report_jobs
-       set status = 'processing', attempts = attempts + 1,
-           claimed_by = 'delivery-worker',
-           lease_expires_at = statement_timestamp() + interval '1 minute'
+       set attempts = attempts
      where id = '63000000-0000-0000-0000-000000000001'$$,
-  'pending outbox can be claimed for processing'
+  'ready exact no-op update is allowed'
 );
-select extensions.lives_ok(
-  $$update public.health_check_report_jobs
-       set status = 'sent', provider_message_id = 'provider-accepted',
-           claimed_by = null, lease_expires_at = null
-     where id = '63000000-0000-0000-0000-000000000001'$$,
-  'processing outbox can become sent with a provider id'
+select extensions.results_eq(
+  format($sql$
+    select
+      (select count(*) from public.sessions where id = %1$L::uuid),
+      (select count(*) from public.participants where session_id = %1$L::uuid),
+      (select count(*) from public.health_check_sessions where room_id = %1$L::uuid),
+      (select count(*) from public.health_check_respondents where room_id = %1$L::uuid),
+      (select count(*) from public.health_check_question_aggregates where room_id = %1$L::uuid),
+      (select count(*) from public.health_check_report_jobs
+        where id = '63000000-0000-0000-0000-000000000001' and status = 'ready')
+  $sql$, (select value from health_test_context where key = 'room_id')),
+  $$values (0::bigint, 0::bigint, 0::bigint, 0::bigint, 0::bigint, 1::bigint)$$,
+  'materialization deletes every live row and retains exactly one ready job'
 );
-select extensions.throws_ok(
-  $$update public.health_check_report_jobs
-       set status = 'pending', provider_message_id = null
-     where id = '63000000-0000-0000-0000-000000000001'$$,
-  '23514', 'health_check_report_job_transition_is_invalid',
-  'sent outbox cannot transition back to pending'
-);
-select extensions.throws_ok(
-  $$update public.health_check_report_jobs
-       set provider_message_id = 'provider-replacement'
-     where id = '63000000-0000-0000-0000-000000000001'$$,
-  '23514', 'health_check_report_job_provider_id_is_immutable',
-  'provider message id can never be replaced'
-);
-select extensions.throws_ok(
-  $$update public.health_check_report_jobs
-       set provider_message_id = null
-     where id = '63000000-0000-0000-0000-000000000001'$$,
-  '23514', 'health_check_report_job_provider_id_is_immutable',
-  'provider message id can never be cleared'
-);
-select extensions.throws_ok(
-  $$update public.health_check_report_jobs
-       set attempts = attempts - 1
-     where id = '63000000-0000-0000-0000-000000000001'$$,
-  '23514', 'health_check_report_job_attempts_cannot_decrease',
-  'sent outbox attempts remain monotonic'
-);
-select extensions.throws_ok(
-  $$update public.health_check_report_jobs
-       set created_at = created_at + interval '1 second'
-     where id = '63000000-0000-0000-0000-000000000001'$$,
-  '23514', 'health_check_report_job_identity_is_immutable',
-  'outbox creation timestamp is immutable'
-);
-set local session_replication_role = replica;
-update public.health_check_report_jobs
-   set status = 'pending', provider_message_id = null,
-       claimed_by = null, lease_expires_at = null
- where id = '63000000-0000-0000-0000-000000000001';
-set local session_replication_role = origin;
-set local session_replication_role = replica;
-update public.health_check_report_jobs
-   set encrypted_recipient = decode(repeat('fe', 32), 'hex')
- where id = '63000000-0000-0000-0000-000000000001';
-set local session_replication_role = origin;
 set local role authenticated;
 select set_config('request.jwt.claim.role', 'authenticated', true);
 select set_config('request.jwt.claim.sub', '61000000-0000-0000-0000-000000000001', true);
+select extensions.results_eq(
+  $$select public.get_health_check_download_status('63000000-0000-0000-0000-000000000001')$$,
+  $$values ('{"status": "ready", "filename": "squad-sikker-2026-08-26.zip"}'::jsonb)$$,
+  'owner sees ready status and safe filename'
+);
+select extensions.results_eq(
+  format('select public.finalize_health_check(%L::uuid)', (select value from health_test_context where key = 'room_id')),
+  $$values ('{"status": "download_pending", "job_id": "63000000-0000-0000-0000-000000000001", "job_status": "ready"}'::jsonb)$$,
+  'owner finalize retry after source deletion returns the existing ready job'
+);
+select extensions.throws_ok(
+  $$select * from private.get_health_check_download_package(
+    '63000000-0000-0000-0000-000000000001',
+    '61000000-0000-0000-0000-000000000001'
+  )$$,
+  '42501', null,
+  'authenticated clients cannot execute the binary package function'
+);
+select set_config('request.jwt.claim.sub', '61000000-0000-0000-0000-000000000008', true);
 select extensions.throws_ok(
   format('select public.finalize_health_check(%L::uuid)', (select value from health_test_context where key = 'room_id')),
-  null, 'health_check_report_job_invariant',
-  'repeated finalize rejects a corrupted immutable recipient copy'
+  '42501', 'facilitator_required',
+  'outsider cannot discover an owner job through finalize after source deletion'
 );
-reset role;
-set local session_replication_role = replica;
-update public.health_check_report_jobs
-   set encrypted_recipient = decode(repeat('ab', 32), 'hex')
- where id = '63000000-0000-0000-0000-000000000001';
-set local session_replication_role = origin;
-set local session_replication_role = replica;
-update public.health_check_report_jobs
-   set source_room_id = '00000000-0000-0000-0000-000000000005'
- where id = '63000000-0000-0000-0000-000000000001';
-set local session_replication_role = origin;
-set local role authenticated;
-select set_config('request.jwt.claim.role', 'authenticated', true);
-select set_config('request.jwt.claim.sub', '61000000-0000-0000-0000-000000000001', true);
 select extensions.throws_ok(
-  format('select public.finalize_health_check(%L::uuid)', (select value from health_test_context where key = 'room_id')),
-  null, 'health_check_report_job_invariant',
-  'repeated finalize rejects a corrupted source room copy'
+  $$select public.get_health_check_download_status('63000000-0000-0000-0000-000000000001')$$,
+  '42501', 'download_not_found',
+  'non-owner cannot read download status'
 );
-reset role;
-set local session_replication_role = replica;
-update public.health_check_report_jobs
-   set source_room_id = (select value::uuid from health_test_context where key = 'room_id'),
-       expires_at = expires_at + interval '1 minute'
- where id = '63000000-0000-0000-0000-000000000001';
-set local session_replication_role = origin;
-set local role authenticated;
-select set_config('request.jwt.claim.role', 'authenticated', true);
-select set_config('request.jwt.claim.sub', '61000000-0000-0000-0000-000000000001', true);
-select extensions.throws_ok(
-  format('select public.finalize_health_check(%L::uuid)', (select value from health_test_context where key = 'room_id')),
-  null, 'health_check_report_job_invariant',
-  'repeated finalize rejects a corrupted expiry copy'
-);
-reset role;
-set local session_replication_role = replica;
-update public.health_check_report_jobs
-   set expires_at = (select expires_at from public.health_check_sessions
-                       where room_id = (select value::uuid from health_test_context where key = 'room_id'))
- where id = '63000000-0000-0000-0000-000000000001';
-set local session_replication_role = origin;
 reset role;
 set local role service_role;
 select extensions.is(
-  public.create_health_check_room(
-    '61000000-0000-0000-0000-000000000001',
-    '62000000-0000-0000-0000-000000000001', 'Ignored', 'Ignored', date '2026-08-27',
-    '63000000-0000-0000-0000-000000000099', decode(repeat('cd', 32), 'hex'),
-    decode(repeat('02', 12), 'hex'), 2
-  )->>'status',
-  'request_already_used',
-  'completed health room permanently consumes its create request id'
+  (select count(*)::text from private.get_health_check_download_package(
+    '63000000-0000-0000-0000-000000000001',
+    '61000000-0000-0000-0000-000000000008')),
+  '0',
+  'package function denies a mismatched user id'
+);
+select extensions.is(
+  (select count(*)::text from private.get_health_check_download_package(
+    '63000000-0000-0000-0000-000000000001', null)),
+  '0',
+  'package function returns nothing without facilitator authentication'
+);
+select extensions.results_eq(
+  $$select octet_length(encrypted_package), octet_length(package_nonce),
+           encryption_key_version, sanitized_filename, aad_room_id
+      from private.get_health_check_download_package(
+    '63000000-0000-0000-0000-000000000001',
+    '61000000-0000-0000-0000-000000000001')$$,
+  format(
+    'values (64::integer, 12::integer, 1::integer, %L::text, %L::uuid)',
+    'squad-sikker-2026-08-26.zip',
+    (select value from health_test_context where key = 'room_id')
+  ),
+  'owner package envelope includes ciphertext metadata, filename and canonical AAD room'
+);
+reset role;
+set local session_replication_role = replica;
+update public.health_check_report_jobs
+   set expires_at = statement_timestamp() - interval '1 second'
+ where id = '63000000-0000-0000-0000-000000000001';
+set local session_replication_role = origin;
+set local role authenticated;
+select set_config('request.jwt.claim.role', 'authenticated', true);
+select set_config('request.jwt.claim.sub', '61000000-0000-0000-0000-000000000001', true);
+select extensions.results_eq(
+  $$select public.get_health_check_download_status('63000000-0000-0000-0000-000000000001')$$,
+  $$values ('{"status": "expired", "filename": null}'::jsonb)$$,
+  'owner sees expired without a filename after package expiry'
+);
+select extensions.results_eq(
+  format('select public.finalize_health_check(%L::uuid)', (select value from health_test_context where key = 'room_id')),
+  $$values ('{"status": "download_pending", "job_id": "63000000-0000-0000-0000-000000000001", "job_status": "expired"}'::jsonb)$$,
+  'owner finalize retry reports an expired ready package before cleanup'
+);
+reset role;
+set local role service_role;
+select extensions.is(
+  (select count(*)::text from private.get_health_check_download_package(
+    '63000000-0000-0000-0000-000000000001',
+    '61000000-0000-0000-0000-000000000001')),
+  '0',
+  'expired package is denied even before cleanup physically deletes it'
 );
 reset role;
 
@@ -882,7 +754,7 @@ insert into health_test_context (key, value)
 select 'abort_room', public.create_health_check_room(
   '61000000-0000-0000-0000-000000000009',
   '62000000-0000-0000-0000-000000000009', 'Abort Fac', 'Abort Squad', date '2026-08-26',
-  '63000000-0000-0000-0000-000000000009', decode(repeat('ef', 32), 'hex'), decode(repeat('03', 12), 'hex'), 1
+  '63000000-0000-0000-0000-000000000009'
 )->'session'->>'id';
 do $join_abort_members$
 declare
@@ -930,6 +802,11 @@ select extensions.is(
   'aborted',
   'facilitator can abort before delivery pending'
 );
+select extensions.throws_ok(
+  format('select public.abort_health_check(%L::uuid)', (select value from health_test_context where key = 'abort_room')),
+  '42501', 'facilitator_required',
+  'abort retry after deletion returns the same generic unavailable error as an unknown room'
+);
 select extensions.is(
   (select count(*)::text from public.sessions where id = (select value::uuid from health_test_context where key = 'abort_room')),
   '0',
@@ -942,7 +819,7 @@ insert into health_test_context (key, value)
 select 'cleanup_room', public.create_health_check_room(
   '61000000-0000-0000-0000-000000000010',
   '62000000-0000-0000-0000-000000000010', 'Cleanup Fac', 'Cleanup Squad', date '2026-08-26',
-  '63000000-0000-0000-0000-000000000010', decode(repeat('11', 32), 'hex'), decode(repeat('04', 12), 'hex'), 1
+  '63000000-0000-0000-0000-000000000010'
 )->'session'->>'id';
 select public.join_health_check_room(
   '61000000-0000-0000-0000-000000000008',
@@ -953,50 +830,145 @@ reset role;
 select extensions.throws_ok(
   format($sql$
     insert into public.health_check_report_jobs (
-      id, source_room_id, aad_room_id, encrypted_recipient, recipient_nonce,
-      encryption_key_version, status, next_attempt_at, expires_at, idempotency_key
+      id, source_room_id, facilitator_user_id, aad_room_id,
+      status, next_attempt_at, expires_at, idempotency_key
     ) values (
       '63000000-0000-0000-0000-000000000010', %1$L::uuid,
+      '61000000-0000-0000-0000-000000000010',
       '00000000-0000-0000-0000-000000000004',
-      decode(repeat('11', 32), 'hex'), decode(repeat('04', 12), 'hex'),
-      1, 'awaiting_materialization', now(),
+      'awaiting_materialization', now(),
       (select expires_at from public.health_check_sessions where room_id = %1$L::uuid),
       'health-check:63000000-0000-0000-0000-000000000010'
     )
   $sql$, (select value from health_test_context where key = 'cleanup_room')),
   '23514', 'health_check_report_job_source_mismatch',
-  'outbox insert rejects AAD that differs from its source room'
+  'report job insert rejects AAD that differs from its source room'
 );
 select extensions.throws_ok(
   format($sql$
     insert into public.health_check_report_jobs (
-      id, source_room_id, aad_room_id, encrypted_recipient, recipient_nonce,
-      encryption_key_version, status, next_attempt_at, expires_at, idempotency_key
+      id, source_room_id, facilitator_user_id, aad_room_id,
+      status, next_attempt_at, expires_at, idempotency_key
     ) values (
-      '63000000-0000-0000-0000-000000000010', %1$L::uuid, %1$L::uuid,
-      decode(repeat('11', 32), 'hex'), decode(repeat('04', 12), 'hex'),
-      1, 'awaiting_materialization', now(),
+      '63000000-0000-0000-0000-000000000010', %1$L::uuid,
+      '61000000-0000-0000-0000-000000000010', %1$L::uuid,
+      'awaiting_materialization', now(),
       (select expires_at + interval '1 minute' from public.health_check_sessions where room_id = %1$L::uuid),
       'health-check:63000000-0000-0000-0000-000000000010'
     )
   $sql$, (select value from health_test_context where key = 'cleanup_room')),
   '23514', 'health_check_report_job_expiry_mismatch',
-  'outbox insert rejects expiry later than its source health session'
+  'report job insert rejects expiry later than its source health session'
 );
 insert into public.health_check_report_jobs (
-  id, source_room_id, aad_room_id, encrypted_recipient, recipient_nonce,
-  encryption_key_version, status, next_attempt_at, expires_at, idempotency_key
+  id, source_room_id, facilitator_user_id, aad_room_id,
+  status, next_attempt_at, expires_at, idempotency_key
 ) values (
   '63000000-0000-0000-0000-000000000010',
   (select value::uuid from health_test_context where key = 'cleanup_room'),
+  '61000000-0000-0000-0000-000000000010',
   (select value::uuid from health_test_context where key = 'cleanup_room'),
-  decode(repeat('11', 32), 'hex'), decode(repeat('04', 12), 'hex'),
-  1, 'awaiting_materialization', now(),
+  'awaiting_materialization', now(),
   (select expires_at from public.health_check_sessions where room_id = (select value::uuid from health_test_context where key = 'cleanup_room')),
   'health-check:63000000-0000-0000-0000-000000000010'
 );
+insert into health_test_context (key, value)
+select 'cleanup_expires_at', expires_at::text
+  from public.health_check_sessions
+ where room_id = (select value::uuid from health_test_context where key = 'cleanup_room');
+update public.health_check_report_jobs
+   set status = 'processing', claimed_by = 'stale-worker',
+       lease_expires_at = statement_timestamp() - interval '1 minute'
+ where id = '63000000-0000-0000-0000-000000000010';
+set local role service_role;
+select private.cleanup_expired_health_checks();
+reset role;
+select extensions.results_eq(
+  $$select status, claimed_by, lease_expires_at from public.health_check_report_jobs
+     where id = '63000000-0000-0000-0000-000000000010'$$,
+  $$values ('failed'::text, null::text, null::timestamptz)$$,
+  'cleanup releases a stale processing lease to failed'
+);
+select extensions.is(
+  (select count(*)::text from public.sessions where id = (select value::uuid from health_test_context where key = 'cleanup_room')),
+  '1',
+  'stale lease cleanup retains the unexpired live room for retry'
+);
+select extensions.ok(
+  (select regexp_count(prosrc, 'clock_timestamp\(\)', 1, 'i') = 1
+      and regexp_replace(prosrc, '\s+', ' ', 'g')
+        like '%v_cleanup_at timestamptz := clock_timestamp();%'
+      and regexp_replace(prosrc, '\s+', ' ', 'g')
+        like '%expires_at <= v_cleanup_at%next_attempt_at = v_cleanup_at%lease_expires_at <= v_cleanup_at%expires_at > v_cleanup_at%h.expires_at <= v_cleanup_at%'
+     from pg_proc
+    where oid = 'private.cleanup_expired_health_checks()'::regprocedure),
+  'cleanup uses one immutable run cutoff for jobs, leases, and source rooms'
+);
+set local role service_role;
+select extensions.is(
+  private.claim_health_check_report_job(
+    '63000000-0000-0000-0000-000000000010', 'expiry-worker', interval '1 minute'
+  ),
+  true,
+  'worker claims the retry job before its main expiry'
+);
+reset role;
 set local session_replication_role = replica;
 update public.health_check_sessions set expires_at = now() - interval '1 minute'
+where room_id = (select value::uuid from health_test_context where key = 'cleanup_room');
+set local session_replication_role = origin;
+set local role service_role;
+select extensions.throws_ok(
+  $$select private.materialize_health_check_download(
+    '63000000-0000-0000-0000-000000000010', 'expiry-worker', decode(repeat('ab', 64), 'hex'),
+    decode(repeat('01', 12), 'hex'), 1, 'cleanup-2026-08-26.zip'
+  )$$,
+  '55000', 'job_expired',
+  'materialization is denied when the locked source health session has expired'
+);
+reset role;
+set local session_replication_role = replica;
+update public.health_check_sessions
+   set expires_at = (select value::timestamptz from health_test_context where key = 'cleanup_expires_at')
+ where room_id = (select value::uuid from health_test_context where key = 'cleanup_room');
+update public.health_check_report_jobs
+   set expires_at = statement_timestamp() - interval '1 second'
+  where id = '63000000-0000-0000-0000-000000000010';
+set local session_replication_role = origin;
+set local role service_role;
+select extensions.is(
+  private.fail_health_check_report_job(
+    '63000000-0000-0000-0000-000000000010', 'expiry-worker'
+  ),
+  false,
+  'an expired processing report job cannot be failed'
+);
+select extensions.results_eq(
+  $$select status, claimed_by from public.health_check_report_jobs
+     where id = '63000000-0000-0000-0000-000000000010'$$,
+  $$values ('processing'::text, 'expiry-worker'::text)$$,
+  'an expired fail attempt retains the existing claim for cleanup'
+);
+select extensions.throws_ok(
+  $$select private.materialize_health_check_download(
+    '63000000-0000-0000-0000-000000000010', 'expiry-worker', decode(repeat('ab', 64), 'hex'),
+    decode(repeat('01', 12), 'hex'), 1, 'cleanup-2026-08-26.zip'
+  )$$,
+  '55000', 'job_expired',
+  'materialization is denied when the locked job has expired'
+);
+reset role;
+select extensions.ok(
+  (select encrypted_package is null and materialized_at is null
+     from public.health_check_report_jobs where id = '63000000-0000-0000-0000-000000000010')
+  and exists (
+    select 1 from public.sessions
+     where id = (select value::uuid from health_test_context where key = 'cleanup_room')
+  ),
+  'denied expired materialization retains the live room and creates no package until cleanup'
+);
+set local session_replication_role = replica;
+update public.health_check_sessions set expires_at = statement_timestamp() - interval '1 minute'
 where room_id = (select value::uuid from health_test_context where key = 'cleanup_room');
 set local session_replication_role = origin;
 set local role service_role;
@@ -1013,8 +985,7 @@ select extensions.is(
   public.create_health_check_room(
     '61000000-0000-0000-0000-000000000010',
     '62000000-0000-0000-0000-000000000010', 'Ignored', 'Ignored', current_date,
-    '63000000-0000-0000-0000-000000000099', decode(repeat('22', 32), 'hex'),
-    decode(repeat('06', 12), 'hex'), 1
+    '63000000-0000-0000-0000-000000000099'
   )->>'status',
   'request_already_used',
   'expired room permanently consumes its create request id'
@@ -1050,10 +1021,10 @@ select extensions.throws_ok(
   '42501', 'facilitator_required',
   'expired health room cannot be aborted through the client RPC'
 );
-select extensions.throws_ok(
+select extensions.results_eq(
   format('select public.finalize_health_check(%L::uuid)', (select value from health_test_context where key = 'cleanup_room')),
-  '42501', 'facilitator_required',
-  'expired health room cannot be finalized'
+  $$values ('{"status": "download_pending", "job_id": "63000000-0000-0000-0000-000000000010", "job_status": "expired"}'::jsonb)$$,
+  'owner finalize retry reports an expired source job before cleanup'
 );
 select set_config('request.jwt.claim.sub', '61000000-0000-0000-0000-000000000008', true);
 select extensions.throws_ok(
@@ -1072,18 +1043,13 @@ select extensions.is(
   'expired health room hides membership from restore'
 );
 reset role;
-update public.health_check_report_jobs
-   set status = 'processing', claimed_by = 'stale-worker',
-       lease_expires_at = statement_timestamp() - interval '1 minute'
- where id = '63000000-0000-0000-0000-000000000001';
 set local role service_role;
 select private.cleanup_expired_health_checks();
 reset role;
-select extensions.results_eq(
-  $$select status, claimed_by, lease_expires_at from public.health_check_report_jobs
-     where id = '63000000-0000-0000-0000-000000000001'$$,
-  $$values ('failed'::text, null::text, null::timestamptz)$$,
-  'cleanup releases an expired processing lease as retryable failed state'
+select extensions.is(
+  (select count(*)::text from public.health_check_report_jobs where id = '63000000-0000-0000-0000-000000000001'),
+  '0',
+  'cleanup deletes expired ready packages'
 );
 select extensions.is(
   (select count(*)::text from public.sessions where id = (select value::uuid from health_test_context where key = 'cleanup_room')),
@@ -1093,7 +1059,7 @@ select extensions.is(
 select extensions.is(
   (select count(*)::text from public.health_check_report_jobs where id = '63000000-0000-0000-0000-000000000010'),
   '0',
-  'cleanup deletes expired durable outbox jobs'
+  'cleanup deletes expired report jobs'
 );
 
 select * from extensions.finish();

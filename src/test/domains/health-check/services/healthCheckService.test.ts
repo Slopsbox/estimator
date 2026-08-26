@@ -54,7 +54,11 @@ describe('healthCheckService', () => {
       .mockResolvedValueOnce({ data: { status: 'removed' }, error: null })
       .mockResolvedValueOnce({ data: { status: 'aborted' }, error: null })
       .mockResolvedValueOnce({
-        data: { status: 'delivery_pending', job_id: JOB_ID, job_status: 'awaiting_materialization' },
+        data: { status: 'download_pending', job_id: JOB_ID, job_status: 'awaiting_materialization' },
+        error: null,
+      })
+      .mockResolvedValueOnce({
+        data: { status: 'ready', filename: 'plattform-2026-08-26.zip' },
         error: null,
       });
 
@@ -92,10 +96,14 @@ describe('healthCheckService', () => {
     await expect(service.finalize(ROOM_ID)).resolves.toEqual({
       ok: true,
       value: {
-        status: 'delivery_pending',
+        status: 'download_pending',
         jobId: JOB_ID,
         jobStatus: 'awaiting_materialization',
       },
+    });
+    await expect(service.getDownloadStatus(JOB_ID)).resolves.toEqual({
+      ok: true,
+      value: { status: 'ready', filename: 'plattform-2026-08-26.zip' },
     });
 
     expect(rpc.mock.calls.map(([name, args]) => [name, args])).toEqual([
@@ -109,8 +117,9 @@ describe('healthCheckService', () => {
       ['remove_health_check_respondent', { p_room_id: ROOM_ID, p_member_id: MEMBER_ID }],
       ['abort_health_check', { p_room_id: ROOM_ID }],
       ['finalize_health_check', { p_room_id: ROOM_ID }],
+      ['get_health_check_download_status', { p_job_id: JOB_ID }],
     ]);
-    expect(ensureIdentity).toHaveBeenCalledTimes(7);
+    expect(ensureIdentity).toHaveBeenCalledTimes(8);
   });
 
   it.each([
@@ -121,6 +130,7 @@ describe('healthCheckService', () => {
     ['removeRespondent', () => service.removeRespondent(ROOM_ID, MEMBER_ID)],
     ['abort', () => service.abort(ROOM_ID)],
     ['finalize', () => service.finalize(ROOM_ID)],
+    ['getDownloadStatus', () => service.getDownloadStatus(JOB_ID)],
   ])('returns identity and skips %s RPC when authentication fails', async (_name, run) => {
     ensureIdentity.mockRejectedValueOnce(new Error('private identity detail'));
 
@@ -280,34 +290,51 @@ describe('healthCheckService', () => {
 
   it.each([
     'awaiting_materialization',
-    'pending',
     'processing',
-    'sent',
+    'ready',
     'failed',
+    'expired',
   ] as const)('accepts finalize job status %s', async (jobStatus) => {
     rpc.mockResolvedValue({
-      data: { status: 'delivery_pending', job_id: JOB_ID, job_status: jobStatus },
+      data: { status: 'download_pending', job_id: JOB_ID, job_status: jobStatus },
       error: null,
     });
 
     await expect(service.finalize(ROOM_ID)).resolves.toEqual({
       ok: true,
-      value: { status: 'delivery_pending', jobId: JOB_ID, jobStatus },
+      value: { status: 'download_pending', jobId: JOB_ID, jobStatus },
     });
   });
 
   it('rejects unknown finalize job status and malformed job ID', async () => {
     rpc.mockResolvedValueOnce({
-      data: { status: 'delivery_pending', job_id: JOB_ID, job_status: 'cancelled' },
+      data: { status: 'download_pending', job_id: JOB_ID, job_status: 'cancelled' },
       error: null,
     });
     await expect(service.finalize(ROOM_ID)).resolves.toEqual({ ok: false, reason: 'malformed' });
 
     rpc.mockResolvedValueOnce({
-      data: { status: 'delivery_pending', job_id: 'job-1', job_status: 'pending' },
+      data: { status: 'download_pending', job_id: 'job-1', job_status: 'ready' },
       error: null,
     });
     await expect(service.finalize(ROOM_ID)).resolves.toEqual({ ok: false, reason: 'malformed' });
+  });
+
+  it.each([
+    [{ status: 'awaiting_materialization', filename: null }, true],
+    [{ status: 'processing', filename: null }, true],
+    [{ status: 'failed', filename: null }, true],
+    [{ status: 'expired', filename: null }, true],
+    [{ status: 'ready', filename: 'squad-2026-08-26.zip' }, true],
+    [{ status: 'ready', filename: `${'😀'.repeat(176)}.zip` }, true],
+    [{ status: 'ready', filename: `${'😀'.repeat(177)}.zip` }, false],
+    [{ status: 'ready', filename: 'squad.zip', aad_room_id: ROOM_ID }, false],
+    [{ status: 'ready', filename: '../rapport.zip' }, false],
+    [{ status: 'ready', filename: null }, false],
+  ] as const)('parses download status %#', async (data, valid) => {
+    rpc.mockResolvedValue({ data, error: null });
+    const result = await service.getDownloadStatus(JOB_ID);
+    expect(result.ok).toBe(valid);
   });
 });
 

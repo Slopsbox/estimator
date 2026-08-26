@@ -8,6 +8,7 @@ import {
   isUuid,
   parseAbortHealthCheckResult,
   parseFinalizeHealthCheckResult,
+  parseHealthCheckDownloadStatus,
   parseHealthCheckProgress,
   parseHealthCheckState,
   parseRemoveHealthCheckRespondentResult,
@@ -18,6 +19,7 @@ import type {
   AbortHealthCheckResult,
   FinalizeHealthCheckResult,
   HealthCheckFailureReason,
+  HealthCheckDownloadStatusResult,
   HealthCheckProgressRow,
   HealthCheckResponseMap,
   HealthCheckResult,
@@ -47,6 +49,7 @@ export interface HealthCheckService {
   ): Promise<HealthCheckResult<RemoveHealthCheckRespondentResult>>;
   abort(roomId: string): Promise<HealthCheckResult<AbortHealthCheckResult>>;
   finalize(roomId: string): Promise<HealthCheckResult<FinalizeHealthCheckResult>>;
+  getDownloadStatus(jobId: string): Promise<HealthCheckResult<HealthCheckDownloadStatusResult>>;
 }
 
 export function createHealthCheckService({
@@ -74,7 +77,8 @@ export function createHealthCheckService({
     }
   }
 
-  type RoomOnlyRpcName = Exclude<keyof HealthCheckRpcMap, 'submit_health_check' | 'remove_health_check_respondent'>;
+  type RoomOnlyRpcName = Exclude<keyof HealthCheckRpcMap,
+    'submit_health_check' | 'remove_health_check_respondent' | 'get_health_check_download_status'>;
 
   async function roomCall<Value>(
     name: RoomOnlyRpcName,
@@ -138,6 +142,13 @@ export function createHealthCheckService({
       roomId,
       parseFinalizeHealthCheckResult,
     ),
+    async getDownloadStatus(jobId) {
+      if (!isUuid(jobId)) return { ok: false, reason: 'domain_conflict' };
+      const result = await call('get_health_check_download_status', { p_job_id: jobId });
+      if ('reason' in result) return { ok: false, reason: result.reason };
+      const value = parseHealthCheckDownloadStatus(result.data);
+      return value ? { ok: true, value } : { ok: false, reason: 'malformed' };
+    },
   };
 }
 

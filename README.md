@@ -146,15 +146,24 @@ Etter at rollback-SQL er verifisert, marker historikken eksplisitt med
 ### Anonymous Health Check core
 
 Migrasjonen `anonymous_health_check_core` legger bare til databasekatalog,
-aggregering, RPC/RLS, durable outbox og uscheduled cleanup. Migrasjonen har en
+aggregering, RPC/RLS, owner-bound rapportjobb og uscheduled cleanup. Migrasjonen har en
 fail-closed preflight som krever at member-scoped room-RLS fra
 `enforce_session_rls_after_frontend.sql` allerede er aktiv; en fersk migrasjonskjede
 uten dette manuelle release-steget stopper med
-`health_check_requires_member_scoped_room_rls`. Den oppretter ingen
-UI, worker, e-postintegrasjon eller cron-jobb. Cleanup skal senere schedules med
+`health_check_requires_member_scoped_room_rls`. Lockdown-releasen stopper selv
+med `session_rls_lockdown_must_precede_health_core` før første mutasjon dersom
+health core allerede finnes, slik at health-aware medlems- og Presence-helperne
+ikke kan overskrives ved rerun. Lockdown-releasen registrerer
+førtilstanden for `authenticated` og `service_role` før den sikrer `USAGE` på
+`private`; session-integrity-rollbacken tilbakefører bare rettigheter releasen
+selv introduserte. Health-migrasjonen krever `service_role`-rettigheten i
+preflight og verken tildeler eller tilbakekaller den ved rollback. Den oppretter ingen
+UI, ZIP/PDF-worker, download-endpoint eller cron-jobb. Cleanup skal senere schedules med
 det eksakte jobbnavnet `cleanup-expired-health-checks` hvert femte minutt, men
-først sammen
-med heartbeat, watchdog og navngitt systemeier som beskrevet i arkitekturen.
+hver kjøring bruker ett fast cutoff-tidspunkt for jobb-, lease- og romopprydding;
+rader som krysser cutoff under kjøringen blir derfor liggende til neste kjøring.
+Scheduling skjer først sammen med heartbeat, watchdog og navngitt systemeier som
+beskrevet i arkitekturen.
 Den gatede releasefilen
 `supabase/releases/schedule_health_check_cleanup_after_monitoring.sql` avbryter
 dersom heartbeat-wrapperen eller tabellen ikke finnes.
@@ -168,6 +177,8 @@ Kontrollert rollback ligger i
 health-rom eller rapportjobber finnes. Etter vellykket rollback repareres bare
 denne historikkposten med
 `supabase migration repair 20260826083155 --status reverted --linked`.
+Core-rollback må fullføres før `rollback_session_integrity.sql`; session-rollback
+avbryter ellers før den tilbakefører lockdown-releasens schema-rettigheter.
 Ved en avbrutt eller delvis utrulling brukes `supabase migration list --linked`
 før samme målrettede repair; aldri marker migrasjonen applied/reverted uten at
 preflight eller rollback-SQL faktisk har fullført.

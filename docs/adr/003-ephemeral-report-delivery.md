@@ -1,4 +1,4 @@
-# ADR-003: Kortlevd rapportlevering uten historikk i appen
+# ADR-003: Kortlevd rapportpakke for sikker device-download
 
 ## Status
 
@@ -6,31 +6,74 @@ Proposed
 
 ## Date
 
-2026-08-25
+2026-08-26
 
 ## Context
 
 Fasilitatoren trenger PDF og CSV for videre trendarbeid i et godkjent internt
-verktøy. Appen skal ikke lagre historikk. E-postlevering kan feile, og en
-feilsendt rapport er sensitiv.
+verktøy. Appen skal ikke lagre historikk, og bare den autentiserte fasilitatoren
+som opprettet rommet skal kunne hente resultatet. Nettleseren gir ingen
+pålitelig bekreftelse på at en fil faktisk er lagret lokalt.
 
 ## Decision
 
-- Mottaker må være under `@gjensidige.no`.
-- E-post lagres kryptert med en server-only, versjonert nøkkel.
-- Finalisering oppretter først en durable outbox-jobb i samme transaksjon som
-  aggregatene fryses.
-- Rapport genereres i en privat Supabase Edge Function-worker gjennom abstraksjonene
-  `ReportRenderer` og `MailDeliveryPort`.
-- Ved leverandøraksept slettes hele helsesjekksesjonen og rapportdataene.
-- Ved sendefeil krypteres mottaker, PDF og CSV i en privat leveringsjobb.
-  Rå aggregater og medlemskap slettes når den krypterte jobben er opprettet.
-- Jobben bruker lease, idempotency key og retries. Tilgang utløper etter 23 timer
-  og 55 minutter; overvåket cleanup hvert femte minutt gir forventet fysisk
-  sletting innen 24 timer.
-- Sletteløftet gjelder appens live-data og kø, ikke umiddelbar fysisk sletting
-  fra backup/PITR, leverandørlogger eller mottakerens postkasse.
-- Ved utløp slettes jobben uten videre historikk.
+- Rapporten er én ZIP med PDF og CSV. Filnavnet består av sanitert squadnavn og
+  måledato.
+- `finalize_health_check` fryser målingen og oppretter en idempotent jobb med
+  status `awaiting_materialization`. Jobben beholder en privat, stabil binding
+  til fasilitatorens `auth.uid()`.
+- En privat worker claimer jobben, leser frosne aggregater, rendrer PDF og CSV,
+  lager ZIP, krypterer hele pakken med AES-256-GCM og unik 96-bits nonce, og
+  kaller en service-only materialiseringsfunksjon.
+- Materialiseringsfunksjonen låser jobb og health-session, tar fersk
+  `clock_timestamp()` etter hver lås og revaliderer claim, lease og begge utløp
+  rett før write. Begge må ha `expires_at > materialized_at`; ellers feiler den med `job_expired` uten pakke
+  eller sletting. I samme databasetransaksjon
+  persisteres ciphertext, nonce, nøkkelversjon og sanitert filnavn, status settes
+  til `ready`, `expires_at` settes til det tidligste av materialiseringstidspunkt
+  + 15 minutter og opprinnelig romutløp, kildepekeren nullstilles og live-rom,
+  medlemskap og aggregater
+  slettes.
+- Materialiseringsfeil beholder live-data frem til rommets absolutte utløp på 23
+  timer og 55 minutter. En utløpt lease kan frigjøres til `failed` for retry.
+- En autentisert status-RPC viser bare eieren status og, når pakken er klar, det
+  sikre filnavnet. Den returnerer aldri pakken.
+- Binærpakken hentes av et senere server-endpoint gjennom en service-only
+  funksjon. Endpointet verifiserer Supabase-JWT, matcher bruker-ID mot jobbens
+  fasilitatorbinding, krever `ready` og ikke utløpt jobb, dekrypterer kun i minnet
+  og svarer med attachment.
+- Service-enveloppen inneholder også `aad_room_id`. Worker og endpoint bygger
+  AES-GCM AAD som UTF-8 uten avsluttende linjeskift i denne eksakte rekkefølgen:
+  `health-check-package-v1`, `job_id=<lowercase UUID>`,
+  `aad_room_id=<lowercase UUID>`, `field=encrypted_package`,
+  `key_version=<positivt base-10 heltall>`, med ett `\n` mellom hvert felt.
+- Finalize kan gjentas av bundet fasilitator etter at materialisering har slettet
+  rommet og returnerer eksisterende jobb/status. Outsidere får generisk avslag.
+  Abort lager ingen artifact/receipt; retry etter vellykket abort er derfor
+  eksternt ikke-idempotent og returnerer samme generiske avslag som ukjent rom.
+- Nedlasting kan gjentas frem til utløp. Det finnes ingen delivery-ack fra
+  nettleseren. Cleanup sletter ciphertext ved utløp.
+- Appen skriver ingen rapport eller pakke til Cache API, IndexedDB,
+  localStorage, sessionStorage eller annen appstyrt nettleserlagring. Filen
+  brukeren eksplisitt laster ned blir liggende på enheten og er fasilitatorens
+  ansvar.
+- Sletteløftet gjelder live-data og appstyrte pakker. Backup, WAL/PITR, logger og
+  den nedlastede filen følger egne dokumenterte styrings- og retensjonsregler.
+
+## Endpoint Contract
+
+Endpointet implementeres senere, uten URL-token og fortrinnsvis som `POST` med
+`Authorization`-header. Det skal vurdere CSRF i lys av valgt auth-transport,
+aldri logge token, jobb-ID, filnavn eller innhold, og håndheve en eksplisitt
+responsstørrelsesgrense. Responsen skal ha:
+
+```text
+Content-Type: application/zip
+Cache-Control: no-store, private
+Pragma: no-cache
+Content-Disposition: attachment; filename="fallback.zip"; filename*=UTF-8''<RFC5987>
+X-Content-Type-Options: nosniff
+```
 
 ## Alternatives Considered
 
@@ -38,18 +81,21 @@ feilsendt rapport er sensitiv.
 
 Avvist. Trend håndteres utenfor appen.
 
-### Generere og sende rapport fra nettleseren
+### Generere rapport i nettleseren
 
-Avvist. Det eksponerer leverandørcredential og sensitive rapportdata til
-klienten.
+Avvist. Det eksponerer sensitive aggregater og gjør sletting og autorisasjon
+vanskeligere å håndheve.
 
-### Beholde data til e-postlevering alltid lykkes
+### Slette pakken etter første respons
 
-Avvist. En leverandørfeil kan da gi ubestemt retensjon.
+Avvist. Nettleseren gir ingen pålitelig kvittering for at filen ble lagret.
 
 ## Consequences
 
-- E-postleverandør må godkjennes før funksjonen kan ferdigstilles.
 - Rapportjobber trenger applikasjonskryptering og nøkkelrotasjon.
-- Support kan ikke hente rapporter etter det absolutte tilgangsutløpet.
-- Fasilitatoren er ansvarlig for videre lagring i godkjent internt verktøy.
+- Support kan ikke hente rapporten etter vinduet på opptil 15 minutter; nær
+  hovedutløpet er vinduet kortere.
+- ZIP/PDF-renderer og endpoint er eksplisitt senere arbeid; ingen avhengigheter
+  legges til i denne grunnleveransen.
+- Fasilitatoren må lagre og behandle den nedlastede filen i henhold til godkjent
+  intern praksis.

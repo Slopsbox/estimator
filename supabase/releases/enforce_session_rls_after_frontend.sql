@@ -1,6 +1,17 @@
 -- Lockdown rollout. Additive migration and RPC frontend already removed direct
 -- writes; this release completes member-scoped SELECT RLS and private presence.
 
+do $preflight$
+begin
+  if to_regclass('public.health_check_sessions') is not null
+     or to_regclass('public.health_check_report_jobs') is not null
+     or to_regprocedure('private.cleanup_expired_health_checks()') is not null then
+    raise exception 'session_rls_lockdown_must_precede_health_core'
+      using errcode = '55000';
+  end if;
+end;
+$preflight$;
+
 drop policy if exists "Alle kan lese sessions" on public.sessions;
 drop policy if exists "Alle kan opprette sessions" on public.sessions;
 drop policy if exists "Alle kan oppdatere sessions" on public.sessions;
@@ -16,7 +27,24 @@ drop policy if exists "Kan slette egne votes" on public.votes;
 
 create schema if not exists private;
 revoke all on schema private from public, anon;
-grant usage on schema private to authenticated;
+
+create table if not exists private.private_schema_privilege_state (
+  release_name text primary key,
+  authenticated_had_usage boolean not null,
+  service_role_had_usage boolean not null
+);
+revoke all on table private.private_schema_privilege_state
+  from public, anon, authenticated, service_role;
+insert into private.private_schema_privilege_state (
+  release_name, authenticated_had_usage, service_role_had_usage
+) values (
+  'enforce_session_rls_after_frontend',
+  has_schema_privilege('authenticated', 'private', 'USAGE'),
+  has_schema_privilege('service_role', 'private', 'USAGE')
+)
+on conflict (release_name) do nothing;
+
+grant usage on schema private to authenticated, service_role;
 
 create or replace function private.is_session_member(p_session_id uuid)
 returns boolean

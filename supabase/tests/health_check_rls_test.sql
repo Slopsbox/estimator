@@ -3,12 +3,12 @@
 begin;
 
 create extension if not exists pgtap with schema extensions;
-select extensions.plan(31);
+select extensions.plan(32);
 
-insert into auth.users (id, aud, role, email, created_at, updated_at)
+insert into auth.users (id, aud, role, created_at, updated_at)
 values
-  ('65000000-0000-0000-0000-000000000001', 'authenticated', 'authenticated', 'health-rls-fac@test.invalid', now(), now()),
-  ('65000000-0000-0000-0000-000000000002', 'authenticated', 'authenticated', 'health-rls-member@test.invalid', now(), now());
+  ('65000000-0000-0000-0000-000000000001', 'authenticated', 'authenticated', now(), now()),
+  ('65000000-0000-0000-0000-000000000002', 'authenticated', 'authenticated', now(), now());
 
 create temporary table health_rls_context (key text primary key, value text not null);
 grant select on health_rls_context to authenticated;
@@ -19,8 +19,7 @@ insert into health_rls_context (key, value)
 select 'create_result', public.create_health_check_room(
   '65000000-0000-0000-0000-000000000001',
   '65000000-0000-0000-0000-000000000011', 'RLS Fac', 'RLS Squad', current_date,
-  '65000000-0000-0000-0000-000000000012', decode(repeat('aa', 32), 'hex'),
-  decode(repeat('01', 12), 'hex'), 1
+  '65000000-0000-0000-0000-000000000012'
 )::text;
 insert into health_rls_context
 select 'room_id', value::jsonb->'session'->>'id' from health_rls_context where key = 'create_result';
@@ -73,14 +72,19 @@ select extensions.ok(
   'authenticated has no direct health table privileges'
 );
 select extensions.ok(
-  has_table_privilege('service_role', 'public.health_check_report_jobs', 'SELECT')
-  and has_table_privilege('service_role', 'public.health_check_report_jobs', 'UPDATE')
-  and has_table_privilege('service_role', 'public.health_check_report_jobs', 'DELETE')
+  not has_table_privilege('service_role', 'public.health_check_report_jobs', 'SELECT')
+  and has_column_privilege('service_role', 'public.health_check_report_jobs', 'id', 'SELECT')
+  and has_column_privilege('service_role', 'public.health_check_report_jobs', 'status', 'SELECT')
+  and not has_column_privilege('service_role', 'public.health_check_report_jobs', 'facilitator_user_id', 'SELECT')
+  and not has_column_privilege('service_role', 'public.health_check_report_jobs', 'encrypted_package', 'SELECT')
+  and not has_column_privilege('service_role', 'public.health_check_report_jobs', 'package_nonce', 'SELECT')
+  and not has_table_privilege('service_role', 'public.health_check_report_jobs', 'UPDATE')
+  and not has_table_privilege('service_role', 'public.health_check_report_jobs', 'DELETE')
   and not has_table_privilege('service_role', 'public.health_check_report_jobs', 'INSERT')
   and not has_table_privilege('service_role', 'public.health_check_report_jobs', 'TRUNCATE')
   and not has_table_privilege('service_role', 'public.health_check_report_jobs', 'REFERENCES')
   and not has_table_privilege('service_role', 'public.health_check_report_jobs', 'TRIGGER'),
-  'service_role has only SELECT, UPDATE and DELETE on report jobs'
+  'service_role reads only queue metadata directly; package and writes require private RPCs'
 );
 select extensions.ok(
   not exists (
@@ -116,9 +120,9 @@ select extensions.ok(
 );
 
 select extensions.ok(
-  has_function_privilege('service_role', 'public.create_health_check_room(uuid,uuid,text,text,date,uuid,bytea,bytea,integer)', 'EXECUTE')
-  and not has_function_privilege('authenticated', 'public.create_health_check_room(uuid,uuid,text,text,date,uuid,bytea,bytea,integer)', 'EXECUTE')
-  and not has_function_privilege('anon', 'public.create_health_check_room(uuid,uuid,text,text,date,uuid,bytea,bytea,integer)', 'EXECUTE'),
+  has_function_privilege('service_role', 'public.create_health_check_room(uuid,uuid,text,text,date,uuid)', 'EXECUTE')
+  and not has_function_privilege('authenticated', 'public.create_health_check_room(uuid,uuid,text,text,date,uuid)', 'EXECUTE')
+  and not has_function_privilege('anon', 'public.create_health_check_room(uuid,uuid,text,text,date,uuid)', 'EXECUTE'),
   'health room creation is executable only by service_role among API roles'
 );
 select extensions.ok(
@@ -134,7 +138,8 @@ select extensions.ok(
   and has_function_privilege('authenticated', 'public.get_health_check_progress(uuid)', 'EXECUTE')
   and has_function_privilege('authenticated', 'public.remove_health_check_respondent(uuid,uuid)', 'EXECUTE')
   and has_function_privilege('authenticated', 'public.abort_health_check(uuid)', 'EXECUTE')
-  and has_function_privilege('authenticated', 'public.finalize_health_check(uuid)', 'EXECUTE'),
+  and has_function_privilege('authenticated', 'public.finalize_health_check(uuid)', 'EXECUTE')
+  and has_function_privilege('authenticated', 'public.get_health_check_download_status(uuid)', 'EXECUTE'),
   'authenticated receives only the expected health domain RPCs'
 );
 select extensions.ok(
@@ -144,20 +149,29 @@ select extensions.ok(
   and not has_function_privilege('anon', 'public.get_health_check_progress(uuid)', 'EXECUTE')
   and not has_function_privilege('anon', 'public.remove_health_check_respondent(uuid,uuid)', 'EXECUTE')
   and not has_function_privilege('anon', 'public.abort_health_check(uuid)', 'EXECUTE')
-  and not has_function_privilege('anon', 'public.finalize_health_check(uuid)', 'EXECUTE'),
+  and not has_function_privilege('anon', 'public.finalize_health_check(uuid)', 'EXECUTE')
+  and not has_function_privilege('anon', 'public.get_health_check_download_status(uuid)', 'EXECUTE'),
   'anon cannot execute health domain RPCs'
 );
 select extensions.ok(
   not has_function_privilege('anon', 'public.get_health_check_state(uuid)', 'EXECUTE')
-  and not has_function_privilege('authenticated', 'public.create_health_check_room(uuid,uuid,text,text,date,uuid,bytea,bytea,integer)', 'EXECUTE')
+  and not has_function_privilege('authenticated', 'public.create_health_check_room(uuid,uuid,text,text,date,uuid)', 'EXECUTE')
   and not has_function_privilege('authenticated', 'private.cleanup_expired_health_checks()', 'EXECUTE'),
   'PUBLIC receives no implicit SECURITY DEFINER execution'
 );
 select extensions.ok(
   has_function_privilege('service_role', 'private.cleanup_expired_health_checks()', 'EXECUTE')
+  and has_function_privilege('service_role', 'private.claim_health_check_report_job(uuid,text,interval)', 'EXECUTE')
+  and has_function_privilege('service_role', 'private.fail_health_check_report_job(uuid,text)', 'EXECUTE')
+  and has_function_privilege('service_role', 'private.materialize_health_check_download(uuid,text,bytea,bytea,integer,text)', 'EXECUTE')
+  and has_function_privilege('service_role', 'private.get_health_check_download_package(uuid,uuid)', 'EXECUTE')
   and not has_function_privilege('authenticated', 'private.cleanup_expired_health_checks()', 'EXECUTE')
+  and not has_function_privilege('authenticated', 'private.claim_health_check_report_job(uuid,text,interval)', 'EXECUTE')
+  and not has_function_privilege('authenticated', 'private.fail_health_check_report_job(uuid,text)', 'EXECUTE')
+  and not has_function_privilege('authenticated', 'private.materialize_health_check_download(uuid,text,bytea,bytea,integer,text)', 'EXECUTE')
+  and not has_function_privilege('authenticated', 'private.get_health_check_download_package(uuid,uuid)', 'EXECUTE')
   and not has_function_privilege('anon', 'private.cleanup_expired_health_checks()', 'EXECUTE'),
-  'cleanup is private and service-role only'
+  'package and cleanup functions are private and service-role only'
 );
 
 select extensions.is(
@@ -168,7 +182,7 @@ select extensions.is(
 select extensions.ok(
   (select bool_and(prosecdef and proconfig @> array['search_path=pg_catalog'])
    from pg_proc where oid in (
-      'public.create_health_check_room(uuid,uuid,text,text,date,uuid,bytea,bytea,integer)'::regprocedure,
+       'public.create_health_check_room(uuid,uuid,text,text,date,uuid)'::regprocedure,
       'public.join_health_check_room(uuid,text,text)'::regprocedure,
      'public.get_health_check_state(uuid)'::regprocedure,
      'public.start_health_check(uuid)'::regprocedure,
@@ -177,6 +191,11 @@ select extensions.ok(
      'public.remove_health_check_respondent(uuid,uuid)'::regprocedure,
      'public.abort_health_check(uuid)'::regprocedure,
      'public.finalize_health_check(uuid)'::regprocedure,
+      'public.get_health_check_download_status(uuid)'::regprocedure,
+      'private.materialize_health_check_download(uuid,text,bytea,bytea,integer,text)'::regprocedure,
+      'private.claim_health_check_report_job(uuid,text,interval)'::regprocedure,
+      'private.fail_health_check_report_job(uuid,text)'::regprocedure,
+      'private.get_health_check_download_package(uuid,uuid)'::regprocedure,
      'private.cleanup_expired_health_checks()'::regprocedure
    )),
   'all health RPCs are security definer with fixed pg_catalog search path'
@@ -190,6 +209,16 @@ select extensions.ok(
   not has_table_privilege('authenticated', 'public.health_check_respondents', 'SELECT')
   and has_function_privilege('authenticated', 'public.get_health_check_progress(uuid)', 'EXECUTE'),
   'member roster state is available only through the safe progress RPC'
+);
+select extensions.ok(
+  has_schema_privilege('service_role', 'private', 'USAGE')
+  and to_regclass('private.private_schema_privilege_state') is not null
+  and exists (
+    select 1 from private.private_schema_privilege_state
+     where release_name = 'enforce_session_rls_after_frontend'
+  )
+  and to_regclass('private.health_check_installation_metadata') is null,
+  'lockdown owns exact private schema privilege state and health creates no rollback metadata'
 );
 select extensions.ok(
   not has_function_privilege('authenticated', 'private.prevent_health_catalog_mutation()', 'EXECUTE')

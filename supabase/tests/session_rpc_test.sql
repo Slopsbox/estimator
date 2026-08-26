@@ -500,13 +500,11 @@ insert into public.participants (id, session_id, name, role, user_id)
 values
   ('50000000-0000-0000-0000-000000000003', '50000000-0000-0000-0000-000000000001', 'Health Fac', 'facilitator', '10000000-0000-0000-0000-000000000005');
 insert into public.health_check_sessions (
-  room_id, delivery_id, template_version, squad_name, measurement_date,
-  encrypted_facilitator_email, email_nonce, email_key_version, expires_at
+  room_id, delivery_id, template_version, squad_name, measurement_date, expires_at
 ) values (
   '50000000-0000-0000-0000-000000000001',
   '50000000-0000-0000-0000-000000000004',
   'squad-health-v1', 'Health fixture', current_date,
-  decode(repeat('ab', 32), 'hex'), decode(repeat('01', 12), 'hex'), 1,
   statement_timestamp() + interval '23 hours 55 minutes'
 );
 
@@ -540,6 +538,8 @@ select extensions.ok(
 );
 
 set local role authenticated;
+select set_config('request.jwt.claim.role', 'authenticated', true);
+select set_config('request.jwt.claim.sub', '10000000-0000-0000-0000-000000000006', true);
 insert into session_test_context (key, value)
 select 'health_restore_result', public.restore_session('50000000-0000-0000-0000-000000000001')::text;
 reset role;
@@ -556,6 +556,8 @@ select extensions.ok(
 );
 
 set local role authenticated;
+select set_config('request.jwt.claim.role', 'authenticated', true);
+select set_config('request.jwt.claim.sub', '10000000-0000-0000-0000-000000000006', true);
 select extensions.is(
   public.leave_session('50000000-0000-0000-0000-000000000001')->>'status',
   'membership_missing',

@@ -20,8 +20,8 @@ Create a fresh fixture for each case (change the final UUID digits between
 cases). The following setup creates six respondents and starts collection:
 
 ```sql
-insert into auth.users (id, aud, role, email, created_at, updated_at)
-select id, 'authenticated', 'authenticated', id::text || '@test.invalid', now(), now()
+insert into auth.users (id, aud, role, created_at, updated_at)
+select id, 'authenticated', 'authenticated', now(), now()
 from unnest(array[
   '71000000-0000-0000-0000-000000000001'::uuid,
   '71000000-0000-0000-0000-000000000002'::uuid,
@@ -36,8 +36,7 @@ set role service_role;
 select public.create_health_check_room(
   '71000000-0000-0000-0000-000000000001',
   '72000000-0000-0000-0000-000000000001', 'Facilitator', 'Concurrency',
-  current_date, '73000000-0000-0000-0000-000000000001',
-  decode(repeat('ab', 32), 'hex'), decode(repeat('01', 12), 'hex'), 1
+  current_date, '73000000-0000-0000-0000-000000000001'
 ) as created \gset
 select :'created'::jsonb->'session'->>'id' as room_id,
        :'created'::jsonb->'session'->>'join_code' as join_code \gset
@@ -89,13 +88,12 @@ Session A acquires the room lock before calling its RPC:
 
 ```sql
 begin;
-select pg_advisory_lock(90426001);
 select 1 from public.sessions where id = :'room_id'::uuid for update;
 ```
 
-Start Session B's RPC; verify it waits in `pg_stat_activity`. Release A with
-`select pg_advisory_unlock(90426001);` and then commit A. This gives an explicit
-commit order without relying on typing speed. Repeat each case with A/B reversed.
+Start Session B's RPC and verify it waits in `pg_stat_activity`, then run A's RPC
+and commit A. The shared room-row lock gives an explicit commit order without an
+unpaired advisory lock. Repeat each case with A/B reversed.
 
 ## Submit versus remove
 
@@ -185,30 +183,110 @@ commits first, abort either removes the pre-delivery room or gets SQLSTATE
 select
   (select count(*) from public.sessions where id = :'room_id'::uuid) sessions,
   (select count(*) from public.participants where session_id = :'room_id'::uuid) participants,
+  (select count(*) from public.health_check_sessions where room_id = :'room_id'::uuid) health_sessions,
   (select count(*) from public.health_check_respondents where room_id = :'room_id'::uuid) respondents,
   (select count(*) from public.health_check_question_aggregates where room_id = :'room_id'::uuid) aggregates,
   (select count(*) from public.health_check_report_jobs where source_room_id = :'room_id'::uuid) jobs;
 ```
 
+Etter vellykket materialisering skal de fem første tellerne være `0`, mens en
+separat telling på delivery-ID skal vise nøyaktig én `ready` jobb. Gjenta
+`finalize_health_check(room_id)` som fasilitator etter sletting; den skal returnere
+samme jobb. En outsider skal få `42501` / `facilitator_required`. Gjentatt abort
+etter sletting skal også få den dokumenterte generiske unavailable-feilen.
+
 ## Worker versus cleanup
 
-Create an expired fixture using `session_replication_role = replica`, including
-its outbox job. Session A locks the job row as a worker; Session B runs
-`private.cleanup_expired_health_checks()` as `service_role`. Cleanup must wait,
-then delete the job before the RESTRICT-linked room. Reverse the order and verify
-the worker finds no job.
+Use a fresh, live finalized fixture for every ordering: complete the cohort and
+finalize normally, then use `session_replication_role = replica` only to move the
+existing source and job expiry to the same instant about 20 seconds in the
+future. Restore `session_replication_role = origin`, claim while still alive as
+`service_role` with a one-minute lease, and copy the exact expiry into every
+terminal as `expires_at`. Never construct an already expired job and describe it
+as claimable. Run claim, fail, materialize and cleanup with `set local role
+service_role`; the pgTAP suite separately requires `42501` for all three worker
+mutations under `authenticated`.
+
+### Materialize holds job lock while cleanup waits
+
+In Session A, begin before expiry, lock the claimed job, and wait across expiry.
+Use a savepoint because the expected materialization error aborts its subtransaction:
 
 ```sql
-select count(*) from public.health_check_report_jobs where id = :'delivery_id'::uuid;
+begin;
+set local role service_role;
+set local lock_timeout = '30s';
+select 1 from public.health_check_report_jobs
+ where id = :'delivery_id'::uuid for update;
+select pg_sleep_until(:'expires_at'::timestamptz + interval '1 second');
+savepoint materialize_after_expiry;
+select private.materialize_health_check_download(
+  :'delivery_id'::uuid, 'expiry-race-worker',
+  decode(repeat('ab', 64), 'hex'), decode(repeat('01', 12), 'hex'),
+  1, 'expiry-race.zip'
+);
+```
+
+Materialization must get SQLSTATE `55000` / `job_expired`. Keep A open after
+`rollback to savepoint materialize_after_expiry`. Start cleanup in Session B; it
+must wait on A's job-row lock. Commit A. Cleanup must then delete the expired job
+and source room without an FK-trigger rollback.
+
+### Materialize waits on source while cleanup waits on job
+
+This ordering needs a third terminal. Session A locks the live source row and
+waits across expiry. Before expiry, Session B starts materialization: it locks the
+job and waits on A's source lock. After expiry, Session C starts cleanup and must
+wait on B's job lock. Commit A. B must get `55000` / `job_expired`; roll back B.
+Cleanup can then delete the job and source. Package fields and `materialized_at`
+must remain null throughout.
+
+### Cleanup wins
+
+With another live finalized fixture, claim while alive, wait until its recorded
+expiry, then let cleanup commit before a worker call. The later claim returns
+`false`; materialization returns `55000` / `health_check_report_job_not_claimed`.
+Both source and job counts remain zero.
+
+### Stale lease and one-run cutoff
+
+For a live, unexpired job with an expired processing lease, cleanup changes the
+job to `failed`, clears claim and lease, sets `next_attempt_at` to the run cutoff,
+and retains the room. To verify the cutoff under blocking, lock a separate expired
+sentinel job in Session A. Before starting cleanup, set a still-live target job
+and source to expire about 20 seconds in the future. Start cleanup in Session B,
+confirm it is blocked on the sentinel before the target expiry, and then wait
+until after the target's recorded expiry. After A commits, the same cleanup run
+deletes the sentinel but must leave the target job and room unchanged for the
+next run because their expiry was later than B's captured cutoff.
+
+For every ordering, verify:
+
+```sql
+select status, claimed_by, lease_expires_at, encrypted_package, materialized_at
+from public.health_check_report_jobs where id = :'delivery_id'::uuid;
 select count(*) from public.sessions where id = :'room_id'::uuid;
 ```
 
-Both counts must be zero. Also test an expired `processing` lease on an unexpired
-job: cleanup changes it to `failed`, clears claim/lease, and leaves the room.
+After deletion both counts are zero. Before deletion, no failed/expired
+materialization may populate package fields or remove the source room.
+
+## Session RPC realism blocker
+
+The focused health compatibility calls for common `join_session`,
+`restore_session` and `leave_session` run with `set local role authenticated`
+plus JWT `role` and `sub`. The older broad estimation section still changes JWT
+subjects while executing mainly as the test owner; converting that whole legacy
+fixture safely is separate work and remains a runtime-release blocker rather
+than being represented as authenticated coverage here.
+
+Docker is unavailable in the current environment, so this complete multi-session
+runtime plan remains an explicit production release blocker. It does not block a
+local source commit after static checks and non-database tests pass.
 
 ## Evidence
 
 Store both terminal transcripts, commit order, observed SQLSTATE/message and all
 invariant-query results with the release evidence. Any timeout, deadlock, orphan,
-duplicate job, partial aggregate or `pending` job without encrypted snapshot is
+duplicate job, partial aggregate or `ready` job without a complete encrypted package is
 a release blocker.

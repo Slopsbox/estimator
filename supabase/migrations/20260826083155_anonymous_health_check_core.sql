@@ -97,11 +97,19 @@ begin
 end;
 $preflight$;
 
-create schema if not exists private;
+do $private_schema_preflight$
+begin
+  if to_regnamespace('private') is null
+     or not coalesce(
+       has_schema_privilege('service_role', to_regnamespace('private'), 'USAGE'),
+       false
+     ) then
+    raise exception 'health_check_requires_private_service_role_usage' using errcode = '55000';
+  end if;
+end;
+$private_schema_preflight$;
+
 revoke all on schema private from public, anon;
--- Cleanup is an operational service endpoint in the existing shared private
--- schema. Rollback intentionally preserves this broad schema privilege.
-grant usage on schema private to service_role;
 
 create table public.health_check_templates (
   version text primary key,
@@ -138,16 +146,13 @@ create table public.health_check_sessions (
   delivery_id uuid not null unique,
   template_version text not null references public.health_check_templates(version),
   phase text not null default 'lobby'
-    check (phase in ('lobby', 'collecting', 'delivery_pending')),
+    check (phase in ('lobby', 'collecting', 'download_pending')),
   squad_name text not null check (
     squad_name = btrim(squad_name)
     and char_length(squad_name) between 1 and 80
     and squad_name !~ '[[:cntrl:]]'
   ),
   measurement_date date not null,
-  encrypted_facilitator_email bytea not null check (octet_length(encrypted_facilitator_email) > 0),
-  email_nonce bytea not null check (octet_length(email_nonce) = 12),
-  email_key_version integer not null check (email_key_version > 0),
   opened_at timestamptz,
   expires_at timestamptz not null,
   unique (room_id, template_version),
@@ -186,85 +191,83 @@ create table public.health_check_question_aggregates (
 
 create table public.health_check_report_jobs (
   id uuid primary key,
-  source_room_id uuid not null unique,
+  source_room_id uuid unique references public.health_check_sessions(room_id) on delete set null,
+  facilitator_user_id uuid not null references auth.users(id),
   aad_room_id uuid not null,
-  encrypted_recipient bytea not null check (octet_length(encrypted_recipient) > 0),
-  recipient_nonce bytea not null check (octet_length(recipient_nonce) = 12),
-  encrypted_report_snapshot bytea check (
-    encrypted_report_snapshot is null or octet_length(encrypted_report_snapshot) > 0
+  encrypted_package bytea check (
+    encrypted_package is null or octet_length(encrypted_package) > 0
   ),
-  snapshot_nonce bytea check (snapshot_nonce is null or octet_length(snapshot_nonce) = 12),
-  encrypted_pdf bytea check (encrypted_pdf is null or octet_length(encrypted_pdf) > 0),
-  encrypted_csv bytea check (encrypted_csv is null or octet_length(encrypted_csv) > 0),
-  encryption_key_version integer not null check (encryption_key_version > 0),
+  package_nonce bytea check (package_nonce is null or octet_length(package_nonce) = 12),
+  encryption_key_version integer check (
+    encryption_key_version is null or encryption_key_version > 0
+  ),
+  sanitized_filename text check (
+    sanitized_filename is null
+    or (
+      sanitized_filename = btrim(sanitized_filename)
+      and char_length(sanitized_filename) between 5 and 180
+      and sanitized_filename !~ '[[:cntrl:]/\\]'
+      and right(lower(sanitized_filename), 4) = '.zip'
+    )
+  ),
   status text not null default 'awaiting_materialization'
-    check (status in ('awaiting_materialization', 'pending', 'processing', 'sent', 'failed')),
+    check (status in ('awaiting_materialization', 'processing', 'ready', 'failed')),
   attempts integer not null default 0 check (attempts >= 0),
   next_attempt_at timestamptz not null default now(),
   claimed_by text,
   lease_expires_at timestamptz,
-  provider_message_id text unique check (
-    provider_message_id is null or char_length(btrim(provider_message_id)) > 0
-  ),
+  materialized_at timestamptz,
   expires_at timestamptz not null,
   idempotency_key text not null unique,
   created_at timestamptz not null default now(),
-  foreign key (source_room_id, id)
-    references public.health_check_sessions(room_id, delivery_id)
-    on delete restrict,
   check (
     (claimed_by is null) = (lease_expires_at is null)
   ),
   check (
-    (encrypted_report_snapshot is null and snapshot_nonce is null)
-    or (encrypted_report_snapshot is not null and snapshot_nonce is not null)
+    (encrypted_package is null and package_nonce is null
+      and encryption_key_version is null and sanitized_filename is null
+      and materialized_at is null)
+    or (encrypted_package is not null and package_nonce is not null
+      and encryption_key_version is not null and sanitized_filename is not null
+      and materialized_at is not null)
   ),
-  check (encrypted_pdf is null or encrypted_report_snapshot is not null),
-  check (encrypted_csv is null or encrypted_report_snapshot is not null),
-  check (provider_message_id is null or status = 'sent'),
   check (
     status <> 'awaiting_materialization'
     or (
-      provider_message_id is null
-      and claimed_by is null and lease_expires_at is null
-    )
-  ),
-  check (
-    status <> 'pending'
-    or (
-      encrypted_report_snapshot is not null and snapshot_nonce is not null
-      and encrypted_pdf is not null and encrypted_csv is not null
+      source_room_id is not null and encrypted_package is null
       and claimed_by is null and lease_expires_at is null
     )
   ),
   check (
     status <> 'processing'
     or (
-      encrypted_report_snapshot is not null and snapshot_nonce is not null
-      and encrypted_pdf is not null and encrypted_csv is not null
+      source_room_id is not null and encrypted_package is null
       and claimed_by is not null and lease_expires_at is not null
     )
   ),
   check (
-    status <> 'sent'
+    status <> 'failed'
     or (
-      encrypted_report_snapshot is not null and snapshot_nonce is not null
-      and encrypted_pdf is not null and encrypted_csv is not null
-      and provider_message_id is not null
+      encrypted_package is null
       and claimed_by is null and lease_expires_at is null
     )
   ),
   check (
-    status <> 'failed'
-    or (claimed_by is null and lease_expires_at is null)
+    status <> 'ready'
+    or (
+      source_room_id is null and encrypted_package is not null
+      and claimed_by is null and lease_expires_at is null
+      and expires_at > materialized_at
+      and expires_at <= materialized_at + interval '15 minutes'
+    )
   )
 );
 
 create index health_check_respondents_member_idx
   on public.health_check_respondents(member_id);
-create index health_check_report_jobs_pending_idx
+create index health_check_report_jobs_work_idx
   on public.health_check_report_jobs(status, next_attempt_at)
-  where status in ('awaiting_materialization', 'pending', 'failed');
+  where status in ('awaiting_materialization', 'failed');
 create index health_check_report_jobs_expiry_idx
   on public.health_check_report_jobs(expires_at);
 create index health_check_sessions_expiry_idx
@@ -309,8 +312,8 @@ begin
   if tg_op = 'UPDATE' and new.expires_at is distinct from old.expires_at then
     raise exception 'health_check_expiry_is_immutable' using errcode = '22023';
   end if;
-  if new.expires_at <= statement_timestamp()
-     or new.expires_at > statement_timestamp() + interval '23 hours 55 minutes' then
+  if new.expires_at <= clock_timestamp()
+     or new.expires_at > clock_timestamp() + interval '23 hours 55 minutes' then
     raise exception 'invalid_health_check_expiry' using errcode = '22023';
   end if;
   return new;
@@ -371,67 +374,65 @@ set search_path = pg_catalog
 as $function$
 declare
   v_source_expires_at timestamptz;
+  v_source_delivery_id uuid;
+  v_source_facilitator_user_id uuid;
 begin
+  if tg_op = 'UPDATE' and old.status = 'ready' and new is distinct from old then
+    raise exception 'health_check_report_job_ready_is_immutable' using errcode = '23514';
+  end if;
+
   if tg_op = 'UPDATE' and (
     new.id is distinct from old.id
-    or new.source_room_id is distinct from old.source_room_id
     or new.aad_room_id is distinct from old.aad_room_id
-    or new.encrypted_recipient is distinct from old.encrypted_recipient
-    or new.recipient_nonce is distinct from old.recipient_nonce
-    or new.encryption_key_version is distinct from old.encryption_key_version
+    or new.facilitator_user_id is distinct from old.facilitator_user_id
     or new.idempotency_key is distinct from old.idempotency_key
-    or new.expires_at is distinct from old.expires_at
     or new.created_at is distinct from old.created_at
   ) then
     raise exception 'health_check_report_job_identity_is_immutable' using errcode = '23514';
   end if;
 
   if tg_op = 'UPDATE' and not (
-    (old.status = 'awaiting_materialization' and new.status in ('awaiting_materialization', 'pending', 'failed'))
-    or (old.status = 'pending' and new.status in ('pending', 'processing', 'failed'))
-    or (old.status = 'processing' and new.status in ('processing', 'pending', 'sent', 'failed'))
-    or (old.status = 'failed' and new.status in ('failed', 'processing', 'pending'))
-    or (old.status = 'sent' and new.status = 'sent')
+    (old.status = 'awaiting_materialization' and new.status in ('awaiting_materialization', 'processing', 'failed'))
+    or (old.status = 'processing' and new.status in ('processing', 'awaiting_materialization', 'ready', 'failed'))
+    or (old.status = 'failed' and new.status in ('failed', 'processing', 'awaiting_materialization'))
+    or (old.status = 'ready' and new.status = 'ready')
   ) then
     raise exception 'health_check_report_job_transition_is_invalid' using errcode = '23514';
   end if;
-  if tg_op = 'UPDATE' and old.status = 'failed'
-     and old.expires_at <= statement_timestamp() then
+  if tg_op = 'UPDATE' and old.status in ('failed', 'awaiting_materialization')
+     and old.expires_at <= clock_timestamp() then
     raise exception 'health_check_report_job_is_expired' using errcode = '23514';
   end if;
   if tg_op = 'UPDATE' and new.attempts < old.attempts then
     raise exception 'health_check_report_job_attempts_cannot_decrease' using errcode = '23514';
   end if;
-
-  select h.expires_at into v_source_expires_at
+  select h.expires_at, h.delivery_id, s.facilitator_user_id
+    into v_source_expires_at, v_source_delivery_id, v_source_facilitator_user_id
     from public.health_check_sessions h
-   where h.room_id = new.source_room_id and h.delivery_id = new.id;
+    join public.sessions s on s.id = h.room_id
+   where h.room_id = new.source_room_id;
 
-  if new.source_room_id is distinct from new.aad_room_id
-     or v_source_expires_at is null then
-    raise exception 'health_check_report_job_source_mismatch' using errcode = '23514';
-  end if;
-  if new.expires_at is distinct from v_source_expires_at then
-    raise exception 'health_check_report_job_expiry_mismatch' using errcode = '23514';
+  if new.status <> 'ready' then
+    if new.source_room_id is distinct from new.aad_room_id
+       or v_source_expires_at is null or v_source_delivery_id is distinct from new.id
+       or v_source_facilitator_user_id is distinct from new.facilitator_user_id then
+      raise exception 'health_check_report_job_source_mismatch' using errcode = '23514';
+    end if;
+    if new.expires_at is distinct from v_source_expires_at then
+      raise exception 'health_check_report_job_expiry_mismatch' using errcode = '23514';
+    end if;
   end if;
 
   if tg_op = 'UPDATE'
-     and old.encrypted_report_snapshot is not null
+     and old.encrypted_package is not null
      and (
-       new.encrypted_report_snapshot is distinct from old.encrypted_report_snapshot
-       or new.snapshot_nonce is distinct from old.snapshot_nonce
+       new.encrypted_package is distinct from old.encrypted_package
+       or new.package_nonce is distinct from old.package_nonce
+       or new.encryption_key_version is distinct from old.encryption_key_version
+       or new.sanitized_filename is distinct from old.sanitized_filename
+       or new.materialized_at is distinct from old.materialized_at
      ) then
-    raise exception 'health_check_report_job_snapshot_is_immutable' using errcode = '23514';
-  end if;
-  if tg_op = 'UPDATE' and (
-    (old.encrypted_pdf is not null and new.encrypted_pdf is distinct from old.encrypted_pdf)
-    or (old.encrypted_csv is not null and new.encrypted_csv is distinct from old.encrypted_csv)
-  ) then
-    raise exception 'health_check_report_job_artifacts_are_immutable' using errcode = '23514';
-  end if;
-  if tg_op = 'UPDATE' and old.provider_message_id is not null
-     and new.provider_message_id is distinct from old.provider_message_id then
-    raise exception 'health_check_report_job_provider_id_is_immutable' using errcode = '23514';
+    raise exception 'health_check_report_package_is_immutable' using errcode = '23514';
   end if;
   return new;
 end;
@@ -444,7 +445,6 @@ for each row execute function private.validate_health_report_job_state();
 create or replace function private.is_session_member(p_session_id uuid)
 returns boolean
 language sql
-stable
 security definer
 set search_path = pg_catalog
 as $function$
@@ -460,7 +460,7 @@ as $function$
            s.activity_type = 'estimation'
            or exists (
              select 1 from public.health_check_sessions h
-              where h.room_id = s.id and h.expires_at > statement_timestamp()
+               where h.room_id = s.id and h.expires_at > clock_timestamp()
            )
          )
     );
@@ -469,7 +469,6 @@ $function$;
 create or replace function private.can_access_presence_topic(p_topic text)
 returns boolean
 language sql
-stable
 security definer
 set search_path = pg_catalog
 as $function$
@@ -484,7 +483,7 @@ as $function$
            s.activity_type = 'estimation'
            or exists (
              select 1 from public.health_check_sessions h
-              where h.room_id = s.id and h.expires_at > statement_timestamp()
+               where h.room_id = s.id and h.expires_at > clock_timestamp()
            )
          )
          and (
@@ -563,10 +562,7 @@ create function public.create_health_check_room(
   p_facilitator_name text,
   p_squad_name text,
   p_measurement_date date,
-  p_delivery_id uuid,
-  p_encrypted_email bytea,
-  p_nonce bytea,
-  p_key_version integer
+  p_delivery_id uuid
 )
 returns jsonb
 language plpgsql
@@ -605,7 +601,7 @@ begin
 
     select * into strict v_health
       from public.health_check_sessions where room_id = v_session.id;
-    if v_session.status <> 'active' or v_health.expires_at <= statement_timestamp() then
+    if v_session.status <> 'active' or v_health.expires_at <= clock_timestamp() then
       return jsonb_build_object('status', 'request_already_used');
     end if;
     select * into strict v_participant
@@ -652,11 +648,8 @@ begin
   if p_measurement_date is null then
     raise exception 'measurement_date_required' using errcode = '22023';
   end if;
-  if p_delivery_id is null or p_encrypted_email is null
-     or octet_length(p_encrypted_email) = 0
-     or p_nonce is null or octet_length(p_nonce) <> 12
-     or p_key_version is null or p_key_version <= 0 then
-    raise exception 'invalid_delivery_envelope' using errcode = '22023';
+  if p_delivery_id is null then
+    raise exception 'delivery_id_required' using errcode = '22023';
   end if;
 
   for v_attempt in 1..32 loop
@@ -693,12 +686,10 @@ begin
   returning * into v_participant;
 
   insert into public.health_check_sessions (
-    room_id, delivery_id, template_version, squad_name, measurement_date,
-    encrypted_facilitator_email, email_nonce, email_key_version, expires_at
+    room_id, delivery_id, template_version, squad_name, measurement_date, expires_at
   ) values (
     v_session.id, p_delivery_id, 'squad-health-v1', v_squad_name,
-    p_measurement_date, p_encrypted_email, p_nonce, p_key_version,
-    statement_timestamp() + interval '23 hours 55 minutes'
+    p_measurement_date, clock_timestamp() + interval '23 hours 55 minutes'
   ) returning * into v_health;
 
   return jsonb_build_object(
@@ -732,6 +723,7 @@ declare
   v_name text := btrim(p_name);
   v_session public.sessions%rowtype;
   v_participant public.participants%rowtype;
+  v_health public.health_check_sessions%rowtype;
 begin
   if p_user_id is null or not exists (select 1 from auth.users where id = p_user_id) then
     raise exception 'invalid_user' using errcode = '22023';
@@ -747,13 +739,17 @@ begin
     from public.sessions s
     join public.health_check_sessions h on h.room_id = s.id
    where s.join_code = v_code
-     and s.status = 'active'
-     and s.activity_type = 'health_check'
-     and h.phase = 'lobby'
-     and h.expires_at > statement_timestamp()
+      and s.status = 'active'
+      and s.activity_type = 'health_check'
+      and h.phase = 'lobby'
    for update of s;
 
   if not found then
+    return jsonb_build_object('status', 'session_not_found');
+  end if;
+  select * into strict v_health
+    from public.health_check_sessions where room_id = v_session.id;
+  if v_health.expires_at <= clock_timestamp() then
     return jsonb_build_object('status', 'session_not_found');
   end if;
   if v_session.facilitator_user_id = p_user_id or exists (
@@ -871,6 +867,7 @@ declare
   v_session public.sessions%rowtype;
   v_participant public.participants%rowtype;
   v_health_phase text;
+  v_health_expires_at timestamptz;
 begin
   if v_user_id is null then
     raise exception 'authentication_required' using errcode = '28000';
@@ -879,12 +876,9 @@ begin
   select s.* into v_session
     from public.sessions s
    where s.id = p_session_id
-     and (
-       s.activity_type = 'estimation'
-       or exists (
-         select 1 from public.health_check_sessions h
-          where h.room_id = s.id and h.expires_at > statement_timestamp()
-       )
+      and (
+        s.activity_type = 'estimation'
+        or exists (select 1 from public.health_check_sessions h where h.room_id = s.id)
      )
      and exists (
        select 1 from public.participants p
@@ -909,7 +903,7 @@ begin
                 s.activity_type = 'estimation'
                 or exists (
                   select 1 from public.health_check_sessions h
-                   where h.room_id = s.id and h.expires_at > statement_timestamp()
+                    where h.room_id = s.id and h.expires_at > clock_timestamp()
                 )
               )
          )
@@ -920,8 +914,11 @@ begin
   end if;
 
   if v_session.activity_type = 'health_check' then
-    select phase into strict v_health_phase
+    select phase, expires_at into strict v_health_phase, v_health_expires_at
       from public.health_check_sessions where room_id = p_session_id;
+    if v_health_expires_at <= clock_timestamp() then
+      return jsonb_build_object('status', 'membership_missing');
+    end if;
     if v_health_phase <> 'lobby' then
       raise exception 'health_check_leave_locked' using errcode = '42501';
     end if;
@@ -979,7 +976,7 @@ begin
        s.activity_type = 'estimation'
        or exists (
          select 1 from public.health_check_sessions h
-          where h.room_id = s.id and h.expires_at > statement_timestamp()
+           where h.room_id = s.id and h.expires_at > clock_timestamp()
        )
      );
   if not found then
@@ -1009,7 +1006,6 @@ $function$;
 create function public.get_health_check_state(p_room_id uuid)
 returns jsonb
 language plpgsql
-stable
 security definer
 set search_path = pg_catalog
 as $function$
@@ -1028,7 +1024,7 @@ begin
    where s.id = p_room_id
      and exists (
        select 1 from public.health_check_sessions h
-        where h.room_id = s.id and h.expires_at > statement_timestamp()
+         where h.room_id = s.id and h.expires_at > clock_timestamp()
      )
      and exists (
        select 1 from public.participants p
@@ -1082,12 +1078,8 @@ begin
   select s.* into v_session
     from public.sessions s
    where s.id = p_room_id
-     and s.facilitator_user_id = v_user_id
-     and exists (
-       select 1 from public.health_check_sessions h
-        where h.room_id = s.id and h.expires_at > statement_timestamp()
-     )
-     and exists (
+      and s.facilitator_user_id = v_user_id
+      and exists (
        select 1 from public.participants p
         where p.session_id = s.id and p.user_id = v_user_id
           and p.left_at is null and p.role = 'facilitator'
@@ -1100,6 +1092,9 @@ begin
     raise exception 'wrong_activity_type' using errcode = '22023';
   end if;
   select * into strict v_health from public.health_check_sessions where room_id = p_room_id;
+  if v_health.expires_at <= clock_timestamp() then
+    raise exception 'facilitator_required' using errcode = '42501';
+  end if;
   if v_health.phase <> 'lobby' or v_session.status <> 'active' then
     raise exception 'health_check_not_in_lobby' using errcode = '22023';
   end if;
@@ -1163,11 +1158,7 @@ begin
   select s.* into v_session
     from public.sessions s
    where s.id = p_room_id
-     and exists (
-       select 1 from public.health_check_sessions h
-        where h.room_id = s.id and h.expires_at > statement_timestamp()
-     )
-     and exists (
+      and exists (
        select 1 from public.participants p
         where p.session_id = s.id and p.user_id = v_user_id
           and p.left_at is null and p.role = 'participant'
@@ -1180,6 +1171,9 @@ begin
     raise exception 'wrong_activity_type' using errcode = '22023';
   end if;
   select * into strict v_health from public.health_check_sessions where room_id = p_room_id;
+  if v_health.expires_at <= clock_timestamp() then
+    raise exception 'respondent_required' using errcode = '42501';
+  end if;
   if v_health.phase <> 'collecting' or v_session.status <> 'active' then
     raise exception 'health_check_not_collecting' using errcode = '22023';
   end if;
@@ -1234,7 +1228,6 @@ $function$;
 create function public.get_health_check_progress(p_room_id uuid)
 returns jsonb
 language plpgsql
-stable
 security definer
 set search_path = pg_catalog
 as $function$
@@ -1252,7 +1245,7 @@ begin
    where s.id = p_room_id and s.facilitator_user_id = v_user_id
      and exists (
        select 1 from public.health_check_sessions h
-        where h.room_id = s.id and h.expires_at > statement_timestamp()
+         where h.room_id = s.id and h.expires_at > clock_timestamp()
      )
   ) then
     raise exception 'facilitator_required' using errcode = '42501';
@@ -1292,11 +1285,7 @@ begin
   select s.* into v_session
     from public.sessions s
    where s.id = p_room_id and s.facilitator_user_id = v_user_id
-     and exists (
-       select 1 from public.health_check_sessions h
-        where h.room_id = s.id and h.expires_at > statement_timestamp()
-     )
-     and exists (
+      and exists (
        select 1 from public.participants p where p.session_id = s.id
         and p.user_id = v_user_id and p.left_at is null and p.role = 'facilitator'
      )
@@ -1308,7 +1297,10 @@ begin
     raise exception 'wrong_activity_type' using errcode = '22023';
   end if;
   select * into strict v_health from public.health_check_sessions where room_id = p_room_id;
-  if v_health.phase = 'delivery_pending' then
+  if v_health.expires_at <= clock_timestamp() then
+    raise exception 'facilitator_required' using errcode = '42501';
+  end if;
+  if v_health.phase = 'download_pending' then
     raise exception 'health_check_removal_locked' using errcode = '22023';
   end if;
 
@@ -1345,17 +1337,15 @@ declare
   v_user_id uuid := auth.uid();
   v_session public.sessions%rowtype;
   v_phase text;
+  v_expires_at timestamptz;
 begin
   if v_user_id is null then
     raise exception 'authentication_required' using errcode = '28000';
   end if;
+
   select s.* into v_session from public.sessions s
    where s.id = p_room_id and s.facilitator_user_id = v_user_id
-     and exists (
-       select 1 from public.health_check_sessions h
-        where h.room_id = s.id and h.expires_at > statement_timestamp()
-     )
-     and exists (
+      and exists (
        select 1 from public.participants p where p.session_id = s.id
         and p.user_id = v_user_id and p.left_at is null and p.role = 'facilitator'
      )
@@ -1366,8 +1356,12 @@ begin
   if v_session.activity_type <> 'health_check' then
     raise exception 'wrong_activity_type' using errcode = '22023';
   end if;
-  select phase into strict v_phase from public.health_check_sessions where room_id = p_room_id;
-  if v_phase = 'delivery_pending' then
+  select phase, expires_at into strict v_phase, v_expires_at
+    from public.health_check_sessions where room_id = p_room_id;
+  if v_expires_at <= clock_timestamp() then
+    raise exception 'facilitator_required' using errcode = '42501';
+  end if;
+  if v_phase = 'download_pending' then
     raise exception 'health_check_abort_locked' using errcode = '22023';
   end if;
   delete from public.sessions where id = p_room_id;
@@ -1392,17 +1386,32 @@ declare
   v_max_count integer;
   v_job public.health_check_report_jobs%rowtype;
   v_finalize_required boolean := true;
+  v_checked_at timestamptz;
 begin
   if v_user_id is null then
     raise exception 'authentication_required' using errcode = '28000';
   end if;
+
+  select * into v_job
+    from public.health_check_report_jobs
+   where aad_room_id = p_room_id
+     and facilitator_user_id = v_user_id
+     and status in ('awaiting_materialization', 'processing', 'ready', 'failed')
+   order by created_at desc
+   limit 1;
+  if found then
+    return jsonb_build_object(
+      'status', 'download_pending', 'job_id', v_job.id,
+      'job_status', case
+        when v_job.expires_at <= clock_timestamp() then 'expired'
+        else v_job.status
+      end
+    );
+  end if;
+
   select s.* into v_session from public.sessions s
    where s.id = p_room_id and s.facilitator_user_id = v_user_id
-     and exists (
-       select 1 from public.health_check_sessions h
-        where h.room_id = s.id and h.expires_at > statement_timestamp()
-     )
-     and exists (
+      and exists (
        select 1 from public.participants p where p.session_id = s.id
         and p.user_id = v_user_id and p.left_at is null and p.role = 'facilitator'
      )
@@ -1414,7 +1423,11 @@ begin
     raise exception 'wrong_activity_type' using errcode = '22023';
   end if;
   select * into strict v_health from public.health_check_sessions where room_id = p_room_id;
-  if v_health.phase = 'delivery_pending' then
+  v_checked_at := clock_timestamp();
+  if v_health.expires_at <= v_checked_at then
+    raise exception 'facilitator_required' using errcode = '42501';
+  end if;
+  if v_health.phase = 'download_pending' then
     v_finalize_required := false;
   end if;
   if v_finalize_required
@@ -1448,13 +1461,12 @@ begin
     end if;
 
     insert into public.health_check_report_jobs (
-      id, source_room_id, aad_room_id, encrypted_recipient, recipient_nonce,
-      encryption_key_version, status, next_attempt_at, expires_at, idempotency_key
+      id, source_room_id, facilitator_user_id, aad_room_id,
+      status, next_attempt_at, expires_at, idempotency_key
     ) values (
-      v_health.delivery_id, p_room_id, p_room_id,
-      v_health.encrypted_facilitator_email, v_health.email_nonce,
-      v_health.email_key_version, 'awaiting_materialization',
-      statement_timestamp(), v_health.expires_at,
+      v_health.delivery_id, p_room_id, v_user_id, p_room_id,
+      'awaiting_materialization',
+      v_checked_at, v_health.expires_at,
       'health-check:' || v_health.delivery_id::text
     ) on conflict do nothing;
   end if;
@@ -1466,25 +1478,241 @@ begin
      or v_job.id is distinct from v_health.delivery_id
      or v_job.source_room_id is distinct from p_room_id
      or v_job.aad_room_id is distinct from p_room_id
-     or v_job.encrypted_recipient is distinct from v_health.encrypted_facilitator_email
-     or v_job.recipient_nonce is distinct from v_health.email_nonce
-     or v_job.encryption_key_version is distinct from v_health.email_key_version
+     or v_job.facilitator_user_id is distinct from v_user_id
      or v_job.expires_at is distinct from v_health.expires_at
      or v_job.idempotency_key is distinct from 'health-check:' || v_health.delivery_id::text
-     or v_job.status not in ('awaiting_materialization', 'pending', 'processing', 'sent', 'failed') then
+     or v_job.status not in ('awaiting_materialization', 'processing', 'ready', 'failed') then
     raise exception 'health_check_report_job_invariant';
   end if;
 
   if v_finalize_required then
-    update public.health_check_sessions set phase = 'delivery_pending' where room_id = p_room_id;
+    update public.health_check_sessions set phase = 'download_pending' where room_id = p_room_id;
     update public.sessions set status = 'completed' where id = p_room_id;
   end if;
   return jsonb_build_object(
-    'status', 'delivery_pending', 'job_id', v_health.delivery_id,
+    'status', 'download_pending', 'job_id', v_health.delivery_id,
     'job_status', v_job.status
   );
 end;
 $function$;
+
+create function public.get_health_check_download_status(p_job_id uuid)
+returns jsonb
+language plpgsql
+security definer
+set search_path = pg_catalog
+as $function$
+declare
+  v_user_id uuid := auth.uid();
+  v_job public.health_check_report_jobs%rowtype;
+begin
+  if v_user_id is null then
+    raise exception 'authentication_required' using errcode = '28000';
+  end if;
+  select * into v_job from public.health_check_report_jobs
+   where id = p_job_id and facilitator_user_id = v_user_id;
+  if not found then
+    raise exception 'download_not_found' using errcode = '42501';
+  end if;
+  if v_job.expires_at <= clock_timestamp() then
+    return jsonb_build_object('status', 'expired', 'filename', null);
+  end if;
+  return jsonb_build_object(
+    'status', case
+      when v_job.status = 'awaiting_materialization' then 'awaiting_materialization'
+      else v_job.status
+    end,
+    'filename', case when v_job.status = 'ready' then v_job.sanitized_filename else null end
+  );
+end;
+$function$;
+
+create function private.materialize_health_check_download(
+  p_job_id uuid,
+  p_worker_id text,
+  p_encrypted_package bytea,
+  p_nonce bytea,
+  p_key_version integer,
+  p_filename text
+)
+returns void
+language plpgsql
+security definer
+set search_path = pg_catalog
+as $function$
+declare
+  v_job public.health_check_report_jobs%rowtype;
+  v_checked_at timestamptz;
+  v_source_expires_at timestamptz;
+begin
+  select * into v_job from public.health_check_report_jobs
+   where id = p_job_id for update;
+  v_checked_at := clock_timestamp();
+  if p_worker_id is null or btrim(p_worker_id) = ''
+     or not found or v_job.status <> 'processing'
+     or v_job.claimed_by <> btrim(p_worker_id)
+     or v_job.claimed_by is null or v_job.lease_expires_at <= v_checked_at then
+    raise exception 'health_check_report_job_not_claimed' using errcode = '55000';
+  end if;
+
+  select h.expires_at into v_source_expires_at
+    from public.health_check_sessions h
+   where h.room_id = v_job.source_room_id
+   for update;
+  v_checked_at := clock_timestamp();
+  if v_job.status <> 'processing'
+     or v_job.claimed_by <> btrim(p_worker_id)
+     or v_job.lease_expires_at <= v_checked_at then
+    raise exception 'health_check_report_job_not_claimed' using errcode = '55000';
+  end if;
+  if v_job.expires_at <= v_checked_at
+     or v_source_expires_at is null
+     or v_source_expires_at <= v_checked_at then
+    raise exception 'job_expired' using errcode = '55000';
+  end if;
+
+  if p_encrypted_package is null or octet_length(p_encrypted_package) = 0
+     or p_nonce is null or octet_length(p_nonce) <> 12
+     or p_key_version is null or p_key_version <= 0
+     or p_filename is null or p_filename <> btrim(p_filename)
+     or char_length(p_filename) not between 5 and 180
+     or p_filename ~ '[[:cntrl:]/\\]'
+     or right(lower(p_filename), 4) <> '.zip' then
+    raise exception 'invalid_health_check_download_package' using errcode = '22023';
+  end if;
+
+  v_checked_at := clock_timestamp();
+  if v_job.lease_expires_at <= v_checked_at then
+    raise exception 'health_check_report_job_not_claimed' using errcode = '55000';
+  end if;
+  if v_job.expires_at <= v_checked_at
+     or v_source_expires_at <= v_checked_at then
+    raise exception 'job_expired' using errcode = '55000';
+  end if;
+
+  update public.health_check_report_jobs set
+    source_room_id = null,
+    encrypted_package = p_encrypted_package,
+    package_nonce = p_nonce,
+    encryption_key_version = p_key_version,
+    sanitized_filename = p_filename,
+    status = 'ready',
+    claimed_by = null,
+    lease_expires_at = null,
+    materialized_at = v_checked_at,
+    expires_at = least(v_checked_at + interval '15 minutes', v_source_expires_at)
+  where id = p_job_id
+    and status = 'processing'
+    and claimed_by = btrim(p_worker_id)
+    and lease_expires_at > v_checked_at
+    and expires_at > v_checked_at;
+  if not found then
+    raise exception 'health_check_report_job_not_claimed' using errcode = '55000';
+  end if;
+
+  delete from public.sessions where id = v_job.source_room_id;
+  if not found then
+    raise exception 'health_check_source_room_missing' using errcode = '55000';
+  end if;
+end;
+$function$;
+
+create function private.claim_health_check_report_job(
+  p_job_id uuid,
+  p_worker_id text,
+  p_lease interval
+)
+returns boolean
+language plpgsql
+security definer
+set search_path = pg_catalog
+as $function$
+declare
+  v_job public.health_check_report_jobs%rowtype;
+  v_checked_at timestamptz;
+begin
+  if p_worker_id is null or btrim(p_worker_id) = ''
+     or p_lease is null or p_lease <= interval '0 seconds'
+     or p_lease > interval '5 minutes' then
+    raise exception 'invalid_health_check_report_claim' using errcode = '22023';
+  end if;
+  select * into v_job from public.health_check_report_jobs
+   where id = p_job_id for update;
+  if not found then
+    return false;
+  end if;
+  v_checked_at := clock_timestamp();
+  if v_job.status not in ('awaiting_materialization', 'failed')
+     or v_job.next_attempt_at > v_checked_at
+     or v_job.expires_at <= v_checked_at then
+    return false;
+  end if;
+
+  update public.health_check_report_jobs set
+    status = 'processing', attempts = attempts + 1,
+    claimed_by = btrim(p_worker_id),
+    lease_expires_at = v_checked_at + p_lease
+  where id = p_job_id;
+  return true;
+end;
+$function$;
+
+create function private.fail_health_check_report_job(p_job_id uuid, p_worker_id text)
+returns boolean
+language plpgsql
+security definer
+set search_path = pg_catalog
+as $function$
+declare
+  v_job public.health_check_report_jobs%rowtype;
+  v_checked_at timestamptz;
+begin
+  if p_worker_id is null or btrim(p_worker_id) = '' then
+    raise exception 'invalid_health_check_report_worker' using errcode = '22023';
+  end if;
+  select * into v_job from public.health_check_report_jobs
+   where id = p_job_id for update;
+  if not found then
+    return false;
+  end if;
+  v_checked_at := clock_timestamp();
+  if v_job.status <> 'processing'
+     or v_job.claimed_by <> btrim(p_worker_id)
+     or v_job.expires_at <= v_checked_at then
+    return false;
+  end if;
+
+  update public.health_check_report_jobs set
+    status = 'failed', claimed_by = null, lease_expires_at = null,
+    next_attempt_at = v_checked_at
+  where id = p_job_id;
+  return true;
+end;
+$function$;
+
+create function private.get_health_check_download_package(p_job_id uuid, p_user_id uuid)
+returns table (
+  encrypted_package bytea,
+  package_nonce bytea,
+  encryption_key_version integer,
+  sanitized_filename text,
+  aad_room_id uuid
+)
+language sql
+security definer
+set search_path = pg_catalog
+as $function$
+  select j.encrypted_package, j.package_nonce, j.encryption_key_version,
+         j.sanitized_filename, j.aad_room_id
+    from public.health_check_report_jobs j
+   where j.id = p_job_id
+     and p_user_id is not null
+     and j.facilitator_user_id = p_user_id
+     and j.status = 'ready'
+     and j.expires_at > clock_timestamp();
+$function$;
+
+revoke all on function private.get_health_check_download_package(uuid, uuid) from public, anon, authenticated, service_role;
 
 create function private.cleanup_expired_health_checks()
 returns void
@@ -1492,25 +1720,27 @@ language plpgsql
 security definer
 set search_path = pg_catalog
 as $function$
+declare
+  v_cleanup_at timestamptz := clock_timestamp();
 begin
   delete from public.health_check_report_jobs
-   where expires_at <= statement_timestamp()
+   where expires_at <= v_cleanup_at
       or exists (
         select 1 from public.health_check_sessions h
          where h.room_id = health_check_report_jobs.source_room_id
-           and h.expires_at <= statement_timestamp()
+            and h.expires_at <= v_cleanup_at
       );
 
   update public.health_check_report_jobs
      set status = 'failed', claimed_by = null, lease_expires_at = null,
-         next_attempt_at = statement_timestamp()
+          next_attempt_at = v_cleanup_at
    where status = 'processing'
-     and lease_expires_at <= statement_timestamp()
-     and expires_at > statement_timestamp();
+     and lease_expires_at <= v_cleanup_at
+     and expires_at > v_cleanup_at;
 
   delete from public.sessions s
-   using public.health_check_sessions h
-   where h.room_id = s.id and h.expires_at <= statement_timestamp();
+    using public.health_check_sessions h
+    where h.room_id = s.id and h.expires_at <= v_cleanup_at;
 end;
 $function$;
 
@@ -1527,7 +1757,11 @@ grant select on table public.health_check_areas to service_role;
 grant select on table public.health_check_questions to service_role;
 grant select on table public.health_check_sessions to service_role;
 grant select on table public.health_check_question_aggregates to service_role;
-grant select, update, delete on table public.health_check_report_jobs to service_role;
+grant select (
+  id, source_room_id, aad_room_id, status, attempts,
+  next_attempt_at, claimed_by, lease_expires_at, materialized_at, expires_at,
+  idempotency_key, created_at
+) on table public.health_check_report_jobs to service_role;
 
 revoke execute on function private.prevent_health_catalog_mutation() from public, anon, authenticated;
 revoke execute on function private.validate_health_check_expiry() from public, anon, authenticated;
@@ -1535,9 +1769,13 @@ revoke execute on function private.validate_health_check_room_type() from public
 revoke execute on function private.prevent_health_check_room_type_change() from public, anon, authenticated;
 revoke execute on function private.validate_health_report_job_state() from public, anon, authenticated, service_role;
 revoke execute on function private.cleanup_expired_health_checks() from public, anon, authenticated;
+revoke execute on function private.claim_health_check_report_job(uuid, text, interval) from public, anon, authenticated;
+revoke execute on function private.fail_health_check_report_job(uuid, text) from public, anon, authenticated;
+revoke execute on function private.materialize_health_check_download(uuid, text, bytea, bytea, integer, text) from public, anon, authenticated;
+revoke execute on function private.get_health_check_download_package(uuid, uuid) from public, anon, authenticated;
 revoke execute on function private.is_session_member(uuid) from public, anon, authenticated;
 revoke execute on function private.can_access_presence_topic(text) from public, anon, authenticated;
-revoke execute on function public.create_health_check_room(uuid, uuid, text, text, date, uuid, bytea, bytea, integer) from public, anon, authenticated;
+revoke execute on function public.create_health_check_room(uuid, uuid, text, text, date, uuid) from public, anon, authenticated;
 revoke execute on function public.join_health_check_room(uuid, text, text) from public, anon, authenticated;
 revoke execute on function public.get_health_check_state(uuid) from public, anon;
 revoke execute on function public.start_health_check(uuid) from public, anon;
@@ -1546,11 +1784,16 @@ revoke execute on function public.get_health_check_progress(uuid) from public, a
 revoke execute on function public.remove_health_check_respondent(uuid, uuid) from public, anon;
 revoke execute on function public.abort_health_check(uuid) from public, anon;
 revoke execute on function public.finalize_health_check(uuid) from public, anon;
+revoke execute on function public.get_health_check_download_status(uuid) from public, anon;
 
 grant execute on function private.cleanup_expired_health_checks() to service_role;
+grant execute on function private.claim_health_check_report_job(uuid, text, interval) to service_role;
+grant execute on function private.fail_health_check_report_job(uuid, text) to service_role;
+grant execute on function private.materialize_health_check_download(uuid, text, bytea, bytea, integer, text) to service_role;
+grant execute on function private.get_health_check_download_package(uuid, uuid) to service_role;
 grant execute on function private.is_session_member(uuid) to authenticated;
 grant execute on function private.can_access_presence_topic(text) to authenticated;
-grant execute on function public.create_health_check_room(uuid, uuid, text, text, date, uuid, bytea, bytea, integer) to service_role;
+grant execute on function public.create_health_check_room(uuid, uuid, text, text, date, uuid) to service_role;
 grant execute on function public.join_health_check_room(uuid, text, text) to service_role;
 grant execute on function public.get_health_check_state(uuid) to authenticated;
 grant execute on function public.start_health_check(uuid) to authenticated;
@@ -1559,6 +1802,7 @@ grant execute on function public.get_health_check_progress(uuid) to authenticate
 grant execute on function public.remove_health_check_respondent(uuid, uuid) to authenticated;
 grant execute on function public.abort_health_check(uuid) to authenticated;
 grant execute on function public.finalize_health_check(uuid) to authenticated;
+grant execute on function public.get_health_check_download_status(uuid) to authenticated;
 
 -- Reassert the complete common RPC privilege contract after replacing these
 -- definitions; function replacement preserves ACLs, but explicit grants make

@@ -4,7 +4,6 @@ export interface CreateHealthCheckRoomInput {
   readonly facilitatorName: string;
   readonly squadName: string;
   readonly measurementDate: string;
-  readonly email: string;
   readonly turnstileToken: string;
 }
 
@@ -54,4 +53,8 @@ export interface HealthCheckGateway {
   joinHealthCheckRoom(
     input: JoinHealthCheckRoomInput,
   ): Promise<HealthCheckGatewayResult<HealthCheckGatewaySnapshot, JoinHealthCheckRoomFailureReason>>;
+}
+
+export interface HealthCheckDownloadGateway {
+  requestDownload(jobId: string): Promise<HealthCheckGatewayResult<void, HealthCheckFailureReason>>;
 }

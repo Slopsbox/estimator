@@ -1,14 +1,16 @@
 -- MANUAL ROLLBACK STEPS (not performed by this SQL file):
--- 1. If estimation_activity_type_foundation is applied, first run
+-- 1. If anonymous_health_check_core is applied, first run its cleanup-monitoring
+--    rollback (when present) and rollback_anonymous_health_check_core.sql.
+-- 2. If estimation_activity_type_foundation is applied, first run
 --    rollback_activity_type_foundation.sql and verify it committed successfully.
--- 2. Run this file in a maintenance window with application traffic stopped.
+-- 3. Run this file in a maintenance window with application traffic stopped.
 --    The script takes ACCESS EXCLUSIVE locks and aborts rather than deleting or
 --    overwriting rows created or changed after the cutover.
--- 3. After this transaction succeeds, enable Realtime Settings >
+-- 4. After this transaction succeeds, enable Realtime Settings >
 --    "Allow public access" in the Supabase Dashboard for the legacy frontend.
 --    Dashboard Realtime settings cannot be changed safely from SQL.
--- 4. Redeploy the legacy Vercel deployment fd5c462 before reopening traffic.
--- 5. If migration 20260825111134 is registered as applied, mark only its
+-- 5. Redeploy the legacy Vercel deployment fd5c462 before reopening traffic.
+-- 6. If migration 20260825111134 is registered as applied, mark only its
 --    migration-history entry reverted after this SQL succeeds (do not re-run
 --    this command blindly):
 --      supabase migration repair 20260825111134 --status reverted --linked
@@ -40,6 +42,12 @@ declare
   v_new_participants bigint;
   v_new_votes bigint;
 begin
+  if to_regclass('public.health_check_sessions') is not null
+     or to_regclass('public.health_check_report_jobs') is not null then
+    raise exception
+      'Rollback aborted: rollback anonymous_health_check_core before session integrity';
+  end if;
+
   if to_regnamespace('rollback_20260825_session_integrity') is null then
     raise exception
       'Rollback aborted: backup schema rollback_20260825_session_integrity is missing';
@@ -258,6 +266,36 @@ begin
   end if;
 end;
 $drop_optional_policies$;
+
+-- Restore only private-schema USAGE introduced by the lockdown release.
+do $restore_private_schema_usage$
+declare
+  v_authenticated_had_usage boolean;
+  v_service_role_had_usage boolean;
+begin
+  if to_regclass('private.private_schema_privilege_state') is not null then
+    select authenticated_had_usage, service_role_had_usage
+      into v_authenticated_had_usage, v_service_role_had_usage
+      from private.private_schema_privilege_state
+     where release_name = 'enforce_session_rls_after_frontend';
+
+    if found then
+      if not v_authenticated_had_usage then
+        revoke usage on schema private from authenticated;
+      end if;
+      if not v_service_role_had_usage then
+        revoke usage on schema private from service_role;
+      end if;
+
+      delete from private.private_schema_privilege_state
+       where release_name = 'enforce_session_rls_after_frontend';
+      if not exists (select 1 from private.private_schema_privilege_state) then
+        drop table private.private_schema_privilege_state;
+      end if;
+    end if;
+  end if;
+end;
+$restore_private_schema_usage$;
 
 -- Drop the additive RPC API while all referenced tables and columns still exist.
 drop function if exists public.create_session(uuid, text);

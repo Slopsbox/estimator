@@ -1,14 +1,14 @@
 export type { HealthCheckResponseMap } from '../domain';
 
-export type HealthCheckPhase = 'lobby' | 'collecting' | 'delivery_pending';
+export type HealthCheckPhase = 'lobby' | 'collecting' | 'download_pending';
 export type HealthCheckRole = 'facilitator' | 'participant';
 export type HealthCheckRespondentState = 'in_progress' | 'completed';
 export type HealthCheckJobStatus =
   | 'awaiting_materialization'
-  | 'pending'
   | 'processing'
-  | 'sent'
+  | 'ready'
   | 'failed';
+export type HealthCheckDownloadStatus = HealthCheckJobStatus | 'expired';
 
 export type HealthCheckFailureReason =
   | 'identity'
@@ -56,9 +56,14 @@ export interface AbortHealthCheckResult {
 }
 
 export interface FinalizeHealthCheckResult {
-  readonly status: 'delivery_pending';
+  readonly status: 'download_pending';
   readonly jobId: string;
-  readonly jobStatus: HealthCheckJobStatus;
+  readonly jobStatus: HealthCheckDownloadStatus;
+}
+
+export interface HealthCheckDownloadStatusResult {
+  readonly status: HealthCheckDownloadStatus;
+  readonly filename: string | null;
 }
 
 export interface HealthCheckRpcMap {
@@ -82,6 +87,9 @@ export interface HealthCheckRpcMap {
   };
   readonly finalize_health_check: {
     readonly args: { readonly p_room_id: string };
+  };
+  readonly get_health_check_download_status: {
+    readonly args: { readonly p_job_id: string };
   };
 }
 

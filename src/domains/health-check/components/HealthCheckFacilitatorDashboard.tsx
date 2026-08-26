@@ -11,10 +11,10 @@ export interface HealthCheckProgressRow {
 
 export type HealthCheckDeliveryStatus =
   | 'awaiting_materialization'
-  | 'pending'
   | 'processing'
-  | 'sent'
-  | 'failed';
+  | 'ready'
+  | 'failed'
+  | 'expired';
 
 export interface HealthCheckFacilitatorDashboardProps {
   readonly squadName: string;
@@ -26,6 +26,7 @@ export interface HealthCheckFacilitatorDashboardProps {
   readonly onRemoveInProgress: (memberId: string) => void;
   readonly onFinalize: () => void;
   readonly onAbort: () => void;
+  readonly onDownload: () => void;
   readonly confirmRemove?: (row: HealthCheckProgressRow) => boolean;
   readonly confirmAbort?: () => boolean;
   readonly confirmFinalize?: () => boolean;
@@ -33,10 +34,10 @@ export interface HealthCheckFacilitatorDashboardProps {
 
 const deliveryStatusLabels: Record<HealthCheckDeliveryStatus, string> = {
   awaiting_materialization: 'Rapport klargjøres…',
-  pending: 'Rapport venter på utsending…',
-  processing: 'Rapport sendes…',
-  sent: 'Rapport sendt',
-  failed: 'Rapport kunne ikke sendes',
+  processing: 'Rapport klargjøres…',
+  ready: 'Rapport klar for nedlasting',
+  failed: 'Rapporten kunne ikke klargjøres',
+  expired: 'Nedlastingsvinduet er utløpt',
 };
 
 const actionClassName =
@@ -52,9 +53,10 @@ export function HealthCheckFacilitatorDashboard({
   onRemoveInProgress,
   onFinalize,
   onAbort,
+  onDownload,
   confirmRemove = (row) => window.confirm(`Vil du fjerne ${row.displayName} fra helsesjekken?`),
   confirmAbort = () => window.confirm('Vil du avbryte helsesjekken?'),
-  confirmFinalize = () => window.confirm('Vil du avslutte helsesjekken og sende rapporten? Dette kan ikke angres.'),
+  confirmFinalize = () => window.confirm('Vil du avslutte helsesjekken og klargjøre rapporten? Dette kan ikke angres.'),
 }: HealthCheckFacilitatorDashboardProps) {
   const enforcedMinimum = Math.max(5, minimum);
   const completedCount = progressRows.filter((row) => row.status === 'completed').length;
@@ -110,12 +112,25 @@ export function HealthCheckFacilitatorDashboard({
               className="mt-1 text-sm"
               style={{ color: deliveryStatus === 'failed' ? 'var(--color-danger)' : 'var(--color-neutral-500)' }}
             >
-              {deliveryStatus === 'sent'
-                ? 'Rapporten er sendt, og helsesjekken er avsluttet.'
+              {deliveryStatus === 'ready'
+                ? 'ZIP-filen kan lastes ned i inntil 15 minutter. Den nedlastede filen blir liggende på enheten og er ditt ansvar.'
+                : deliveryStatus === 'expired'
+                  ? 'Nedlastingsvinduet er utløpt, og rapporten kan ikke lenger lastes ned. Pakken slettes av planlagt opprydding.'
                 : deliveryStatus === 'failed'
-                  ? 'Rapporten kunne ikke sendes. Systemet prøver igjen innen lagringstiden utløper.'
-                  : 'Ingen handlinger er tilgjengelige mens rapporten behandles.'}
+                    ? 'Rapporten kunne ikke klargjøres. Et nytt forsøk skjer automatisk så lenge rommets lagringstid gjelder.'
+                    : 'Ingen handlinger er tilgjengelige mens rapporten behandles.'}
             </p>
+            {deliveryStatus === 'ready' ? (
+              <button
+                type="button"
+                disabled={actionLoading}
+                onClick={onDownload}
+                className={`${actionClassName} mt-4 text-white`}
+                style={{ background: 'var(--color-red-600)' }}
+              >
+                Last ned resultat
+              </button>
+            ) : null}
           </section>
         ) : null}
 

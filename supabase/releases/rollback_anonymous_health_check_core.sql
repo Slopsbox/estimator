@@ -4,6 +4,8 @@
 -- approved maintenance procedure first.
 -- After this SQL succeeds, repair only this migration-history entry:
 --   supabase migration repair 20260826083155 --status reverted --linked
+-- private schema USAGE is lockdown-release-owned; this rollback neither revokes
+-- nor otherwise changes service_role's schema privilege or ownership metadata.
 begin;
 
 set local lock_timeout = '30s';
@@ -24,9 +26,9 @@ lock table public.sessions in access exclusive mode;
 do $preflight$
 begin
   if exists (
-    select 1 from public.health_check_report_jobs where status in ('processing', 'sent')
+    select 1 from public.health_check_report_jobs where status in ('processing', 'ready')
   ) then
-    raise exception 'Rollback aborted: processing or sent health report jobs exist';
+    raise exception 'Rollback aborted: processing or ready health report jobs exist';
   end if;
   if exists (select 1 from public.health_check_report_jobs) then
     raise exception 'Rollback aborted: health report jobs exist';
@@ -53,6 +55,11 @@ end;
 $unschedule$;
 
 drop function public.finalize_health_check(uuid);
+drop function public.get_health_check_download_status(uuid);
+drop function private.claim_health_check_report_job(uuid, text, interval);
+drop function private.fail_health_check_report_job(uuid, text);
+drop function private.materialize_health_check_download(uuid, text, bytea, bytea, integer, text);
+drop function private.get_health_check_download_package(uuid, uuid);
 drop function public.abort_health_check(uuid);
 drop function public.remove_health_check_respondent(uuid, uuid);
 drop function public.get_health_check_progress(uuid);
@@ -60,7 +67,7 @@ drop function public.submit_health_check(uuid, smallint[]);
 drop function public.start_health_check(uuid);
 drop function public.get_health_check_state(uuid);
 drop function public.join_health_check_room(uuid, text, text);
-drop function public.create_health_check_room(uuid, uuid, text, text, date, uuid, bytea, bytea, integer);
+drop function public.create_health_check_room(uuid, uuid, text, text, date, uuid);
 
 -- Restore the common membership RPC definitions from
 -- 20260825140936_estimation_activity_type_foundation.sql.

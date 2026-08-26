@@ -2,148 +2,118 @@
 
 ## Premiss
 
-Arbeidet leveres i små, testbare steg. Produksjonsfunksjonen holdes deaktivert
-bak et eksplisitt feature flag til e-postleverandør, RLS, cleanup og full
-ende-til-ende-test er godkjent.
+Arbeidet leveres lokalt i testbare steg og holdes deaktivert til RLS, cleanup,
+worker, download-endpoint og ende-til-ende-test er godkjent. Ingen rapportpakke
+lagres av appen i browseren. Den eksplisitt nedlastede ZIP-en på device er
+fasilitatorens ansvar.
 
-## Steg 1 – Skill romplattform fra estimeringsdomene
+## Leverte foundations
 
-- innfør autoritativ `activity_type`
-- bruk expand/contract med default/backfill `estimation`, pointer-versjonering,
-  kompatibel frontend og eksplisitt rollback; aktive estimeringssesjoner skal
-  ikke avsluttes eller konverteres
-- oppdater session-pointer og routing
-- trekk Auth, membership, lobby og Presence ut av `SessionProvider`
-- flytt estimeringsoperasjoner til `EstimationService/Provider`
-- behold eksisterende estimeringsruter som redirects
-- bevis med eksisterende tester at Estimat oppfører seg identisk
-- produksjonsrekkefølge: deploy kompatibel frontend `d58f3c8`, kjør
-  `estimation_activity_type_foundation`, deploy deretter strict frontend
-- rollbackrekkefølge: kjør `rollback_activity_type_foundation.sql` før eventuell
-  bredere session-integrity rollback
+1. Felles romplattform har autoritativ `activity_type`, medlems-RLS og separate
+   health-RPC-er.
+2. Immutable v1-katalog har syv områder og 31 spørsmål.
+3. Live-modellen har frosset respondentkohort, kun aggregater, minimum fem,
+   komplett submit og 23t55m failsafe-retensjon.
+4. Rapportjobben er refaktorert til owner-bound device-download:
+   `awaiting_materialization | processing | ready | failed`, nullable
+   `source_room_id`, write-once AES-GCM-pakke og opptil 15 minutter retry etter
+   materialisering, aldri forbi opprinnelig romutløp.
+5. Private claim/fail/materialize/package-funksjoner håndhever minst privilegium.
+   Materialisering og sletting av live-data skjer atomisk.
+6. Frontendkontrakten har statuspolling, `HealthCheckDownloadGateway` og klar
+   nedlastingsknapp uten transport- eller browserlagringsimplementasjon.
 
-**Commitpunkt:** `refactor: separate room and estimation domains`
+## Neste steg
 
-## Steg 2 – Fast og versjonert helsesjekkmal
+### Serververifisert inngang
 
-- legg inn katalog med syv områder og 31 stabile question keys
-- bruk den foreslåtte katalogen i `docs/product/squad-health-template-v1.md`
-- legg til immutable template-versjon
-- bygg rene typer og validering
-- test rekkefølge, antall, unike nøkler og områdetilknytning
-
-**Commitpunkt:** `feat: add versioned squad health template`
-
-## Steg 3 – Datamodell, RPC og RLS
-
-**Implementeringsstatus 2026-08-26:** Første lokale backend-slice er lagt i
-`20260826083155_anonymous_health_check_core.sql` med pgTAP-kontrakter for RPC og
-RLS. Runtime SQL og reelle samtidighetsløp gjenstår fordi Docker ikke er
-tilgjengelig i implementeringsmiljøet. Se
-`docs/plans/health-check-concurrency-tests.md`. Cleanup-funksjonen er med, men
-cron/heartbeat/watchdog er bevisst ikke schedulert i denne slicen. Migrasjonen
-krever at den separate member-scoped room-RLS-lockdownen allerede er brukt og
-feiler ellers før DDL. Preflight verifiserer RLS-flagg, nøyaktig én permissiv
-`authenticated` SELECT-policy per `sessions`/`participants` mot en eksakt,
-whitespace-normalisert allowlist av medlemsuttrykk, ingen klient-DML-policyer,
-ingen anon-grants og bare eksplisitte offentlige SELECT-kolonner for
-`authenticated`. Monitoring-schedule har en egen companion-rollback; core-
-rollback nekter å fortsette mens wrapper eller heartbeat-tabell finnes. Outboxen
-håndhever en lukket statusmaskin, monotone forsøk, immutable identitet/envelope/
-provider-ID og write-once snapshot, nonce, PDF og CSV. Rapportworkeren kan lese
-katalog, health-sessioner, aggregater og jobber, men aldri respondentkohorten.
-
-- opprett `health_check_sessions`, frosset respondentkohort og aggregater
-- implementer create/start/submit/progress/remove/finalize
-- implementer `abort_health_check` og gjør generisk leave utilgjengelig etter start
-- blokker all direkte rådata- og aggregatlesing
-- håndhev ett svar per medlem, alle 31 svar, verdier 1–7, minst fem og alle
-  aktive fullført
-- legg til 24-timers cleanup
-- skriv pgTAP-tester for misbruk og sletting
-- test submit/remove/leave/finalize-race under samme room-låserekkefølge
-
-**Commitpunkt:** `feat: add anonymous health check aggregation`
-
-## Steg 4 – Serververifisert inngang
-
-- bind create/join til Turnstile og rate limiting
-- valider token, action, hostname, replay og Supabase JWT i samme operasjon
-- bruk distribuert rate limit per IP, identitet og kode uten global DoS-lockout
-- begrens e-post til `@gjensidige.no`
+- bind create/join til Turnstile, JWT og distribuert rate limiting
+- valider action, hostname og replay i samme operasjon
 - test brute force, replay, feil aktivitetstype og cross-room-angrep
 
-**Commitpunkt:** `feat: secure health check room access`
+### Fasilitator- og deltakerflyt
 
-## Steg 5 – Fasilitatorvalg og lobby
+- samle navn, squadnavn og måledato, uten adressefelt
+- gjenbruk lobby/Presence, og vis bare pågår/fullført
+- integrer slider, touched-state, auto-advance og review
+- hold alle utkast kun i React-minne
 
-- vis Estimering/Helsesjekk etter valg av fasilitatorrolle
-- samle squadnavn, måledato og e-post
-- gjenbruk eksisterende design og lobbykomponenter
-- vis pågår/fullført og faktisk Presence separat
-- tillat fjerning av bare ikke-fullførte
+### Rapportworker
 
-**Commitpunkt:** `feat: add health check facilitator lobby`
+- velg ZIP/PDF-bibliotek etter sikkerhets- og dependency review
+- les kun frosne, private metadata/katalog/aggregater
+- generer PDF og CSV, pakk én ZIP og krypter med AES-256-GCM
+- bruk eksakt kanonisk AAD fra arkitekturen med jobb-ID, returnert `aad_room_id`,
+  felttype `encrypted_package` og nøkkelversjon
+- claim via privat RPC; ved komplett pakke kall atomisk materialiserings-RPC
+- ikke legg til ZIP/PDF-avhengigheter før denne slicen starter
 
-## Steg 6 – Deltakeropplevelse
+### Download-endpoint
 
-- bygg syvstegs-slider med verbal etikett, smiley og eksisterende design tokens
-- implementer touched-state, 3–2–1 auto-advance og avbrudd
-- legg til tastatur, skjermleser, redusert bevegelse og eksplisitt fallback
-- bygg oppsummeringsskjerm og én endelig innsending
-- hold utkast kun i minnet
+- implementer senere på Vercel eller Edge, fortrinnsvis `POST`
+- krev Supabase-JWT i header; ingen URL-token
+- verifiser JWT user ID mot jobbens `facilitator_user_id`
+- kall service-only package-funksjon, dekrypter i minnet og sett body-size cap
+- vurder CSRF eksplisitt for valgt auth-transport
+- returner `application/zip`, `Cache-Control: no-store, private`,
+  `Pragma: no-cache`, `X-Content-Type-Options: nosniff` og sanitert RFC 5987
+  attachment-filnavn
+- logg aldri token, jobb-ID, filnavn, pakke eller resultat
+- adapteren skal ikke skrive til Cache API, IndexedDB eller Web Storage
 
-**Commitpunkt:** `feat: add anonymous health check response flow`
+### Retensjon og drift
 
-## Steg 7 – Rapport og levering
-
-- velg og sikkerhetsgodkjenn e-postleverandør
-- velg PDF-renderer etter dependency review
-- generer PDF og CSV fra frosne aggregater
-- implementer atomisk outbox med unik room/job/idempotency-kontrakt, worker
-  lease, kryptert leveringskø og idempotent retry
-- slett alle health-check-data etter levering eller utløp
-- valider PDF visuelt og maskinelt, og test CSV-kontrakten
-
-**Commitpunkt:** `feat: deliver ephemeral health check reports`
-
-## Steg 8 – Kvalitets- og sikkerhetsport
-
-- full frontendtest, lint, typecheck, build og audit
-- pgTAP RPC-/RLS-/retentiontester
-- E2E med minst seks nettleserkontekster
-- reconnect, refresh, dobbel innsending og fjernet deltaker
-- bevis at fasilitator aldri kan lese aggregater underveis
-- bevis at database og kø er tom etter levering
-- tilgjengelighetsaudit av slider, nedtelling og rapport
-- test auto-advance av/på, fokus, `aria-valuetext`, touched-state og tagged PDF
-- produksjonssmoke med rollback-plan
+- schedule cleanup hvert femte minutt først etter monitoring-godkjenning
+- slett utløpte ready-pakker, utløpte live-rom og jobb/rom ved hovedutløp
+- frigjør stale lease til `failed` bare mens live-rommet fortsatt finnes
+- heartbeat/watchdog varsler ved siste suksess over 15 minutter, rom over 24
+  timer eller utløpt lease
+- dokumenter backup/WAL/PITR-, logg- og filforvaltning før pilot
 
 ## Obligatoriske testscenarier
 
-1. To personer med samme navn får separate medlemskap.
-2. Samme Auth-identitet kan ikke sende to ganger.
-3. 30 svar eller én verdi utenfor 1–7 avvises atomisk.
-4. Nettverksfeil under submit gir idempotent avklaring.
-5. Fasilitator kan ikke lese svar eller aggregater før lukking.
-6. Fire fullførte gir ingen rapport; fem kan gi rapport bare når alle aktive er
-   fullført.
-7. Ikke-fullført medlem kan fjernes; fullført medlem kan ikke fjernes.
-8. Rapporten inneholder ingen navn, e-post, IDs eller svarfordeling.
-9. E-postfeil oppretter bare kryptert jobb, og originaldata slettes.
-10. Levering eller 24-timers expiry etterlater ingen health-check-data.
-11. Eksisterende estimeringsflyt er uendret.
-12. Realtime/RLS tillater aldri medlem-/helsedata på tvers av rooms eller
-    activity type.
-13. CSV avviser formelinjeksjon og følger versjonert format.
-14. Cron/retention-monitorering varsler på gamle sessions og fastlåste jobs.
+1. Samme Auth-identitet kan ikke sende to ganger; malformed arrays er atomiske.
+2. Minst fem og alle i frosset kohort må fullføre.
+3. Klientroller kan aldri lese aggregater, jobbtabell eller pakke.
+4. Finalisering lager én idempotent `awaiting_materialization`-jobb med korrekt
+   fasilitatorbinding og uten pakke.
+5. Bare privat worker kan claime og materialisere.
+6. Ugyldig eller uclaimet materialisering beholder live-data.
+7. Vellykket materialisering lager én ikke-tom kryptert ZIP, nullstiller
+   source-FK og sletter rom, medlemskap og aggregater i samme transaksjon.
+8. Pakken utløper ved `least(materialized_at + 15m, original source expiry)`;
+   utløpt jobb eller låst source-session kan ikke materialiseres.
+9. Status er owner-only; package-funksjonen avviser feil eier og utløpt pakke og
+   returnerer `aad_room_id` bare i service-enveloppen.
+10. `ready` og pakkeenveloppen er terminal/write-once; forsøk er monotone.
+11. Cleanup sletter utløpte pakker og rom og håndterer stale lease.
+12. Frontend viser fire jobbstatuser og avledet `expired`, låser andre mutasjoner,
+    forklarer automatisk retry og kaller `onDownload` bare fra `ready`.
+13. Ingen health create-input, UI-tekst, skjema eller implementasjon inneholder
+    adresse-/leverandørfelter.
+14. Endpointtest verifiserer auth/eier, headers, størrelse, ingen URL-token,
+    gjentatt nedlasting innen vinduet og ingen browser-cache.
+15. PDF/CSV valideres visuelt og maskinelt; CSV-formelinjeksjon avverges.
+16. Eksisterende estimeringsflyt og rollback er uendret og grønn.
+17. Finalize-retry etter romsletting returnerer samme owner-jobb; outsider avvises.
+18. Abort-retry etter sletting returnerer dokumentert generisk unavailable-feil.
 
-## Før implementasjon kan starte
+## Kvalitetsport
 
-- [ ] Arkitekturen og ADR-ene godkjennes.
-- [ ] De syv verbale skalaetikettene godkjennes.
-- [ ] Det avklares om rapporten viser 1–7-snitt direkte eller en annen verbal
-      presentasjon i tillegg.
-- [ ] E-postleverandør og credential-eier avklares før steg 7.
-- [ ] Personvernforvaltning og DPIA-screening er godkjent før pilot.
-- [x] Produkteier har akseptert praktisk anonymitet og n−1-begrensningen.
+- frontend: test, lint, typecheck og build
+- database: lokal reset, alle pgTAP-planer og rollback dry-run
+- statisk søk etter fjernede health-felter og gamle jobbstatuser
+- seks browserkontekster for kritisk flyt, inkludert reconnect og refresh
+- tilgjengelighetsaudit av slider, status og nedlastingshandling
+- dependency audit før renderer/ZIP legges til
+- produksjonssmoke og dokumentert rollback før feature flag aktiveres
+
+## Før pilot
+
+- [ ] Arkitektur og ADR-003 godkjent.
+- [ ] Verbale skalaetiketter og rapportpresentasjon godkjent.
+- [ ] ZIP/PDF-avhengigheter sikkerhetsgodkjent.
+- [ ] Endpoint-runtime, minne-/størrelsesgrenser og JWT-validering godkjent.
+- [ ] Personvernforvaltning, DPIA-screening, backupretensjon og filansvar godkjent.
+- [ ] Cleanup-monitorering, systemeier og alarmkanal konfigurert.
+- [x] Praktisk anonymitet og n-1-begrensning akseptert.

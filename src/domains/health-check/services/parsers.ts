@@ -1,6 +1,8 @@
 import type {
   AbortHealthCheckResult,
   FinalizeHealthCheckResult,
+  HealthCheckDownloadStatus,
+  HealthCheckDownloadStatusResult,
   HealthCheckJobStatus,
   HealthCheckProgressRow,
   HealthCheckState,
@@ -37,7 +39,7 @@ export function parseHealthCheckState(value: unknown): HealthCheckState | null {
   const role = dataValue(record, 'role');
 
   if (
-    (phase !== 'lobby' && phase !== 'collecting' && phase !== 'delivery_pending')
+    (phase !== 'lobby' && phase !== 'collecting' && phase !== 'download_pending')
     || templateVersion !== 'squad-health-v1'
     || !isSafeName(squadName)
     || !isIsoDate(measurementDate)
@@ -50,7 +52,7 @@ export function parseHealthCheckState(value: unknown): HealthCheckState | null {
   if (role === 'facilitator' && respondentState !== null) return null;
   if (phase === 'lobby' && respondentState !== null) return null;
   if (role === 'participant' && phase === 'collecting' && respondentState === null) return null;
-  if (role === 'participant' && phase === 'delivery_pending' && respondentState !== 'completed') {
+  if (role === 'participant' && phase === 'download_pending' && respondentState !== 'completed') {
     return null;
   }
 
@@ -113,11 +115,25 @@ export function parseAbortHealthCheckResult(value: unknown): AbortHealthCheckRes
 
 export function parseFinalizeHealthCheckResult(value: unknown): FinalizeHealthCheckResult | null {
   const record = exactRecord(value, ['status', 'job_id', 'job_status']);
-  if (!record || dataValue(record, 'status') !== 'delivery_pending') return null;
+  if (!record || dataValue(record, 'status') !== 'download_pending') return null;
   const jobId = dataValue(record, 'job_id');
   const jobStatus = dataValue(record, 'job_status');
-  if (!isUuid(jobId) || !isJobStatus(jobStatus)) return null;
-  return { status: 'delivery_pending', jobId, jobStatus };
+  if (!isUuid(jobId) || !isDownloadStatus(jobStatus)) return null;
+  return { status: 'download_pending', jobId, jobStatus };
+}
+
+export function parseHealthCheckDownloadStatus(
+  value: unknown,
+): HealthCheckDownloadStatusResult | null {
+  const record = exactRecord(value, ['status', 'filename']);
+  if (!record) return null;
+  const status = dataValue(record, 'status');
+  const filename = dataValue(record, 'filename');
+  if (!isDownloadStatus(status) || (filename !== null && !isSafeFilename(filename))) {
+    return null;
+  }
+  if ((status === 'ready') !== (filename !== null)) return null;
+  return { status, filename };
 }
 
 function hasExactStatus(value: unknown, status: string): boolean {
@@ -127,10 +143,27 @@ function hasExactStatus(value: unknown, status: string): boolean {
 
 function isJobStatus(value: unknown): value is HealthCheckJobStatus {
   return value === 'awaiting_materialization'
-    || value === 'pending'
     || value === 'processing'
-    || value === 'sent'
+    || value === 'ready'
     || value === 'failed';
+}
+
+function isDownloadStatus(value: unknown): value is HealthCheckDownloadStatus {
+  return value === 'expired' || isJobStatus(value);
+}
+
+function isSafeFilename(value: unknown): value is string {
+  return typeof value === 'string'
+    && value === value.trim()
+    && Array.from(value).length >= 5
+    && Array.from(value).length <= 180
+    && value.toLowerCase().endsWith('.zip')
+    && !value.includes('/')
+    && !value.includes('\\')
+    && !Array.from(value).some((character) => {
+      const codePoint = character.codePointAt(0);
+      return codePoint !== undefined && (codePoint <= 31 || codePoint === 127);
+    });
 }
 
 function isSafeName(value: unknown): value is string {
