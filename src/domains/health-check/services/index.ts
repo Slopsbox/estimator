@@ -1,11 +1,19 @@
 export { createHealthCheckService } from './healthCheckService';
 export {
+  HEALTH_CHECK_DELIVERY_RECEIPT_STORAGE_KEY,
+  createBrowserHealthCheckDeliveryReceiptStore,
+  createDeliveryReceipt,
+  createHealthCheckDeliveryReceiptStore,
+  updateDeliveryReceiptExpiry,
+} from './healthCheckDeliveryReceipt';
+export {
   createHealthCheckDownloadGateway,
   createSupabaseHealthCheckDownloadGateway,
 } from './healthCheckDownloadGateway';
 export {
   isUuid,
   isSafeHealthReportFilename,
+  isRfc3339Timestamp,
   parseAbortHealthCheckResult,
   parseFinalizeHealthCheckResult,
   parseHealthCheckDownloadStatus,
@@ -16,6 +24,11 @@ export {
   parseSubmitHealthCheckResult,
 } from './parsers';
 export type { HealthCheckService } from './healthCheckService';
+export type {
+  HealthCheckDeliveryReceipt,
+  HealthCheckDeliveryReceiptStoragePort,
+  HealthCheckDeliveryReceiptStore,
+} from './healthCheckDeliveryReceipt';
 export type {
   HealthCheckDownloadAnchorPort,
   HealthCheckDownloadAuthPort,

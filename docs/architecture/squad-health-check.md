@@ -22,8 +22,9 @@ verdi fra et eksakt snitt. Denne n-1-begrensningen er eksplisitt akseptert.
 - Resultatet er én ZIP med PDF og CSV. Filnavnet er
   `<sanitert-squadnavn>-<måledato>.zip`.
 - Bare samme autentiserte fasilitator som opprettet rommet kan hente pakken.
-- Appen beholder ingen browser-kopi. Eksplisitt nedlastet fil ligger på device og
-  er fasilitatorens ansvar.
+- Appen beholder ingen browser-kopi av rapporten eller pakken. En separat,
+  kortlevd delivery receipt med bare rom-ID, jobb-ID og utløp er tillatt.
+  Eksplisitt nedlastet fil ligger på device og er fasilitatorens ansvar.
 
 ## Komponenter og grenser
 
@@ -31,7 +32,8 @@ verdi fra et eksakt snitt. Denne n-1-begrensningen er eksplisitt akseptert.
 React PWA
 ├── HealthCheckGateway: serververifisert create/join
 ├── HealthCheckService: start/submit/progress/remove/finalize/status
-└── HealthCheckDownloadGateway: requestDownload(jobId), ingen lokal lagring
+├── HealthCheckDownloadGateway: requestDownload(jobId), ingen pakkelagring
+└── HealthCheckDeliveryReceipt: separat operasjonell TTL-metadata
 
 Supabase Postgres
 ├── immutable template-katalog
@@ -132,7 +134,9 @@ terminal og hele raden er uforanderlig, bortsett fra eksakte no-op updates.
    validerer pakkeparametre, persisterer pakken, setter `ready` med opptil 15 minutters utløp,
    nullstiller kildepekeren og sletter `sessions`-raden. Cascades sletter health
    session, respondentkohort, aggregater og medlemskap i samme transaksjon.
-5. Status-RPC krever `auth.uid() = facilitator_user_id`. Den viser aldri pakken.
+5. Status-RPC krever `auth.uid() = facilitator_user_id`. Den viser aldri pakken,
+   men returnerer jobbens eksakte `expires_at` i alle statuser. Finalize returnerer
+   samme utløp både ved opprettelse og idempotent eksisterende jobb.
 6. Download-endpointet bruker JWT-identiteten som `p_user_id`; service-only
    package-funksjon returnerer bare `ready`, eierbundet og ikke utløpt pakke,
    inkludert `aad_room_id` sammen med ciphertext, nonce, nøkkelversjon og filnavn.
@@ -170,10 +174,22 @@ samme generiske `facilitator_required` som for et ukjent rom. `abort_health_chec
 har ingen varig artifact eller privat receipt; retry etter vellykket sletting er
 derfor eksternt ikke-idempotent og returnerer generisk `facilitator_required`.
 
-Frontend-adapteren utløser nedlasting uten å skrive Blob/pakke til Cache API,
-IndexedDB, localStorage eller sessionStorage. Nettleserens ordinære,
+Frontend-adapteren utløser nedlasting uten å skrive Blob, rapport eller pakke til
+Cache API, IndexedDB, localStorage eller sessionStorage. Nettleserens ordinære,
 brukerinitierte filnedlasting er utenfor appens lagring og blir liggende på
 enheten.
+
+`health_check_delivery_receipt_v1` er operasjonell metadata, ikke rapport eller
+pakke. Den har eksakt form `{version: 1, roomId, jobId, expiresAt}` og inneholder
+aldri bruker-ID, navn, squadnavn, filnavn, status eller resultater. Den ligger i
+en separat localStorage-nøkkel fra session-pointeren, overlever refresh,
+pointer-clear og atomisk sletting av source-rommet, og kan derfor føre eieren
+tilbake til den serverbundne jobben. Serveren håndhever fortsatt eierbindingen;
+receipt-en gir ingen tilgang. Status kan forkorte utløpet, blant annet til det
+opptil 15 minutter lange ready-vinduet, men aldri forlenge det. Receipt-en er
+best-effort operasjonell metadata: utilgjengelig browserlagring skal ikke bryte
+finalize/status, og serveren er alltid autoritativ. Ugyldig eller utløpt receipt
+ignoreres og forsøkes slettet senest ved `expiresAt`.
 
 ## Sikkerhet og personvern
 

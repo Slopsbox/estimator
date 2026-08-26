@@ -3,7 +3,7 @@
 begin;
 
 create extension if not exists pgtap with schema extensions;
-select extensions.plan(115);
+select extensions.plan(122);
 
 insert into auth.users (id, aud, role, created_at, updated_at)
 values
@@ -439,10 +439,61 @@ end;
 $complete_remaining$;
 
 select set_config('request.jwt.claim.sub', '61000000-0000-0000-0000-000000000001', true);
+insert into health_test_context (key, value)
+select 'finalize_result', public.finalize_health_check(
+  (select value::uuid from health_test_context where key = 'room_id')
+)::text;
 select extensions.is(
-  public.finalize_health_check((select value::uuid from health_test_context where key = 'room_id'))->>'status',
+  (select value::jsonb->>'status' from health_test_context where key = 'finalize_result'),
   'download_pending',
   'fully completed cohort of five finalizes successfully'
+);
+select extensions.results_eq(
+  $$select value::jsonb from health_test_context where key = 'finalize_result'$$,
+  $$select jsonb_build_object(
+      'status', 'download_pending',
+      'job_id', id,
+      'job_status', 'awaiting_materialization',
+      'expires_at', expires_at
+    ) from public.health_check_report_jobs
+    where id = '63000000-0000-0000-0000-000000000001'$$,
+  'initial finalize returns the created job exact expiry'
+);
+select extensions.is(
+  public.restore_session((select value::uuid from health_test_context where key = 'room_id'))->>'status',
+  'ok',
+  'completed download-pending health room remains restorable until materialization'
+);
+select extensions.is(
+  public.restore_session((select value::uuid from health_test_context where key = 'room_id'))->'session'->>'activity_type',
+  'health_check',
+  'download-pending restore returns the health activity membership snapshot'
+);
+select extensions.is(
+  public.restore_session((select value::uuid from health_test_context where key = 'room_id'))->'participant'->>'role',
+  'facilitator',
+  'download-pending restore includes the authenticated health membership'
+);
+select extensions.results_eq(
+  format('select public.finalize_health_check(%L::uuid)', (select value from health_test_context where key = 'room_id')),
+  $$select jsonb_build_object(
+      'status', 'download_pending',
+      'job_id', id,
+      'job_status', 'awaiting_materialization',
+      'expires_at', expires_at
+    ) from public.health_check_report_jobs
+    where id = '63000000-0000-0000-0000-000000000001'$$,
+  'owner finalize retry while source exists returns the existing job and exact expiry'
+);
+select extensions.results_eq(
+  $$select public.get_health_check_download_status('63000000-0000-0000-0000-000000000001')$$,
+  $$select jsonb_build_object(
+      'status', 'awaiting_materialization',
+      'filename', null,
+      'expires_at', expires_at
+    ) from public.health_check_report_jobs
+    where id = '63000000-0000-0000-0000-000000000001'$$,
+  'owner sees awaiting status with exact expiry and unchanged filename rule'
 );
 reset role;
 select extensions.results_eq(
@@ -671,15 +722,31 @@ select extensions.results_eq(
 set local role authenticated;
 select set_config('request.jwt.claim.role', 'authenticated', true);
 select set_config('request.jwt.claim.sub', '61000000-0000-0000-0000-000000000001', true);
+select extensions.is(
+  public.restore_session((select value::uuid from health_test_context where key = 'room_id'))->>'status',
+  'membership_missing',
+  'health restore returns membership_missing after materialization deletes the room'
+);
 select extensions.results_eq(
   $$select public.get_health_check_download_status('63000000-0000-0000-0000-000000000001')$$,
-  $$values ('{"status": "ready", "filename": "squad-sikker-2026-08-26.zip"}'::jsonb)$$,
-  'owner sees ready status and safe filename'
+  $$select jsonb_build_object(
+      'status', 'ready',
+      'filename', 'squad-sikker-2026-08-26.zip',
+      'expires_at', expires_at
+    ) from public.health_check_report_jobs
+    where id = '63000000-0000-0000-0000-000000000001'$$,
+  'owner sees ready status, safe filename and exact expiry'
 );
 select extensions.results_eq(
   format('select public.finalize_health_check(%L::uuid)', (select value from health_test_context where key = 'room_id')),
-  $$values ('{"status": "download_pending", "job_id": "63000000-0000-0000-0000-000000000001", "job_status": "ready"}'::jsonb)$$,
-  'owner finalize retry after source deletion returns the existing ready job'
+  $$select jsonb_build_object(
+      'status', 'download_pending',
+      'job_id', id,
+      'job_status', 'ready',
+      'expires_at', expires_at
+    ) from public.health_check_report_jobs
+    where id = '63000000-0000-0000-0000-000000000001'$$,
+  'owner finalize retry after source deletion returns the existing ready job and exact expiry'
 );
 select extensions.throws_ok(
   $$select * from private.get_health_check_download_package(
@@ -767,13 +834,24 @@ select set_config('request.jwt.claim.role', 'authenticated', true);
 select set_config('request.jwt.claim.sub', '61000000-0000-0000-0000-000000000001', true);
 select extensions.results_eq(
   $$select public.get_health_check_download_status('63000000-0000-0000-0000-000000000001')$$,
-  $$values ('{"status": "expired", "filename": null}'::jsonb)$$,
-  'owner sees expired without a filename after package expiry'
+  $$select jsonb_build_object(
+      'status', 'expired',
+      'filename', null,
+      'expires_at', expires_at
+    ) from public.health_check_report_jobs
+    where id = '63000000-0000-0000-0000-000000000001'$$,
+  'owner sees expired with exact expiry and no filename after package expiry'
 );
 select extensions.results_eq(
   format('select public.finalize_health_check(%L::uuid)', (select value from health_test_context where key = 'room_id')),
-  $$values ('{"status": "download_pending", "job_id": "63000000-0000-0000-0000-000000000001", "job_status": "expired"}'::jsonb)$$,
-  'owner finalize retry reports an expired ready package before cleanup'
+  $$select jsonb_build_object(
+      'status', 'download_pending',
+      'job_id', id,
+      'job_status', 'expired',
+      'expires_at', expires_at
+    ) from public.health_check_report_jobs
+    where id = '63000000-0000-0000-0000-000000000001'$$,
+  'owner finalize retry reports an expired ready package and exact expiry before cleanup'
 );
 reset role;
 set local role service_role;
@@ -1060,8 +1138,14 @@ select extensions.throws_ok(
 );
 select extensions.results_eq(
   format('select public.finalize_health_check(%L::uuid)', (select value from health_test_context where key = 'cleanup_room')),
-  $$values ('{"status": "download_pending", "job_id": "63000000-0000-0000-0000-000000000010", "job_status": "expired"}'::jsonb)$$,
-  'owner finalize retry reports an expired source job before cleanup'
+  $$select jsonb_build_object(
+      'status', 'download_pending',
+      'job_id', id,
+      'job_status', 'expired',
+      'expires_at', expires_at
+    ) from public.health_check_report_jobs
+    where id = '63000000-0000-0000-0000-000000000010'$$,
+  'owner finalize retry reports an expired source job and exact expiry before cleanup'
 );
 select set_config('request.jwt.claim.sub', '61000000-0000-0000-0000-000000000008', true);
 select extensions.throws_ok(

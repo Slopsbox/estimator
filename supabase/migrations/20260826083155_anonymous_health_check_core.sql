@@ -995,7 +995,11 @@ begin
   end if;
 
   return jsonb_build_object(
-    'status', case when v_session.status = 'completed' then 'session_completed' else 'ok' end,
+    'status', case
+      when v_session.activity_type = 'estimation' and v_session.status = 'completed'
+        then 'session_completed'
+      else 'ok'
+    end,
     'session', to_jsonb(v_session) - 'facilitator_user_id' - 'create_request_id',
     'participant', to_jsonb(v_participant) - 'user_id',
     'vote', to_jsonb(v_vote),
@@ -1406,7 +1410,8 @@ begin
       'job_status', case
         when v_job.expires_at <= clock_timestamp() then 'expired'
         else v_job.status
-      end
+      end,
+      'expires_at', v_job.expires_at
     );
   end if;
 
@@ -1492,7 +1497,7 @@ begin
   end if;
   return jsonb_build_object(
     'status', 'download_pending', 'job_id', v_health.delivery_id,
-    'job_status', v_job.status
+    'job_status', v_job.status, 'expires_at', v_job.expires_at
   );
 end;
 $function$;
@@ -1516,14 +1521,17 @@ begin
     raise exception 'download_not_found' using errcode = '42501';
   end if;
   if v_job.expires_at <= clock_timestamp() then
-    return jsonb_build_object('status', 'expired', 'filename', null);
+    return jsonb_build_object(
+      'status', 'expired', 'filename', null, 'expires_at', v_job.expires_at
+    );
   end if;
   return jsonb_build_object(
     'status', case
       when v_job.status = 'awaiting_materialization' then 'awaiting_materialization'
       else v_job.status
     end,
-    'filename', case when v_job.status = 'ready' then v_job.sanitized_filename else null end
+    'filename', case when v_job.status = 'ready' then v_job.sanitized_filename else null end,
+    'expires_at', v_job.expires_at
   );
 end;
 $function$;

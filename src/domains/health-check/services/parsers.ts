@@ -15,6 +15,7 @@ type PlainRecord = Record<string, unknown>;
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const ISO_DATE_PATTERN = /^(\d{4})-(\d{2})-(\d{2})$/;
+const RFC3339_PATTERN = /^(\d{4})-(\d{2})-(\d{2})T(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z|[+-](?:[01]\d|2[0-3]):[0-5]\d)$/;
 
 export function isUuid(value: unknown): value is string {
   return typeof value === 'string' && UUID_PATTERN.test(value);
@@ -114,26 +115,45 @@ export function parseAbortHealthCheckResult(value: unknown): AbortHealthCheckRes
 }
 
 export function parseFinalizeHealthCheckResult(value: unknown): FinalizeHealthCheckResult | null {
-  const record = exactRecord(value, ['status', 'job_id', 'job_status']);
+  const record = exactRecord(value, ['status', 'job_id', 'job_status', 'expires_at']);
   if (!record || dataValue(record, 'status') !== 'download_pending') return null;
   const jobId = dataValue(record, 'job_id');
   const jobStatus = dataValue(record, 'job_status');
-  if (!isUuid(jobId) || !isDownloadStatus(jobStatus)) return null;
-  return { status: 'download_pending', jobId, jobStatus };
+  const expiresAt = dataValue(record, 'expires_at');
+  if (!isUuid(jobId) || !isDownloadStatus(jobStatus) || !isRfc3339Timestamp(expiresAt)) return null;
+  return { status: 'download_pending', jobId, jobStatus, expiresAt };
 }
 
 export function parseHealthCheckDownloadStatus(
   value: unknown,
 ): HealthCheckDownloadStatusResult | null {
-  const record = exactRecord(value, ['status', 'filename']);
+  const record = exactRecord(value, ['status', 'filename', 'expires_at']);
   if (!record) return null;
   const status = dataValue(record, 'status');
   const filename = dataValue(record, 'filename');
-  if (!isDownloadStatus(status) || (filename !== null && !isSafeHealthReportFilename(filename))) {
+  const expiresAt = dataValue(record, 'expires_at');
+  if (
+    !isDownloadStatus(status)
+    || !isRfc3339Timestamp(expiresAt)
+    || (filename !== null && !isSafeHealthReportFilename(filename))
+  ) {
     return null;
   }
   if ((status === 'ready') !== (filename !== null)) return null;
-  return { status, filename };
+  return { status, filename, expiresAt };
+}
+
+export function isRfc3339Timestamp(value: unknown): value is string {
+  if (typeof value !== 'string') return false;
+  const match = RFC3339_PATTERN.exec(value);
+  if (!match || !Number.isFinite(Date.parse(value))) return false;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  return date.getUTCFullYear() === year
+    && date.getUTCMonth() === month - 1
+    && date.getUTCDate() === day;
 }
 
 function hasExactStatus(value: unknown, status: string): boolean {

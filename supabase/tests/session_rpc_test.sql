@@ -4,7 +4,7 @@
 begin;
 
 create extension if not exists pgtap with schema extensions;
-select extensions.plan(68);
+select extensions.plan(69);
 
 insert into auth.users (id, aud, role, email, created_at, updated_at)
 values
@@ -554,6 +554,29 @@ select extensions.ok(
   (select value::jsonb->>'status' from session_test_context where key = 'health_restore_result') = 'membership_missing',
   'health restore fails closed without service-created membership'
 );
+
+insert into public.sessions (
+  id, join_code, status, current_round, facilitator_user_id, activity_type
+) values (
+  '50000000-0000-0000-0000-000000000010', 'DONE', 'completed', 1,
+  '10000000-0000-0000-0000-000000000004', 'estimation'
+);
+insert into public.participants (id, session_id, name, role, user_id)
+values (
+  '50000000-0000-0000-0000-000000000011',
+  '50000000-0000-0000-0000-000000000010',
+  'Completed estimation owner', 'facilitator',
+  '10000000-0000-0000-0000-000000000004'
+);
+set local role authenticated;
+select set_config('request.jwt.claim.role', 'authenticated', true);
+select set_config('request.jwt.claim.sub', '10000000-0000-0000-0000-000000000004', true);
+select extensions.is(
+  public.restore_session('50000000-0000-0000-0000-000000000010')->>'status',
+  'session_completed',
+  'completed estimation restore retains the common session_completed behavior'
+);
+reset role;
 
 set local role authenticated;
 select set_config('request.jwt.claim.role', 'authenticated', true);

@@ -355,6 +355,10 @@ begin
   ) then
     raise exception 'Rollback verification failed: common RPCs were not restored';
   end if;
+  if pg_get_functiondef('public.restore_session(uuid)'::regprocedure)
+       like '%health_check_sessions%' then
+    raise exception 'Rollback verification failed: restore_session still references health core';
+  end if;
 end;
 $verify$;
 

@@ -12,6 +12,7 @@ import {
 const ROOM_ID = '10000000-0000-0000-0000-000000000001';
 const MEMBER_ID = '20000000-0000-0000-0000-000000000002';
 const JOB_ID = '30000000-0000-0000-0000-000000000003';
+const EXPIRES_AT = '2026-08-26T12:34:56.123456+00:00';
 
 const STATE = {
   phase: 'lobby',
@@ -54,11 +55,20 @@ describe('healthCheckService', () => {
       .mockResolvedValueOnce({ data: { status: 'removed' }, error: null })
       .mockResolvedValueOnce({ data: { status: 'aborted' }, error: null })
       .mockResolvedValueOnce({
-        data: { status: 'download_pending', job_id: JOB_ID, job_status: 'awaiting_materialization' },
+        data: {
+          status: 'download_pending',
+          job_id: JOB_ID,
+          job_status: 'awaiting_materialization',
+          expires_at: EXPIRES_AT,
+        },
         error: null,
       })
       .mockResolvedValueOnce({
-        data: { status: 'ready', filename: 'plattform-2026-08-26.zip' },
+        data: {
+          status: 'ready',
+          filename: 'plattform-2026-08-26.zip',
+          expires_at: EXPIRES_AT,
+        },
         error: null,
       });
 
@@ -99,11 +109,12 @@ describe('healthCheckService', () => {
         status: 'download_pending',
         jobId: JOB_ID,
         jobStatus: 'awaiting_materialization',
+        expiresAt: EXPIRES_AT,
       },
     });
     await expect(service.getDownloadStatus(JOB_ID)).resolves.toEqual({
       ok: true,
-      value: { status: 'ready', filename: 'plattform-2026-08-26.zip' },
+      value: { status: 'ready', filename: 'plattform-2026-08-26.zip', expiresAt: EXPIRES_AT },
     });
 
     expect(rpc.mock.calls.map(([name, args]) => [name, args])).toEqual([
@@ -296,42 +307,78 @@ describe('healthCheckService', () => {
     'expired',
   ] as const)('accepts finalize job status %s', async (jobStatus) => {
     rpc.mockResolvedValue({
-      data: { status: 'download_pending', job_id: JOB_ID, job_status: jobStatus },
+      data: {
+        status: 'download_pending',
+        job_id: JOB_ID,
+        job_status: jobStatus,
+        expires_at: EXPIRES_AT,
+      },
       error: null,
     });
 
     await expect(service.finalize(ROOM_ID)).resolves.toEqual({
       ok: true,
-      value: { status: 'download_pending', jobId: JOB_ID, jobStatus },
+      value: { status: 'download_pending', jobId: JOB_ID, jobStatus, expiresAt: EXPIRES_AT },
     });
   });
 
   it('rejects unknown finalize job status and malformed job ID', async () => {
     rpc.mockResolvedValueOnce({
-      data: { status: 'download_pending', job_id: JOB_ID, job_status: 'cancelled' },
+      data: {
+        status: 'download_pending',
+        job_id: JOB_ID,
+        job_status: 'cancelled',
+        expires_at: EXPIRES_AT,
+      },
       error: null,
     });
     await expect(service.finalize(ROOM_ID)).resolves.toEqual({ ok: false, reason: 'malformed' });
 
     rpc.mockResolvedValueOnce({
-      data: { status: 'download_pending', job_id: 'job-1', job_status: 'ready' },
+      data: {
+        status: 'download_pending',
+        job_id: 'job-1',
+        job_status: 'ready',
+        expires_at: EXPIRES_AT,
+      },
       error: null,
     });
     await expect(service.finalize(ROOM_ID)).resolves.toEqual({ ok: false, reason: 'malformed' });
   });
 
   it.each([
-    [{ status: 'awaiting_materialization', filename: null }, true],
-    [{ status: 'processing', filename: null }, true],
-    [{ status: 'failed', filename: null }, true],
-    [{ status: 'expired', filename: null }, true],
-    [{ status: 'ready', filename: 'squad-2026-08-26.zip' }, true],
-    [{ status: 'ready', filename: `${'😀'.repeat(176)}.zip` }, true],
-    [{ status: 'ready', filename: `${'😀'.repeat(177)}.zip` }, false],
-    [{ status: 'ready', filename: 'squad.zip', aad_room_id: ROOM_ID }, false],
-    [{ status: 'ready', filename: '../rapport.zip' }, false],
-    [{ status: 'ready', filename: 'safe\u202etxt.zip' }, false],
-    [{ status: 'ready', filename: null }, false],
+    '2026-08-26',
+    '2026-08-26T12:34:56',
+    '2026-08-26T12:34:56Zextra',
+    '2026-02-30T12:34:56Z',
+    'not-a-date',
+  ])('rejects invalid or unzoned finalize expiry %#', async (expiresAt) => {
+    rpc.mockResolvedValue({
+      data: {
+        status: 'download_pending',
+        job_id: JOB_ID,
+        job_status: 'ready',
+        expires_at: expiresAt,
+      },
+      error: null,
+    });
+
+    await expect(service.finalize(ROOM_ID)).resolves.toEqual({ ok: false, reason: 'malformed' });
+  });
+
+  it.each([
+    [{ status: 'awaiting_materialization', filename: null, expires_at: EXPIRES_AT }, true],
+    [{ status: 'processing', filename: null, expires_at: EXPIRES_AT }, true],
+    [{ status: 'failed', filename: null, expires_at: EXPIRES_AT }, true],
+    [{ status: 'expired', filename: null, expires_at: EXPIRES_AT }, true],
+    [{ status: 'ready', filename: 'squad-2026-08-26.zip', expires_at: EXPIRES_AT }, true],
+    [{ status: 'ready', filename: `${'😀'.repeat(176)}.zip`, expires_at: EXPIRES_AT }, true],
+    [{ status: 'ready', filename: `${'😀'.repeat(177)}.zip`, expires_at: EXPIRES_AT }, false],
+    [{ status: 'ready', filename: 'squad.zip', expires_at: EXPIRES_AT, aad_room_id: ROOM_ID }, false],
+    [{ status: 'ready', filename: '../rapport.zip', expires_at: EXPIRES_AT }, false],
+    [{ status: 'ready', filename: 'safe\u202etxt.zip', expires_at: EXPIRES_AT }, false],
+    [{ status: 'ready', filename: null, expires_at: EXPIRES_AT }, false],
+    [{ status: 'expired', filename: null, expires_at: '2026-08-26T12:34:56' }, false],
   ] as const)('parses download status %#', async (data, valid) => {
     rpc.mockResolvedValue({ data, error: null });
     const result = await service.getDownloadStatus(JOB_ID);

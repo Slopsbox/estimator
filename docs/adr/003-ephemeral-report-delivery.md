@@ -39,7 +39,8 @@ pålitelig bekreftelse på at en fil faktisk er lagret lokalt.
 - Materialiseringsfeil beholder live-data frem til rommets absolutte utløp på 23
   timer og 55 minutter. En utløpt lease kan frigjøres til `failed` for retry.
 - En autentisert status-RPC viser bare eieren status og, når pakken er klar, det
-  sikre filnavnet. Den returnerer aldri pakken.
+  sikre filnavnet. Den returnerer alltid jobbens eksakte `expires_at`, men aldri
+  pakken. Finalize returnerer samme utløp i normal og idempotent jobbretur.
 - Binærpakken hentes av Vercel-endpointet `POST /api/health-check-download`
   gjennom en offentlig PostgREST-wrapper som kun `service_role` kan kjøre. Den
   private package-funksjonen beholder owner-/ready-/expiry-kontrollen.
@@ -58,9 +59,19 @@ pålitelig bekreftelse på at en fil faktisk er lagret lokalt.
 - Nedlasting kan gjentas frem til utløp. Det finnes ingen delivery-ack fra
   nettleseren. Cleanup sletter ciphertext ved utløp.
 - Appen skriver ingen rapport eller pakke til Cache API, IndexedDB,
-  localStorage, sessionStorage eller annen appstyrt nettleserlagring. Filen
-  brukeren eksplisitt laster ned blir liggende på enheten og er fasilitatorens
-  ansvar.
+  localStorage, sessionStorage eller annen appstyrt nettleserlagring. Den kan
+  skrive en separat operasjonell delivery receipt under
+  `health_check_delivery_receipt_v1`: eksakt `{version: 1, roomId, jobId,
+  expiresAt}`. Receipt-en inneholder ingen bruker-, navn-, squad-, filnavn-,
+  status- eller resultatdata og er derfor ikke en rapport eller pakke.
+- Receipt-en er separat fra session-pointeren. Den overlever refresh,
+  pointer-clear og source-sletting, men ignoreres etter serverens `expires_at`.
+  Statusoppdatering kan forkorte TTL til ready-vinduet, men aldri forlenge den.
+  Lagringen er best-effort og lagringsfeil skal ikke bryte finalize/status. Den er
+  bare en peker; serveren forblir autoritativ og owner-bindingen autoriserer
+  fortsatt all status og download.
+  Filen brukeren eksplisitt laster ned blir liggende på enheten og er
+  fasilitatorens ansvar.
 - Sletteløftet gjelder live-data og appstyrte pakker. Backup, WAL/PITR, logger og
   den nedlastede filen følger egne dokumenterte styrings- og retensjonsregler.
 
@@ -104,3 +115,5 @@ Avvist. Nettleseren gir ingen pålitelig kvittering for at filen ble lagret.
   eksisterende Supabase-klient og Node-krypto; ingen ny runtime-avhengighet.
 - Fasilitatoren må lagre og behandle den nedlastede filen i henhold til godkjent
   intern praksis.
+- Receipt-lagring gir refresh-recovery uten å utvide rapportens dataflate i
+  nettleseren, men route/UI-integrasjon må gjøres i en senere leveranse.

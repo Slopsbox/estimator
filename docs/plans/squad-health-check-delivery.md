@@ -3,9 +3,10 @@
 ## Premiss
 
 Arbeidet leveres lokalt i testbare steg og holdes deaktivert til RLS, cleanup,
-worker, download-endpoint og ende-til-ende-test er godkjent. Ingen rapportpakke
-lagres av appen i browseren. Den eksplisitt nedlastede ZIP-en på device er
-fasilitatorens ansvar.
+worker, download-endpoint og ende-til-ende-test er godkjent. Ingen rapport eller
+pakke lagres av appen i browseren. En separat, kortlevd delivery receipt med bare
+rom-ID, jobb-ID og serverutløp er tillatt. Den eksplisitt nedlastede ZIP-en på
+device er fasilitatorens ansvar.
 
 ## Leverte foundations
 
@@ -22,6 +23,9 @@ fasilitatorens ansvar.
    Materialisering og sletting av live-data skjer atomisk.
 6. Frontendkontrakten har statuspolling, `HealthCheckDownloadGateway` og klar
    nedlastingsknapp uten transport- eller browserlagringsimplementasjon.
+7. Delivery receipt-foundation har egen localStorage-nøkkel og eksakt
+   `{version: 1, roomId, jobId, expiresAt}`. Den er ikke koblet til route/UI,
+   overlever session-pointer/source-sletting og fjernes ved utløp.
 
 ## Neste steg
 
@@ -103,6 +107,11 @@ fasilitatorens ansvar.
 16. Eksisterende estimeringsflyt og rollback er uendret og grønn.
 17. Finalize-retry etter romsletting returnerer samme owner-jobb; outsider avvises.
 18. Abort-retry etter sletting returnerer dokumentert generisk unavailable-feil.
+19. Health restore i `download_pending` returnerer `ok` og health-snapshot frem
+    til materialisering; etter source-sletting returnerer den
+    `membership_missing`. Ferdig estimation beholder `session_completed`.
+20. Finalize og owner-only status returnerer eksakt jobb-utløp; receipt-parseren
+    avviser ekstra felt, ugyldig UUID/tid, mismatch og utløpt metadata.
 
 ## Kvalitetsport
 

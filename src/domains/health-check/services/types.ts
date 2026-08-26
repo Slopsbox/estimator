@@ -59,11 +59,13 @@ export interface FinalizeHealthCheckResult {
   readonly status: 'download_pending';
   readonly jobId: string;
   readonly jobStatus: HealthCheckDownloadStatus;
+  readonly expiresAt: string;
 }
 
 export interface HealthCheckDownloadStatusResult {
   readonly status: HealthCheckDownloadStatus;
   readonly filename: string | null;
+  readonly expiresAt: string;
 }
 
 export interface HealthCheckRpcMap {
