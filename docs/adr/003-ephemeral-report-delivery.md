@@ -24,7 +24,9 @@ pålitelig bekreftelse på at en fil faktisk er lagret lokalt.
   til fasilitatorens `auth.uid()`.
 - En privat worker claimer jobben, leser frosne aggregater, rendrer PDF og CSV,
   lager ZIP, krypterer hele pakken med AES-256-GCM og unik 96-bits nonce, og
-  kaller en service-only materialiseringsfunksjon.
+  kaller en service-only materialiseringsfunksjon. `encrypted_package` lagres som
+  `ciphertext || 16-byte authentication tag`; plaintext ZIP er maks 4 MiB, og
+  databasefeltet tillater derfor maks 4 MiB + 16 byte.
 - Materialiseringsfunksjonen låser jobb og health-session, tar fersk
   `clock_timestamp()` etter hver lås og revaliderer claim, lease og begge utløp
   rett før write. Begge må ha `expires_at > materialized_at`; ellers feiler den med `job_expired` uten pakke
@@ -38,8 +40,10 @@ pålitelig bekreftelse på at en fil faktisk er lagret lokalt.
   timer og 55 minutter. En utløpt lease kan frigjøres til `failed` for retry.
 - En autentisert status-RPC viser bare eieren status og, når pakken er klar, det
   sikre filnavnet. Den returnerer aldri pakken.
-- Binærpakken hentes av et senere server-endpoint gjennom en service-only
-  funksjon. Endpointet verifiserer Supabase-JWT, matcher bruker-ID mot jobbens
+- Binærpakken hentes av Vercel-endpointet `POST /api/health-check-download`
+  gjennom en offentlig PostgREST-wrapper som kun `service_role` kan kjøre. Den
+  private package-funksjonen beholder owner-/ready-/expiry-kontrollen.
+  Endpointet verifiserer Supabase-JWT, matcher bruker-ID mot jobbens
   fasilitatorbinding, krever `ready` og ikke utløpt jobb, dekrypterer kun i minnet
   og svarer med attachment.
 - Service-enveloppen inneholder også `aad_room_id`. Worker og endpoint bygger
@@ -62,16 +66,17 @@ pålitelig bekreftelse på at en fil faktisk er lagret lokalt.
 
 ## Endpoint Contract
 
-Endpointet implementeres senere, uten URL-token og fortrinnsvis som `POST` med
-`Authorization`-header. Det skal vurdere CSRF i lys av valgt auth-transport,
+Endpointet er implementert uten URL-token som `POST` med
+`Authorization`-header og Vercels Web-standard `Request`-signatur uten Node-
+helpers. Det skal vurdere CSRF i lys av valgt auth-transport,
 aldri logge token, jobb-ID, filnavn eller innhold, og håndheve en eksplisitt
-responsstørrelsesgrense. Responsen skal ha:
+requestgrense på 1 KiB og responsgrense på 4 MiB. Responsen har:
 
 ```text
 Content-Type: application/zip
 Cache-Control: no-store, private
 Pragma: no-cache
-Content-Disposition: attachment; filename="fallback.zip"; filename*=UTF-8''<RFC5987>
+Content-Disposition: attachment; filename="health-check-report.zip"; filename*=UTF-8''<RFC5987>
 X-Content-Type-Options: nosniff
 ```
 
@@ -95,7 +100,7 @@ Avvist. Nettleseren gir ingen pålitelig kvittering for at filen ble lagret.
 - Rapportjobber trenger applikasjonskryptering og nøkkelrotasjon.
 - Support kan ikke hente rapporten etter vinduet på opptil 15 minutter; nær
   hovedutløpet er vinduet kortere.
-- ZIP/PDF-renderer og endpoint er eksplisitt senere arbeid; ingen avhengigheter
-  legges til i denne grunnleveransen.
+- ZIP/PDF-renderer og worker er eksplisitt senere arbeid. Endpointet bruker bare
+  eksisterende Supabase-klient og Node-krypto; ingen ny runtime-avhengighet.
 - Fasilitatoren må lagre og behandle den nedlastede filen i henhold til godkjent
   intern praksis.

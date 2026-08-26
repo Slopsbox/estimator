@@ -3,7 +3,7 @@
 begin;
 
 create extension if not exists pgtap with schema extensions;
-select extensions.plan(32);
+select extensions.plan(33);
 
 insert into auth.users (id, aud, role, created_at, updated_at)
 values
@@ -173,6 +173,24 @@ select extensions.ok(
   and not has_function_privilege('anon', 'private.cleanup_expired_health_checks()', 'EXECUTE'),
   'package and cleanup functions are private and service-role only'
 );
+select extensions.ok(
+  has_function_privilege(
+    'service_role',
+    'public.get_health_check_download_package_for_service(uuid,uuid)',
+    'EXECUTE'
+  )
+  and not has_function_privilege(
+    'authenticated',
+    'public.get_health_check_download_package_for_service(uuid,uuid)',
+    'EXECUTE'
+  )
+  and not has_function_privilege(
+    'anon',
+    'public.get_health_check_download_package_for_service(uuid,uuid)',
+    'EXECUTE'
+  ),
+  'public package wrapper is executable only by service_role'
+);
 
 select extensions.is(
   (select count(*)::text from pg_policies where schemaname = 'public' and tablename like 'health_check_%'),
@@ -195,7 +213,8 @@ select extensions.ok(
       'private.materialize_health_check_download(uuid,text,bytea,bytea,integer,text)'::regprocedure,
       'private.claim_health_check_report_job(uuid,text,interval)'::regprocedure,
       'private.fail_health_check_report_job(uuid,text)'::regprocedure,
-      'private.get_health_check_download_package(uuid,uuid)'::regprocedure,
+       'private.get_health_check_download_package(uuid,uuid)'::regprocedure,
+       'public.get_health_check_download_package_for_service(uuid,uuid)'::regprocedure,
      'private.cleanup_expired_health_checks()'::regprocedure
    )),
   'all health RPCs are security definer with fixed pg_catalog search path'

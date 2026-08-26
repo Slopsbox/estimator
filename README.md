@@ -158,7 +158,16 @@ førtilstanden for `authenticated` og `service_role` før den sikrer `USAGE` på
 `private`; session-integrity-rollbacken tilbakefører bare rettigheter releasen
 selv introduserte. Health-migrasjonen krever `service_role`-rettigheten i
 preflight og verken tildeler eller tilbakekaller den ved rollback. Den oppretter ingen
-UI, ZIP/PDF-worker, download-endpoint eller cron-jobb. Cleanup skal senere schedules med
+UI, ZIP/PDF-worker eller cron-jobb. Vercel-endpointet
+`POST /api/health-check-download` er implementert, men blir ikke koblet til UI
+eller aktivert før workeren finnes og database-/E2E-portene er grønne. Det krever
+servervariablene `SUPABASE_URL`, `SUPABASE_ANON_KEY`,
+`SUPABASE_SERVICE_ROLE_KEY` og minst én versjonert 32-byte AES-nøkkel i kanonisk
+base64, eksempelvis `HEALTH_REPORT_AES_KEY_V1`; ingen av disse kan ha
+`VITE_`-prefix. Endpointet returnerer generisk 404 med mindre
+`ENABLE_HEALTH_REPORT_DOWNLOAD` er eksakt `true`. Denne variabelen skal ikke
+aktiveres før worker, SQL-runtime, Vercel preview-smoke, monitoring og E2E er
+godkjent. Cleanup skal senere schedules med
 det eksakte jobbnavnet `cleanup-expired-health-checks` hvert femte minutt, men
 hver kjøring bruker ett fast cutoff-tidspunkt for jobb-, lease- og romopprydding;
 rader som krysser cutoff under kjøringen blir derfor liggende til neste kjøring.

@@ -50,16 +50,22 @@ fasilitatorens ansvar.
 
 ### Download-endpoint
 
-- implementer senere på Vercel eller Edge, fortrinnsvis `POST`
-- krev Supabase-JWT i header; ingen URL-token
-- verifiser JWT user ID mot jobbens `facilitator_user_id`
-- kall service-only package-funksjon, dekrypter i minnet og sett body-size cap
-- vurder CSRF eksplisitt for valgt auth-transport
+- Vercel `POST /api/health-check-download` er implementert bak
+  `ENABLE_HEALTH_REPORT_DOWNLOAD=true`; default er generisk 404
+- endpointet bruker Vercels Web-standard `fetch(Request)`-signatur uten Node-
+  helpers; rå JSON-stream leses med hard 1 KiB-grense, avvises tidlig ved for stor
+  `Content-Length` og kanselleres ved stream-overløp
+- krev Supabase-JWT i header; ingen URL-token eller cookie-auth
+- verifiser JWT med `auth.getUser`, og bind den returnerte bruker-ID-en mot
+  jobbens `facilitator_user_id` i service-only package-funksjonen
+- dekrypter `ciphertext || 16-byte GCM-tag` i minnet, krev ZIP-signatur og
+  håndhev 4 MiB i database og endpoint
 - returner `application/zip`, `Cache-Control: no-store, private`,
   `Pragma: no-cache`, `X-Content-Type-Options: nosniff` og sanitert RFC 5987
   attachment-filnavn
 - logg aldri token, jobb-ID, filnavn, pakke eller resultat
-- adapteren skal ikke skrive til Cache API, IndexedDB eller Web Storage
+- adapteren skal ikke kobles til UI eller feature-gaten aktiveres før worker,
+  SQL-runtime, Vercel preview-smoke, monitoring og E2E er godkjent
 
 ### Retensjon og drift
 

@@ -46,7 +46,7 @@ Private report worker
 ├── lager én ZIP og krypterer pakken med AES-256-GCM
 └── materialiserer pakke og sletter live-data atomisk
 
-Server download endpoint, senere leveranse
+Vercel download endpoint
 ├── validerer Supabase-JWT og eierbinding
 ├── henter kryptert pakke gjennom service-only funksjon
 ├── dekrypterer i minnet
@@ -112,7 +112,9 @@ terminal og hele raden er uforanderlig, bortsett fra eksakte no-op updates.
    nøyaktig én owner-bound jobb i `awaiting_materialization`.
 2. Worker claimer jobben med kort lease gjennom privat RPC. Forsøk er monotone.
 3. Worker leser metadata/katalog/aggregater, genererer PDF og CSV, ZIP-er dem og
-   krypterer hele pakken. AAD er UTF-8 uten avsluttende linjeskift i eksakt format:
+   krypterer hele pakken. `encrypted_package` er ciphertext etterfulgt av en
+   16-byte GCM-tag. Plaintext ZIP er maks 4 MiB. AAD er UTF-8 uten avsluttende
+   linjeskift i eksakt format:
 
    ```text
    health-check-package-v1
@@ -150,8 +152,9 @@ starter med `=`, `+`, `-` eller `@`, prefikses med apostrof før quoting.
 
 ## Download- og browserkontrakt
 
-Endpointet implementeres senere og skal være `POST` med Supabase-JWT i header,
-ingen URL-token og en eksplisitt body/responsstørrelsesgrense. Hvis auth senere
+Endpointet er `POST /api/health-check-download` med Supabase-JWT i header,
+Vercels Web-standard `Request` uten helper-preparsing, ingen URL-token, 1 KiB
+rå requestgrense og 4 MiB responsgrense. Hvis auth senere
 flyttes til cookies, kreves separat CSRF-kontroll. Det skal ikke logge request
 body, token, jobb-ID, filnavn eller rapportinnhold.
 
@@ -195,6 +198,5 @@ er forbudt i logger og metrics.
 
 1. ZIP- og PDF-bibliotek etter dependency-, font-, tilgjengelighets- og
    vedlikeholdsvurdering.
-2. Vercel- eller Edge-endpoint etter verifisering av streaming,
-   minne-/body-grenser og JWT-integrasjon.
+2. Rapportworker-runtime, scheduler, retry/backoff og nøkkelrotasjonsrunbook.
 3. Endelige verbale etiketter og presentasjon av 1-7-snitt i rapporten.

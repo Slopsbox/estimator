@@ -195,7 +195,8 @@ create table public.health_check_report_jobs (
   facilitator_user_id uuid not null references auth.users(id),
   aad_room_id uuid not null,
   encrypted_package bytea check (
-    encrypted_package is null or octet_length(encrypted_package) > 0
+    encrypted_package is null
+    or octet_length(encrypted_package) between 17 and 4194320
   ),
   package_nonce bytea check (package_nonce is null or octet_length(package_nonce) = 12),
   encryption_key_version integer check (
@@ -1714,6 +1715,28 @@ $function$;
 
 revoke all on function private.get_health_check_download_package(uuid, uuid) from public, anon, authenticated, service_role;
 
+create function public.get_health_check_download_package_for_service(
+  p_job_id uuid,
+  p_user_id uuid
+)
+returns table (
+  encrypted_package bytea,
+  package_nonce bytea,
+  encryption_key_version integer,
+  sanitized_filename text,
+  aad_room_id uuid
+)
+language sql
+security definer
+set search_path = pg_catalog
+as $function$
+  select *
+    from private.get_health_check_download_package(p_job_id, p_user_id);
+$function$;
+
+revoke all on function public.get_health_check_download_package_for_service(uuid, uuid)
+  from public, anon, authenticated, service_role;
+
 create function private.cleanup_expired_health_checks()
 returns void
 language plpgsql
@@ -1785,6 +1808,7 @@ revoke execute on function public.remove_health_check_respondent(uuid, uuid) fro
 revoke execute on function public.abort_health_check(uuid) from public, anon;
 revoke execute on function public.finalize_health_check(uuid) from public, anon;
 revoke execute on function public.get_health_check_download_status(uuid) from public, anon;
+revoke execute on function public.get_health_check_download_package_for_service(uuid, uuid) from public, anon, authenticated;
 
 grant execute on function private.cleanup_expired_health_checks() to service_role;
 grant execute on function private.claim_health_check_report_job(uuid, text, interval) to service_role;
@@ -1803,6 +1827,7 @@ grant execute on function public.remove_health_check_respondent(uuid, uuid) to a
 grant execute on function public.abort_health_check(uuid) to authenticated;
 grant execute on function public.finalize_health_check(uuid) to authenticated;
 grant execute on function public.get_health_check_download_status(uuid) to authenticated;
+grant execute on function public.get_health_check_download_package_for_service(uuid, uuid) to service_role;
 
 -- Reassert the complete common RPC privilege contract after replacing these
 -- definitions; function replacement preserves ACLs, but explicit grants make

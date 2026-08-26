@@ -56,6 +56,7 @@ $unschedule$;
 
 drop function public.finalize_health_check(uuid);
 drop function public.get_health_check_download_status(uuid);
+drop function public.get_health_check_download_package_for_service(uuid, uuid);
 drop function private.claim_health_check_report_job(uuid, text, interval);
 drop function private.fail_health_check_report_job(uuid, text);
 drop function private.materialize_health_check_download(uuid, text, bytea, bytea, integer, text);

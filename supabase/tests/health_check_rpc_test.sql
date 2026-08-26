@@ -3,7 +3,7 @@
 begin;
 
 create extension if not exists pgtap with schema extensions;
-select extensions.plan(111);
+select extensions.plan(115);
 
 insert into auth.users (id, aud, role, created_at, updated_at)
 values
@@ -582,6 +582,15 @@ select extensions.throws_ok(
   '22023', 'invalid_health_check_download_package',
   'materialization rejects an empty encrypted package atomically'
 );
+select extensions.throws_ok(
+  $$select private.materialize_health_check_download(
+    '63000000-0000-0000-0000-000000000001', 'report-worker',
+    decode(repeat('aa', 4194321), 'hex'),
+    decode(repeat('01', 12), 'hex'), 1, 'squad-sikker-2026-08-26.zip'
+  )$$,
+  '23514', null,
+  'database rejects an encrypted package larger than 4 MiB plus its GCM tag'
+);
 reset role;
 select extensions.is(
   (select count(*)::text from public.sessions where id = (select value::uuid from health_test_context where key = 'room_id')),
@@ -680,6 +689,14 @@ select extensions.throws_ok(
   '42501', null,
   'authenticated clients cannot execute the binary package function'
 );
+select extensions.throws_ok(
+  $$select * from public.get_health_check_download_package_for_service(
+    '63000000-0000-0000-0000-000000000001',
+    '61000000-0000-0000-0000-000000000001'
+  )$$,
+  '42501', null,
+  'authenticated clients cannot execute the service package wrapper'
+);
 select set_config('request.jwt.claim.sub', '61000000-0000-0000-0000-000000000008', true);
 select extensions.throws_ok(
   format('select public.finalize_health_check(%L::uuid)', (select value from health_test_context where key = 'room_id')),
@@ -718,6 +735,26 @@ select extensions.results_eq(
     (select value from health_test_context where key = 'room_id')
   ),
   'owner package envelope includes ciphertext metadata, filename and canonical AAD room'
+);
+select extensions.results_eq(
+  $$select octet_length(encrypted_package), octet_length(package_nonce),
+           encryption_key_version, sanitized_filename, aad_room_id
+      from public.get_health_check_download_package_for_service(
+    '63000000-0000-0000-0000-000000000001',
+    '61000000-0000-0000-0000-000000000001')$$,
+  format(
+    'values (64::integer, 12::integer, 1::integer, %L::text, %L::uuid)',
+    'squad-sikker-2026-08-26.zip',
+    (select value from health_test_context where key = 'room_id')
+  ),
+  'service wrapper returns the same owner-bound package envelope'
+);
+select extensions.is(
+  (select count(*)::text from public.get_health_check_download_package_for_service(
+    '63000000-0000-0000-0000-000000000001',
+    '61000000-0000-0000-0000-000000000008')),
+  '0',
+  'service wrapper preserves owner mismatch denial'
 );
 reset role;
 set local session_replication_role = replica;
