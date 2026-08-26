@@ -11,6 +11,7 @@ export type { Area, AreaKey, HealthCheckTemplate, Question, QuestionKey, Templat
 
 export type SevenPointScore = keyof HealthCheckTemplate['scoreLabels'];
 export type HealthScoreLabel = HealthCheckTemplate['scoreLabels'][SevenPointScore];
+export type HealthCheckResponseMap = Readonly<Record<QuestionKey, SevenPointScore>>;
 
 export type HealthCheckValidationErrorCode =
   | 'MISSING_QUESTION'
@@ -21,7 +22,7 @@ export type HealthCheckValidationErrorCode =
 export type HealthCheckResponseValidationResult =
   | {
       readonly valid: true;
-      readonly value: Readonly<Record<QuestionKey, SevenPointScore>>;
+      readonly value: HealthCheckResponseMap;
     }
   | {
       readonly valid: false;

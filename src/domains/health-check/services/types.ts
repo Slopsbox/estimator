@@ -1,4 +1,4 @@
-import type { QuestionKey, SevenPointScore } from '../domain';
+export type { HealthCheckResponseMap } from '../domain';
 
 export type HealthCheckPhase = 'lobby' | 'collecting' | 'delivery_pending';
 export type HealthCheckRole = 'facilitator' | 'participant';
@@ -36,8 +36,6 @@ export interface HealthCheckProgressRow {
   readonly displayName: string;
   readonly status: HealthCheckRespondentState;
 }
-
-export type HealthCheckResponseMap = Readonly<Record<QuestionKey, SevenPointScore>>;
 
 export interface StartHealthCheckResult {
   readonly status: 'ok';

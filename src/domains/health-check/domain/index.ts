@@ -16,6 +16,7 @@ export type {
   AreaKey,
   AreaAverage,
   HealthCheckAggregate,
+  HealthCheckResponseMap,
   HealthCheckResponseValidationResult,
   HealthCheckTemplate,
   HealthCheckValidationErrorCode,
