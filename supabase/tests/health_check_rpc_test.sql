@@ -3,7 +3,7 @@
 begin;
 
 create extension if not exists pgtap with schema extensions;
-select extensions.plan(122);
+select extensions.plan(136);
 
 insert into auth.users (id, aud, role, created_at, updated_at)
 values
@@ -20,6 +20,28 @@ values
 
 create temporary table health_test_context (key text primary key, value text not null);
 grant all on health_test_context to service_role, authenticated;
+
+create temporary table health_report_snapshot (
+  line_number bigint generated always as identity,
+  job_id uuid,
+  aad_room_id uuid,
+  squad_name text,
+  measurement_date date,
+  template_version text,
+  expected_respondent_count integer,
+  area_key text,
+  area_sequence smallint,
+  area_title text,
+  area_introduction text,
+  area_description text,
+  question_key text,
+  question_sequence smallint,
+  question_text text,
+  score_sum bigint,
+  response_count integer
+);
+grant all on health_report_snapshot to service_role;
+grant usage, select on sequence health_report_snapshot_line_number_seq to service_role;
 
 set local role service_role;
 insert into health_test_context (key, value)
@@ -550,11 +572,25 @@ select 'source_expires_at', expires_at::text
   from public.health_check_sessions
  where room_id = (select value::uuid from health_test_context where key = 'room_id');
 set local role service_role;
+select extensions.throws_ok(
+  $$select * from public.get_health_check_report_snapshot_for_service(
+    '63000000-0000-0000-0000-000000000001', 'report-worker'
+  )$$,
+  '55000', 'health_check_report_job_not_claimed',
+  'snapshot denies an unclaimed report job'
+);
 select extensions.lives_ok(
   $$select private.claim_health_check_report_job(
     '63000000-0000-0000-0000-000000000001', 'report-worker', interval '1 minute'
   )$$,
   'awaiting job can be claimed for processing'
+);
+select extensions.throws_ok(
+  $$select * from public.get_health_check_report_snapshot_for_service(
+    '63000000-0000-0000-0000-000000000001', 'wrong-worker'
+  )$$,
+  '55000', 'health_check_report_job_not_claimed',
+  'snapshot denies a worker that does not own the claim'
 );
 select extensions.is(
   private.fail_health_check_report_job(
@@ -597,10 +633,195 @@ select extensions.results_eq(
   $$values ('processing'::text, 2)$$,
   'reclaim increments attempts monotonically and restores processing state'
 );
+insert into health_report_snapshot (
+  job_id, aad_room_id, squad_name, measurement_date, template_version,
+  expected_respondent_count, area_key, area_sequence, area_title,
+  area_introduction, area_description, question_key, question_sequence,
+  question_text, score_sum, response_count
+)
+select * from public.get_health_check_report_snapshot_for_service(
+  '63000000-0000-0000-0000-000000000001', 'report-worker'
+);
+select extensions.is(
+  (select count(*)::text from health_report_snapshot),
+  '31',
+  'claimed worker receives exactly 31 report snapshot lines'
+);
+select extensions.ok(
+  not exists (
+    select 1
+      from health_report_snapshot as current_line
+      join health_report_snapshot as previous_line
+        on previous_line.line_number = current_line.line_number - 1
+     where (current_line.area_sequence, current_line.question_sequence)
+           < (previous_line.area_sequence, previous_line.question_sequence)
+  )
+  and (select min(expected_respondent_count) = 5
+              and max(expected_respondent_count) = 5
+              and min(response_count) = 5
+              and max(response_count) = 5
+         from health_report_snapshot)
+  and (select count(distinct area_key) = 7 from health_report_snapshot),
+  'snapshot lines are deterministic and carry aggregate-derived cohort and catalog fields'
+);
+select extensions.results_eq(
+  $$select squad_name, measurement_date, template_version,
+           question_sequence, score_sum, response_count
+      from health_report_snapshot
+     order by line_number
+     limit 1$$,
+  $$values ('Squad Sikker'::text, date '2026-08-26', 'squad-health-v1'::text,
+            1::smallint, 17::bigint, 5::integer)$$,
+  'snapshot returns the expected immutable metadata and aggregate values'
+);
+select extensions.is(
+  (select string_agg(key, ',' order by key)
+     from jsonb_object_keys(
+       (select to_jsonb(snapshot_line) - 'line_number'
+          from health_report_snapshot as snapshot_line
+         order by line_number limit 1)
+     ) as keys(key)),
+  'aad_room_id,area_description,area_introduction,area_key,area_sequence,area_title,expected_respondent_count,job_id,measurement_date,question_key,question_sequence,question_text,response_count,score_sum,squad_name,template_version',
+  'snapshot JSON has exactly the approved keys and no identity or completion fields'
+);
 reset role;
+
+set local session_replication_role = replica;
+update public.health_check_report_jobs
+   set lease_expires_at = statement_timestamp() - interval '1 second'
+ where id = '63000000-0000-0000-0000-000000000001';
+set local session_replication_role = origin;
+set local role service_role;
+select extensions.throws_ok(
+  $$select * from public.get_health_check_report_snapshot_for_service(
+    '63000000-0000-0000-0000-000000000001', 'report-worker'
+  )$$,
+  '55000', 'health_check_report_job_not_claimed',
+  'snapshot denies a stale worker lease'
+);
+select extensions.ok(
+  (select regexp_count(prosrc, 'v_checked_at\s*:=\s*clock_timestamp\(\)', 1, 'i') = 4
+          and regexp_replace(lower(prosrc), '\s+', ' ', 'g')
+            like '%v_session_found boolean;%for update; v_session_found := found; v_checked_at := clock_timestamp(); if v_job.status <> ''processing''%health_check_report_job_not_claimed%if v_job.expires_at <= v_checked_at or v_health.expires_at <= v_checked_at then%job_expired%if not v_session_found%health_check_report_snapshot_invariant%'
+          and regexp_replace(lower(prosrc), '\s+', ' ', 'g')
+            like '%health_check_report_snapshot_invariant%end if; v_checked_at := clock_timestamp(); if v_job.status <> ''processing''%health_check_report_job_not_claimed%if v_job.expires_at <= v_checked_at or v_health.expires_at <= v_checked_at then%job_expired%end if; return query%'
+     from pg_proc
+    where oid = 'public.get_health_check_report_snapshot_for_service(uuid,text)'::regprocedure),
+  'snapshot takes fresh time after every blocking stage and checks lease before expiry and invariants'
+);
+reset role;
+set local session_replication_role = replica;
+update public.health_check_report_jobs
+   set lease_expires_at = statement_timestamp() + interval '1 minute',
+       expires_at = statement_timestamp() - interval '1 second'
+ where id = '63000000-0000-0000-0000-000000000001';
+set local session_replication_role = origin;
+set local role service_role;
+select extensions.throws_ok(
+  $$select * from public.get_health_check_report_snapshot_for_service(
+    '63000000-0000-0000-0000-000000000001', 'report-worker'
+  )$$,
+  '55000', 'job_expired',
+  'snapshot denies an expired report job'
+);
+reset role;
+set local session_replication_role = replica;
+update public.health_check_report_jobs
+   set expires_at = (select value::timestamptz from health_test_context where key = 'source_expires_at')
+ where id = '63000000-0000-0000-0000-000000000001';
+update public.health_check_sessions
+   set expires_at = statement_timestamp() - interval '1 second'
+ where room_id = (select value::uuid from health_test_context where key = 'room_id');
+set local session_replication_role = origin;
+set local role service_role;
+select extensions.throws_ok(
+  $$select * from public.get_health_check_report_snapshot_for_service(
+    '63000000-0000-0000-0000-000000000001', 'report-worker'
+  )$$,
+  '55000', 'job_expired',
+  'snapshot denies an expired locked source session'
+);
+reset role;
+set local session_replication_role = replica;
+update public.health_check_sessions
+   set expires_at = (select value::timestamptz from health_test_context where key = 'source_expires_at'),
+       phase = 'collecting'
+ where room_id = (select value::uuid from health_test_context where key = 'room_id');
+update public.sessions
+   set status = 'active'
+ where id = (select value::uuid from health_test_context where key = 'room_id');
+set local session_replication_role = origin;
+set local role service_role;
+select extensions.throws_ok(
+  $$select * from public.get_health_check_report_snapshot_for_service(
+    '63000000-0000-0000-0000-000000000001', 'report-worker'
+  )$$,
+  '55000', 'health_check_report_snapshot_invariant',
+  'snapshot rejects a corrupted collecting non-finalized source fixture'
+);
+reset role;
+set local session_replication_role = replica;
+update public.health_check_sessions
+   set phase = 'download_pending'
+ where room_id = (select value::uuid from health_test_context where key = 'room_id');
+update public.sessions
+   set status = 'completed'
+ where id = (select value::uuid from health_test_context where key = 'room_id');
+set local session_replication_role = origin;
+
+update public.health_check_question_aggregates as a
+   set response_count = 4
+  from public.health_check_questions as q
+ where a.room_id = (select value::uuid from health_test_context where key = 'room_id')
+   and q.template_version = a.template_version
+   and q.question_key = a.question_key
+   and q.sequence = 1;
+set local role service_role;
+select extensions.throws_ok(
+  $$select * from public.get_health_check_report_snapshot_for_service(
+    '63000000-0000-0000-0000-000000000001', 'report-worker'
+  )$$,
+  '55000', 'health_check_report_snapshot_invariant',
+  'snapshot rejects inconsistent aggregate response counts'
+);
+reset role;
+update public.health_check_question_aggregates as a
+   set response_count = 5
+  from public.health_check_questions as q
+ where a.room_id = (select value::uuid from health_test_context where key = 'room_id')
+   and q.template_version = a.template_version
+   and q.question_key = a.question_key
+   and q.sequence = 1;
+
+create temporary table health_saved_question as
+select * from public.health_check_questions
+ where template_version = 'squad-health-v1' and sequence = 31;
+set local session_replication_role = replica;
+delete from public.health_check_questions
+ where template_version = 'squad-health-v1' and sequence = 31;
+set local session_replication_role = origin;
+set local role service_role;
+select extensions.throws_ok(
+  $$select * from public.get_health_check_report_snapshot_for_service(
+    '63000000-0000-0000-0000-000000000001', 'report-worker'
+  )$$,
+  '55000', 'health_check_report_snapshot_invariant',
+  'snapshot rejects an incomplete immutable catalog fixture'
+);
+reset role;
+insert into public.health_check_questions
+select * from health_saved_question;
+
 set local role authenticated;
 select set_config('request.jwt.claim.role', 'authenticated', true);
 select set_config('request.jwt.claim.sub', '61000000-0000-0000-0000-000000000001', true);
+select extensions.throws_ok(
+  $$select * from public.get_health_check_report_snapshot_for_service(
+    '63000000-0000-0000-0000-000000000001', 'report-worker'
+  )$$,
+  '42501', null,
+  'authenticated cannot execute the service report snapshot wrapper'
+);
 select extensions.throws_ok(
   $$select private.claim_health_check_report_job(
     '63000000-0000-0000-0000-000000000001', 'client-worker', interval '1 minute'

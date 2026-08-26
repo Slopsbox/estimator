@@ -1666,6 +1666,212 @@ begin
 end;
 $function$;
 
+create function public.get_health_check_report_snapshot_for_service(
+  p_job_id uuid,
+  p_worker_id text
+)
+returns table (
+  job_id uuid,
+  aad_room_id uuid,
+  squad_name text,
+  measurement_date date,
+  template_version text,
+  expected_respondent_count integer,
+  area_key text,
+  area_sequence smallint,
+  area_title text,
+  area_introduction text,
+  area_description text,
+  question_key text,
+  question_sequence smallint,
+  question_text text,
+  score_sum bigint,
+  response_count integer
+)
+language plpgsql
+security definer
+set search_path = pg_catalog
+as $function$
+declare
+  v_job public.health_check_report_jobs%rowtype;
+  v_health public.health_check_sessions%rowtype;
+  v_session public.sessions%rowtype;
+  v_checked_at timestamptz;
+  v_source_found boolean;
+  v_session_found boolean;
+  v_template_count integer;
+  v_area_count integer;
+  v_question_count integer;
+  v_aggregate_count integer;
+  v_joined_count integer;
+  v_joined_area_count integer;
+  v_min_response_count integer;
+  v_max_response_count integer;
+begin
+  select j.* into v_job
+    from public.health_check_report_jobs as j
+   where j.id = p_job_id
+   for update;
+  v_checked_at := clock_timestamp();
+  if p_worker_id is null or btrim(p_worker_id) = ''
+     or not found
+     or v_job.status <> 'processing'
+     or v_job.claimed_by is null
+     or v_job.claimed_by <> btrim(p_worker_id)
+     or v_job.lease_expires_at is null
+     or v_job.lease_expires_at <= v_checked_at
+     or v_job.source_room_id is null then
+    raise exception 'health_check_report_job_not_claimed' using errcode = '55000';
+  end if;
+  if v_job.expires_at <= v_checked_at then
+    raise exception 'job_expired' using errcode = '55000';
+  end if;
+
+  select h.* into v_health
+    from public.health_check_sessions as h
+   where h.room_id = v_job.source_room_id
+   for update;
+  v_source_found := found;
+  v_checked_at := clock_timestamp();
+  if v_job.status <> 'processing'
+     or v_job.claimed_by is null
+     or v_job.claimed_by <> btrim(p_worker_id)
+     or v_job.lease_expires_at is null
+     or v_job.lease_expires_at <= v_checked_at then
+    raise exception 'health_check_report_job_not_claimed' using errcode = '55000';
+  end if;
+  if v_job.expires_at <= v_checked_at
+     or not v_source_found
+     or v_health.expires_at <= v_checked_at then
+    raise exception 'job_expired' using errcode = '55000';
+  end if;
+
+  select s.* into v_session
+    from public.sessions as s
+   where s.id = v_health.room_id
+   for update;
+  v_session_found := found;
+  v_checked_at := clock_timestamp();
+  if v_job.status <> 'processing'
+     or v_job.claimed_by is null
+     or v_job.claimed_by <> btrim(p_worker_id)
+     or v_job.lease_expires_at is null
+     or v_job.lease_expires_at <= v_checked_at then
+    raise exception 'health_check_report_job_not_claimed' using errcode = '55000';
+  end if;
+  if v_job.expires_at <= v_checked_at
+     or v_health.expires_at <= v_checked_at then
+    raise exception 'job_expired' using errcode = '55000';
+  end if;
+  if not v_session_found
+     or v_health.room_id is distinct from v_job.source_room_id
+     or v_health.delivery_id is distinct from v_job.id
+     or v_job.aad_room_id is distinct from v_health.room_id
+     or v_job.expires_at is distinct from v_health.expires_at
+     or v_health.phase <> 'download_pending'
+     or v_session.activity_type <> 'health_check'
+     or v_session.status <> 'completed'
+     or v_session.facilitator_user_id is distinct from v_job.facilitator_user_id then
+    raise exception 'health_check_report_snapshot_invariant' using errcode = '55000';
+  end if;
+
+  select count(*)::integer into v_template_count
+    from public.health_check_templates as t
+   where t.version = v_health.template_version
+     and t.area_count = 7
+     and t.question_count = 31;
+  select count(*)::integer into v_area_count
+    from public.health_check_areas as ar
+   where ar.template_version = v_health.template_version;
+  select count(*)::integer into v_question_count
+    from public.health_check_questions as q
+   where q.template_version = v_health.template_version;
+  select count(*)::integer, min(a.response_count), max(a.response_count)
+    into v_aggregate_count, v_min_response_count, v_max_response_count
+    from public.health_check_question_aggregates as a
+   where a.room_id = v_health.room_id;
+  select count(*)::integer, count(distinct ar.area_key)::integer
+    into v_joined_count, v_joined_area_count
+    from public.health_check_question_aggregates as a
+    join public.health_check_questions as q
+      on q.template_version = a.template_version
+     and q.question_key = a.question_key
+    join public.health_check_areas as ar
+      on ar.template_version = q.template_version
+     and ar.area_key = q.area_key
+   where a.room_id = v_health.room_id
+     and a.template_version = v_health.template_version;
+
+  if v_template_count <> 1
+     or v_area_count <> 7
+     or v_question_count <> 31
+     or v_aggregate_count <> 31
+     or v_joined_count <> 31
+     or v_joined_area_count <> 7
+     or v_min_response_count is null
+     or v_min_response_count < 5
+     or v_min_response_count <> v_max_response_count
+     or exists (
+       select 1
+         from public.health_check_question_aggregates as a
+        where a.room_id = v_health.room_id
+          and (
+            a.template_version is distinct from v_health.template_version
+            or a.response_count is null
+            or a.score_sum is null
+            or a.score_sum < a.response_count
+            or a.score_sum > a.response_count::bigint * 7
+          )
+     ) then
+    raise exception 'health_check_report_snapshot_invariant' using errcode = '55000';
+  end if;
+
+  v_checked_at := clock_timestamp();
+  if v_job.status <> 'processing'
+     or v_job.claimed_by is null
+     or v_job.claimed_by <> btrim(p_worker_id)
+     or v_job.lease_expires_at is null
+     or v_job.lease_expires_at <= v_checked_at then
+    raise exception 'health_check_report_job_not_claimed' using errcode = '55000';
+  end if;
+  if v_job.expires_at <= v_checked_at
+     or v_health.expires_at <= v_checked_at then
+    raise exception 'job_expired' using errcode = '55000';
+  end if;
+
+  return query
+  select v_job.id,
+         v_job.aad_room_id,
+         v_health.squad_name,
+         v_health.measurement_date,
+         v_health.template_version,
+         v_min_response_count,
+         ar.area_key,
+         ar.sequence,
+         ar.title,
+         ar.introduction,
+         ar.description,
+         q.question_key,
+         q.sequence,
+         q.text,
+         a.score_sum,
+         a.response_count
+    from public.health_check_question_aggregates as a
+    join public.health_check_questions as q
+      on q.template_version = a.template_version
+     and q.question_key = a.question_key
+    join public.health_check_areas as ar
+      on ar.template_version = q.template_version
+     and ar.area_key = q.area_key
+   where a.room_id = v_health.room_id
+     and a.template_version = v_health.template_version
+   order by ar.sequence, q.sequence;
+end;
+$function$;
+
+revoke all on function public.get_health_check_report_snapshot_for_service(uuid, text)
+  from public, anon, authenticated, service_role;
+
 create function private.fail_health_check_report_job(p_job_id uuid, p_worker_id text)
 returns boolean
 language plpgsql
@@ -1783,11 +1989,6 @@ revoke all on table public.health_check_respondents from public, anon, authentic
 revoke all on table public.health_check_question_aggregates from public, anon, authenticated, service_role;
 revoke all on table public.health_check_report_jobs from public, anon, authenticated, service_role;
 
-grant select on table public.health_check_templates to service_role;
-grant select on table public.health_check_areas to service_role;
-grant select on table public.health_check_questions to service_role;
-grant select on table public.health_check_sessions to service_role;
-grant select on table public.health_check_question_aggregates to service_role;
 grant select (
   id, source_room_id, aad_room_id, status, attempts,
   next_attempt_at, claimed_by, lease_expires_at, materialized_at, expires_at,
@@ -1817,6 +2018,7 @@ revoke execute on function public.abort_health_check(uuid) from public, anon;
 revoke execute on function public.finalize_health_check(uuid) from public, anon;
 revoke execute on function public.get_health_check_download_status(uuid) from public, anon;
 revoke execute on function public.get_health_check_download_package_for_service(uuid, uuid) from public, anon, authenticated;
+revoke execute on function public.get_health_check_report_snapshot_for_service(uuid, text) from public, anon, authenticated;
 
 grant execute on function private.cleanup_expired_health_checks() to service_role;
 grant execute on function private.claim_health_check_report_job(uuid, text, interval) to service_role;
@@ -1836,6 +2038,7 @@ grant execute on function public.abort_health_check(uuid) to authenticated;
 grant execute on function public.finalize_health_check(uuid) to authenticated;
 grant execute on function public.get_health_check_download_status(uuid) to authenticated;
 grant execute on function public.get_health_check_download_package_for_service(uuid, uuid) to service_role;
+grant execute on function public.get_health_check_report_snapshot_for_service(uuid, text) to service_role;
 
 -- Reassert the complete common RPC privilege contract after replacing these
 -- definitions; function replacement preserves ACLs, but explicit grants make

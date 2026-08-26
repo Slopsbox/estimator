@@ -260,6 +260,129 @@ until after the target's recorded expiry. After A commits, the same cleanup run
 deletes the sentinel but must leave the target job and room unchanged for the
 next run because their expiry was later than B's captured cutoff.
 
+### Snapshot waits on the common session row until its lease expires
+
+Use a fresh finalized fixture with `room_id` and `delivery_id` recorded in both
+terminals. Keep the source and job expiry at least five minutes in the future.
+Acquire the common session-row lock before claiming so setup time does not
+consume the lease:
+
+```sql
+-- Terminal A
+begin;
+select 1 from public.sessions where id = :'room_id'::uuid for update;
+```
+
+Claim with a short lease immediately before starting the snapshot:
+
+```sql
+-- Terminal B: worker setup
+begin;
+set local role service_role;
+select private.claim_health_check_report_job(
+  :'delivery_id'::uuid, 'snapshot-lock-worker', interval '60 seconds'
+);
+select lease_expires_at as lease_expires_at
+from public.health_check_report_jobs where id = :'delivery_id'::uuid \gset
+\echo :lease_expires_at
+commit;
+```
+
+Copy the echoed timestamp into Terminal A with
+`\set lease_expires_at 'TIMESTAMPTZ_VALUE'` before continuing. Keep Terminal A's
+transaction open.
+
+Start the snapshot in Terminal B. It must lock the job and health-session rows,
+then wait for Terminal A at the `public.sessions FOR UPDATE`:
+
+```sql
+begin;
+set local role service_role;
+set local lock_timeout = '120s';
+select * from public.get_health_check_report_snapshot_for_service(
+  :'delivery_id'::uuid, 'snapshot-lock-worker'
+);
+```
+
+In Terminal A, wait until the exact lease is past, then release the row:
+
+```sql
+select pg_sleep_until(:'lease_expires_at'::timestamptz + interval '1 second');
+commit;
+```
+
+Expected in Terminal B: SQLSTATE `55000` /
+`health_check_report_job_not_claimed`, not snapshot rows and not `job_expired`.
+Run `rollback;` there. This proves the fresh revalidation immediately after the
+session lock observes a lease lost only through elapsed wall time.
+
+### Snapshot waits on catalog validation until its lease expires
+
+This case uses three terminals so lock acquisition and blocking are observable.
+Use another fresh finalized fixture, keep source/job expiry at least five minutes
+away, and have Terminal A obtain the DDL-strength lock before claiming or
+starting the snapshot:
+
+```sql
+-- Terminal A
+begin;
+lock table public.health_check_questions in access exclusive mode;
+```
+
+Only after that command returns, claim in Terminal B and echo the exact lease:
+
+```sql
+-- Terminal B: worker setup
+begin;
+set local role service_role;
+select private.claim_health_check_report_job(
+  :'delivery_id'::uuid, 'snapshot-catalog-worker', interval '60 seconds'
+);
+select lease_expires_at as lease_expires_at
+from public.health_check_report_jobs where id = :'delivery_id'::uuid \gset
+\echo :lease_expires_at
+commit;
+```
+
+Copy the echoed value into Terminal A with
+`\set lease_expires_at 'TIMESTAMPTZ_VALUE'`. Then start the snapshot in Terminal
+B:
+
+```sql
+begin;
+set local role service_role;
+set local lock_timeout = '120s';
+select * from public.get_health_check_report_snapshot_for_service(
+  :'delivery_id'::uuid, 'snapshot-catalog-worker'
+);
+```
+
+The snapshot locks job, health-session and common session rows, completes the
+template/area checks, then blocks when catalog validation selects
+`health_check_questions`. Confirm the wait from Terminal C:
+
+```sql
+select pid, wait_event_type, wait_event, pg_blocking_pids(pid)
+from pg_stat_activity
+where query like '%get_health_check_report_snapshot_for_service%'
+  and state = 'active';
+```
+
+Terminal C must show a lock wait and Terminal A's PID as blocker. In Terminal A,
+wait past the lease copied during claim and release the catalog lock:
+
+```sql
+select pg_sleep_until(:'lease_expires_at'::timestamptz + interval '1 second');
+commit;
+```
+
+Expected in Terminal B after all catalog and aggregate invariants finish:
+SQLSTATE `55000` / `health_check_report_job_not_claimed`, before the return query
+can emit any row. Run `rollback;`. This proves the final fresh-clock check catches
+a lease lost while a non-row-lock validation query was blocked. If the fixture
+does not otherwise pass every invariant, discard it and repeat; an invariant
+error does not test the pre-return lease check.
+
 For every ordering, verify:
 
 ```sql

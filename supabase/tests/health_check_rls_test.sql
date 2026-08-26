@@ -3,7 +3,7 @@
 begin;
 
 create extension if not exists pgtap with schema extensions;
-select extensions.plan(33);
+select extensions.plan(37);
 
 insert into auth.users (id, aud, role, created_at, updated_at)
 values
@@ -96,18 +96,27 @@ select extensions.ok(
          'health_check_templates', 'health_check_areas', 'health_check_questions',
           'health_check_sessions', 'health_check_question_aggregates'
        )
-       and privilege_type <> 'SELECT'
   )
-  and (
-    select count(*) from information_schema.role_table_grants
-     where grantee = 'service_role'
-       and table_schema = 'public'
-       and table_name in (
-         'health_check_templates', 'health_check_areas', 'health_check_questions',
-          'health_check_sessions', 'health_check_question_aggregates'
-       )
-       and privilege_type = 'SELECT'
-  ) = 5
+  and not has_any_column_privilege(
+    'service_role', 'public.health_check_templates',
+    'SELECT,INSERT,UPDATE,REFERENCES'
+  )
+  and not has_any_column_privilege(
+    'service_role', 'public.health_check_areas',
+    'SELECT,INSERT,UPDATE,REFERENCES'
+  )
+  and not has_any_column_privilege(
+    'service_role', 'public.health_check_questions',
+    'SELECT,INSERT,UPDATE,REFERENCES'
+  )
+  and not has_any_column_privilege(
+    'service_role', 'public.health_check_sessions',
+    'SELECT,INSERT,UPDATE,REFERENCES'
+  )
+  and not has_any_column_privilege(
+    'service_role', 'public.health_check_question_aggregates',
+    'SELECT,INSERT,UPDATE,REFERENCES'
+  )
   and not has_table_privilege(
     'service_role', 'public.health_check_respondents',
     'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER'
@@ -116,7 +125,7 @@ select extensions.ok(
     'service_role', 'public.health_check_respondents',
     'SELECT,INSERT,UPDATE,REFERENCES'
   ),
-  'service_role has exactly SELECT on catalog, health sessions and aggregates, never respondents'
+  'service_role has no direct report source or respondent table access'
 );
 
 select extensions.ok(
@@ -191,6 +200,65 @@ select extensions.ok(
   ),
   'public package wrapper is executable only by service_role'
 );
+select extensions.ok(
+  has_function_privilege(
+    'service_role',
+    'public.get_health_check_report_snapshot_for_service(uuid,text)',
+    'EXECUTE'
+  )
+  and not has_function_privilege(
+    'authenticated',
+    'public.get_health_check_report_snapshot_for_service(uuid,text)',
+    'EXECUTE'
+  )
+  and not has_function_privilege(
+    'anon',
+    'public.get_health_check_report_snapshot_for_service(uuid,text)',
+    'EXECUTE'
+  ),
+  'public report snapshot wrapper is executable only by service_role'
+);
+select extensions.ok(
+  (select not exists (
+      select 1
+        from pg_class as c
+       where c.oid = any (array[
+         'public.health_check_report_jobs'::regclass::oid,
+         'public.health_check_sessions'::regclass::oid,
+         'public.sessions'::regclass::oid,
+         'public.health_check_templates'::regclass::oid,
+         'public.health_check_areas'::regclass::oid,
+         'public.health_check_questions'::regclass::oid,
+         'public.health_check_question_aggregates'::regclass::oid
+       ]::oid[])
+         and c.relowner <> p.proowner
+    )
+     from pg_proc as p
+    where p.oid = 'public.get_health_check_report_snapshot_for_service(uuid,text)'::regprocedure),
+  'report snapshot owner also owns every source table it must read'
+);
+select extensions.ok(
+  (select count(*) = 7
+          and bool_and(c.relrowsecurity and not c.relforcerowsecurity)
+     from pg_class as c
+    where c.oid = any (array[
+      'public.health_check_report_jobs'::regclass::oid,
+      'public.health_check_sessions'::regclass::oid,
+      'public.health_check_respondents'::regclass::oid,
+      'public.health_check_question_aggregates'::regclass::oid,
+      'public.health_check_templates'::regclass::oid,
+      'public.health_check_areas'::regclass::oid,
+      'public.health_check_questions'::regclass::oid
+    ]::oid[])),
+  'health tables use enabled non-forced RLS for owner-bound security definer access'
+);
+select extensions.ok(
+  (select position('health_check_respondents' in lower(p.prosrc)) = 0
+          and position('health_check_question_aggregates' in lower(p.prosrc)) > 0
+     from pg_proc as p
+    where p.oid = 'public.get_health_check_report_snapshot_for_service(uuid,text)'::regprocedure),
+  'report snapshot derives cohort size from aggregates and never reads respondents'
+);
 
 select extensions.is(
   (select count(*)::text from pg_policies where schemaname = 'public' and tablename like 'health_check_%'),
@@ -215,7 +283,8 @@ select extensions.ok(
       'private.fail_health_check_report_job(uuid,text)'::regprocedure,
        'private.get_health_check_download_package(uuid,uuid)'::regprocedure,
        'public.get_health_check_download_package_for_service(uuid,uuid)'::regprocedure,
-     'private.cleanup_expired_health_checks()'::regprocedure
+       'public.get_health_check_report_snapshot_for_service(uuid,text)'::regprocedure,
+      'private.cleanup_expired_health_checks()'::regprocedure
    )),
   'all health RPCs are security definer with fixed pg_catalog search path'
 );

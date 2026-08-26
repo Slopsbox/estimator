@@ -19,8 +19,14 @@ device er fasilitatorens ansvar.
    `awaiting_materialization | processing | ready | failed`, nullable
    `source_room_id`, write-once AES-GCM-pakke og opptil 15 minutter retry etter
    materialisering, aldri forbi opprinnelig romutløp.
-5. Private claim/fail/materialize/package-funksjoner håndhever minst privilegium.
-   Materialisering og sletting av live-data skjer atomisk.
+5. Private claim/fail/materialize/package-funksjoner og en offentlig eksponert,
+   service-only, claim-/lease-bundet snapshot-RPC håndhever minst privilegium.
+   Worker har ingen direkte `SELECT` på rapportgrunnlaget. Materialisering og
+   sletting av live-data skjer atomisk. Snapshot-RPC-en revaliderer fersk tid tre
+   ganger etter initial jobbsjekk: etter source-lås, etter session-lås og etter
+   katalog-/aggregatvalidering umiddelbart før returspørringen. Hver revalidering
+   sjekker claim/lease før jobb- og source-utløp; session-invariantene sjekkes
+   etter den andre.
 6. Frontendkontrakten har statuspolling, `HealthCheckDownloadGateway` og klar
    nedlastingsknapp uten transport- eller browserlagringsimplementasjon.
 7. Delivery receipt-foundation har egen localStorage-nøkkel og eksakt
@@ -45,7 +51,8 @@ device er fasilitatorens ansvar.
 ### Rapportworker
 
 - velg ZIP/PDF-bibliotek etter sikkerhets- og dependency review
-- les kun frosne, private metadata/katalog/aggregater
+- hent kun det validerte, frosne rapportgrunnlaget gjennom service-only
+  `get_health_check_report_snapshot_for_service`; ikke les kildetabellene direkte
 - generer PDF og CSV, pakk én ZIP og krypter med AES-256-GCM
 - bruk eksakt kanonisk AAD fra arkitekturen med jobb-ID, returnert `aad_room_id`,
   felttype `encrypted_package` og nøkkelversjon
@@ -87,7 +94,8 @@ device er fasilitatorens ansvar.
 3. Klientroller kan aldri lese aggregater, jobbtabell eller pakke.
 4. Finalisering lager én idempotent `awaiting_materialization`-jobb med korrekt
    fasilitatorbinding og uten pakke.
-5. Bare privat worker kan claime og materialisere.
+5. Bare privat worker kan claime, hente claim-/lease-bundet snapshot og
+   materialisere; worker har bare direkte kømetadata-tilgang.
 6. Ugyldig eller uclaimet materialisering beholder live-data.
 7. Vellykket materialisering lager én ikke-tom kryptert ZIP, nullstiller
    source-FK og sletter rom, medlemskap og aggregater i samme transaksjon.

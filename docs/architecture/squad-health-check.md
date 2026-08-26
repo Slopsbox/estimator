@@ -40,6 +40,7 @@ Supabase Postgres
 ├── live session, frosset respondentkohort og aggregater
 ├── owner-bound report job
 ├── authenticated status-RPC
+├── claim-/lease-bundet service-only report-snapshot-RPC
 └── private claim/fail/materialize/package/cleanup-funksjoner
 
 Private report worker
@@ -56,9 +57,11 @@ Vercel download endpoint
 ```
 
 Rapportworker og endpoint er private serverkomponenter. Ingen klientrolle kan
-lese aggregater, jobbtabellen eller ciphertext. `service_role` har kun direkte
-`SELECT` på nødvendig rapportgrunnlag; jobbmutasjoner går gjennom eksplisitte
-`SECURITY DEFINER`-funksjoner med lukket `search_path`.
+lese aggregater, jobbtabellen eller ciphertext. `service_role` har direkte
+`SELECT` bare på eksplisitte køkolonner for worker discovery. Rapportgrunnlaget
+leses utelukkende gjennom en claim-/lease-bundet `SECURITY DEFINER`-snapshot-RPC;
+jobbmutasjoner går gjennom tilsvarende eksplisitte funksjoner. Alle har lukket
+`search_path`.
 
 ## Datamodell
 
@@ -113,8 +116,19 @@ terminal og hele raden er uforanderlig, bortsett fra eksakte no-op updates.
    aggregater og identisk respondentantall, setter `download_pending` og lager
    nøyaktig én owner-bound jobb i `awaiting_materialization`.
 2. Worker claimer jobben med kort lease gjennom privat RPC. Forsøk er monotone.
-3. Worker leser metadata/katalog/aggregater, genererer PDF og CSV, ZIP-er dem og
-   krypterer hele pakken. `encrypted_package` er ciphertext etterfulgt av en
+3. Worker henter nøyaktig 31 deterministisk sorterte rapportlinjer gjennom
+   `get_health_check_report_snapshot_for_service`. RPC-en låser jobb og source i
+   samme rekkefølge som materialisering. Den tar fersk wall-clock-tid og validerer
+   claim/lease og jobbens utløp etter jobblåsen. Etter source-låsen revaliderer
+   den claim/lease først og deretter jobb- og source-utløp. Etter `sessions`-låsen
+   gjentas samme ordnede revalidering før source/session-invariantene, inkludert
+   at session-raden faktisk ble funnet. Etter all katalog- og aggregatvalidering,
+   umiddelbart før resultatradene leses, tas enda en fersk tid og claim/lease
+   revalideres før jobb- og source-utløp. Lease som bare tapes til elapsed wall
+   time gir `health_check_report_job_not_claimed`; utløp gir `job_expired`.
+   Inkonsistent katalog eller aggregater avvises, og RPC-en leser aldri
+   respondenttabellen. Worker genererer PDF og CSV, ZIP-er dem og krypterer hele
+   pakken. `encrypted_package` er ciphertext etterfulgt av en
    16-byte GCM-tag. Plaintext ZIP er maks 4 MiB. AAD er UTF-8 uten avsluttende
    linjeskift i eksakt format:
 
@@ -197,6 +211,8 @@ ignoreres og forsøkes slettet senest ved `expiresAt`.
   limiting. Firetegnskode er aldri autorisasjon alene.
 - Alle domeneoperasjoner verifiserer aktivitetstype og medlemskap/eierbinding.
 - Ingen klientrolle har direkte tabelltilgang til health-data eller report jobs.
+- `service_role` har ingen direkte tilgang til katalog, health-session eller
+  aggregater; snapshot-RPC-en er eneste tilgang til rapportgrunnlaget.
 - Worker logger aldri navn, auth-ID, kode, score, aggregater eller rapportinnhold.
 - Feil er generiske. Nøkkelmateriale finnes bare i server-secret og roteres per
   versjon; manglende nøkkel feiler lukket.
