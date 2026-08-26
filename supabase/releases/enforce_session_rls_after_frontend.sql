@@ -128,7 +128,7 @@ revoke all on table public.participants from anon, authenticated;
 revoke all on table public.votes from anon, authenticated;
 revoke all on table public.round_participants from anon, authenticated;
 
-grant select (id, consensus_streak, created_at, current_round, join_code, started, status, votes_revealed)
+grant select (id, activity_type, consensus_streak, created_at, current_round, join_code, started, status, votes_revealed)
   on table public.sessions to authenticated;
 grant select (id, joined_at, left_at, name, role, session_id)
   on table public.participants to authenticated;

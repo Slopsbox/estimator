@@ -33,26 +33,28 @@ export function createEstimationService({
 
   async function sessionMutation(
     name: 'start_session' | 'reveal_votes' | 'next_round' | 'end_session',
-    sessionId: string,
+    currentSession: Session,
   ): Promise<SessionResult> {
-    const result = await call(name, { p_session_id: sessionId });
+    if (currentSession.activity_type !== 'estimation') return { ok: false, reason: 'malformed' };
+    const result = await call(name, { p_session_id: currentSession.id });
     if ('reason' in result) return { ok: false, reason: result.reason };
     if (!isRecord(result.data)) return { ok: false, reason: 'malformed' };
     const validStatus = result.data.status === 'ok'
       || (name === 'reveal_votes' && result.data.status === 'already_revealed');
     const session = validStatus ? parseSession(result.data.session) : null;
-    return session?.id === sessionId
+    return session?.id === currentSession.id && session.activity_type === 'estimation'
       ? { ok: true, session }
       : { ok: false, reason: 'malformed' };
   }
 
   return {
-    start: (sessionId: string) => sessionMutation('start_session', sessionId),
-    reveal: (sessionId: string) => sessionMutation('reveal_votes', sessionId),
-    next: (sessionId: string) => sessionMutation('next_round', sessionId),
-    end: (sessionId: string) => sessionMutation('end_session', sessionId),
+    start: (session: Session) => sessionMutation('start_session', session),
+    reveal: (session: Session) => sessionMutation('reveal_votes', session),
+    next: (session: Session) => sessionMutation('next_round', session),
+    end: (session: Session) => sessionMutation('end_session', session),
 
     async claim(session: Session, participant: LocalParticipant) {
+      if (session.activity_type !== 'estimation') return { ok: false as const, reason: 'malformed' as const };
       const result = await call('claim_round', { p_session_id: session.id });
       if ('reason' in result) return { ok: false as const, reason: result.reason };
       const roundParticipant = isRecord(result.data) && result.data.status === 'ok'
@@ -67,6 +69,7 @@ export function createEstimationService({
     },
 
     async cast(session: Session, participant: LocalParticipant, vote: VoteSubmission) {
+      if (session.activity_type !== 'estimation') return { ok: false as const, reason: 'malformed' as const };
       const result = await call('cast_vote', {
         p_session_id: session.id,
         p_round: session.current_round,
@@ -87,6 +90,7 @@ export function createEstimationService({
     },
 
     async retract(session: Session) {
+      if (session.activity_type !== 'estimation') return { ok: false as const, reason: 'malformed' as const };
       const result = await call('retract_vote', {
         p_session_id: session.id,
         p_round: session.current_round,

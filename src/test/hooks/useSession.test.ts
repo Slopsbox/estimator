@@ -53,6 +53,7 @@ import { SessionProvider } from '../../hooks/SessionProvider';
 import { useSession } from '../../hooks/useSession';
 
 const SESSION = {
+  activity_type: 'estimation' as const,
   id: 'session-1', status: 'active', current_round: 1, created_at: '2026-01-01T00:00:00Z',
   join_code: 'ABCD', votes_revealed: false, started: true, consensus_streak: 0,
 };

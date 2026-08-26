@@ -12,9 +12,6 @@ import type { Tables } from './database.types';
 // Re-eksport av genererte DB-typer
 // ============================================================
 
-/** Rad fra sessions-tabellen */
-export type Session = Omit<Tables<'sessions'>, 'facilitator_user_id' | 'create_request_id'>;
-
 /** Rad fra participants-tabellen */
 export type Participant = Omit<Tables<'participants'>, 'user_id'>;
 
@@ -43,6 +40,12 @@ export type ParticipantRole = 'facilitator' | 'participant';
 
 /** Aktivitet som kjøres i et felles rom. */
 export type RoomActivityType = 'estimation' | 'health_check';
+
+/** Offentlig session-rad med aktivitet snevret til databasekontrakten. */
+export type Session = Omit<
+  Tables<'sessions'>,
+  'facilitator_user_id' | 'create_request_id' | 'activity_type'
+> & { activity_type: RoomActivityType };
 
 // ============================================================
 // Frontend-spesifikke typer (ingen DB-ekvivalent)

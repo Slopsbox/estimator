@@ -122,6 +122,20 @@ npm run test:watch   # Tester i watch-modus
 8. Verifiser at `sessions`, `participants`, `votes` og `round_participants` er med i `supabase_realtime`-publikasjonen.
 9. Hent **Project URL** og **anon key** fra **Settings → API** og sett dem som miljøvariabler.
 
+### Room activity expand/contract
+
+Room activity-kontrakten må rulles ut i denne rekkefølgen:
+
+1. Deploy kompatibel frontend-commit `d58f3c8`.
+2. Kjør migrasjonen `estimation_activity_type_foundation`.
+3. Deploy strict frontend som krever `sessions.activity_type`.
+
+Ved rollback kjøres `supabase/releases/rollback_activity_type_foundation.sql`
+før en bredere session-integrity rollback. Ikke rull strict frontend tilbake før
+databasekontrakten og kompatibel frontend igjen er koordinert.
+Etter at rollback-SQL er verifisert, marker historikken eksplisitt med
+`supabase migration repair 20260825140936 --status reverted --linked`.
+
 ---
 
 ## Deploy til Vercel

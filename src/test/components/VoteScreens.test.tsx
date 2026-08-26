@@ -10,6 +10,7 @@ import type { Session, Vote, LocalParticipant } from '../../lib/types';
 
 function makeSession(overrides: Partial<Session> = {}): Session {
   return {
+    activity_type: 'estimation',
     id: 'ses-1',
     created_at: new Date().toISOString(),
     status: 'active',

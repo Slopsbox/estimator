@@ -239,7 +239,7 @@ export function SessionProvider({ children }: PropsWithChildren) {
     setError(null);
     const generation = generationRef.current;
     try {
-      const result = await estimation[operation](session.id);
+      const result = await estimation[operation](session);
       if (generation !== generationRef.current || !result.ok) throw new Error('mutation_failed');
       setSession(result.session);
       return { ok: true };

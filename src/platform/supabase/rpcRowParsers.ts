@@ -1,6 +1,7 @@
 import type {
   Participant,
   ParticipantRole,
+  RoomActivityType,
   RoundParticipant,
   Session,
   Size,
@@ -24,6 +25,10 @@ function isRole(value: unknown): value is ParticipantRole {
   return value === 'facilitator' || value === 'participant';
 }
 
+function isActivityType(value: unknown): value is RoomActivityType {
+  return value === 'estimation' || value === 'health_check';
+}
+
 function isSize(value: unknown): value is Size {
   return value === 'xs' || value === 's' || value === 'm' || value === 'l' || value === 'xl';
 }
@@ -35,12 +40,14 @@ function isValue(value: unknown): value is Value {
 export function parseSession(value: unknown): Session | null {
   if (!isRecord(value)) return null;
   if (
-    typeof value.id !== 'string' || typeof value.created_at !== 'string'
+    typeof value.id !== 'string' || !isActivityType(value.activity_type)
+    || typeof value.created_at !== 'string'
     || typeof value.current_round !== 'number' || !isNullableString(value.join_code)
     || typeof value.started !== 'boolean' || typeof value.status !== 'string'
     || typeof value.votes_revealed !== 'boolean' || typeof value.consensus_streak !== 'number'
   ) return null;
   return {
+    activity_type: value.activity_type,
     id: value.id,
     created_at: value.created_at,
     current_round: value.current_round,

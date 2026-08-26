@@ -4,14 +4,16 @@
 begin;
 
 create extension if not exists pgtap with schema extensions;
-select extensions.plan(34);
+select extensions.plan(68);
 
 insert into auth.users (id, aud, role, email, created_at, updated_at)
 values
   ('10000000-0000-0000-0000-000000000001', 'authenticated', 'authenticated', 'facilitator@test.invalid', now(), now()),
   ('10000000-0000-0000-0000-000000000002', 'authenticated', 'authenticated', 'participant-a@test.invalid', now(), now()),
   ('10000000-0000-0000-0000-000000000003', 'authenticated', 'authenticated', 'participant-b@test.invalid', now(), now()),
-  ('10000000-0000-0000-0000-000000000004', 'authenticated', 'authenticated', 'outsider@test.invalid', now(), now());
+  ('10000000-0000-0000-0000-000000000004', 'authenticated', 'authenticated', 'outsider@test.invalid', now(), now()),
+  ('10000000-0000-0000-0000-000000000005', 'authenticated', 'authenticated', 'health-facilitator@test.invalid', now(), now()),
+  ('10000000-0000-0000-0000-000000000006', 'authenticated', 'authenticated', 'health-member@test.invalid', now(), now());
 
 create temporary table session_test_context (
   key text primary key,
@@ -24,6 +26,37 @@ select extensions.is(
   (select count(*)::text from public.sessions where status = 'active' and facilitator_user_id is null),
   '0',
   'additive cutover leaves no active legacy session restorable'
+);
+
+select extensions.ok(
+  exists (
+    select 1
+      from information_schema.columns
+     where table_schema = 'public'
+       and table_name = 'sessions'
+       and column_name = 'activity_type'
+       and is_nullable = 'NO'
+       and column_default = '''estimation''::text'
+  ),
+  'activity_type is non-null with estimation default'
+);
+
+select extensions.ok(
+  exists (
+    select 1
+      from pg_constraint
+     where conrelid = 'public.sessions'::regclass
+       and conname = 'sessions_activity_type_valid'
+       and convalidated
+       and pg_get_constraintdef(oid) like '%activity_type%estimation%health_check%'
+  ),
+  'activity_type check is present and validated'
+);
+
+select extensions.is(
+  (select count(*)::text from public.sessions where activity_type <> 'estimation'),
+  '0',
+  'existing session rows are backfilled as estimation'
 );
 
 select set_config('request.jwt.claim.sub', '10000000-0000-0000-0000-000000000001', true);
@@ -49,6 +82,12 @@ select extensions.is(
   (select value::jsonb->>'status' from session_test_context where key = 'create_result'),
   'ok',
   'create_session creates the session atomically'
+);
+
+select extensions.is(
+  (select value::jsonb->'session'->>'activity_type' from session_test_context where key = 'create_result'),
+  'estimation',
+  'create_session returns explicit estimation activity type'
 );
 
 select extensions.ok(
@@ -118,6 +157,32 @@ select extensions.is(
   'join_session is idempotent per authenticated user'
 );
 
+select extensions.is(
+  (select value::jsonb->'session'->>'activity_type' from session_test_context where key = 'join_a_result'),
+  'estimation',
+  'join_session returns explicit estimation activity type'
+);
+
+select extensions.ok(
+  not ((select value::jsonb->'session' from session_test_context where key = 'join_a_result') ? 'facilitator_user_id')
+  and not ((select value::jsonb->'session' from session_test_context where key = 'join_a_result') ? 'create_request_id')
+  and not ((select value::jsonb->'participant' from session_test_context where key = 'join_a_result') ? 'user_id'),
+  'join_session strips permanent auth and request identifiers'
+);
+
+select extensions.is(
+  public.restore_session((select value::uuid from session_test_context where key = 'session_id'))->'session'->>'activity_type',
+  'estimation',
+  'restore_session returns explicit estimation activity type'
+);
+
+select extensions.ok(
+  not (public.restore_session((select value::uuid from session_test_context where key = 'session_id'))->'session' ? 'facilitator_user_id')
+  and not (public.restore_session((select value::uuid from session_test_context where key = 'session_id'))->'session' ? 'create_request_id')
+  and not (public.restore_session((select value::uuid from session_test_context where key = 'session_id'))->'participant' ? 'user_id'),
+  'restore_session strips permanent auth and request identifiers'
+);
+
 select set_config('request.jwt.claim.sub', '10000000-0000-0000-0000-000000000003', true);
 insert into session_test_context (key, value)
 select 'join_b_result', public.join_session(
@@ -183,7 +248,11 @@ select extensions.throws_ok(
 );
 
 select set_config('request.jwt.claim.sub', '10000000-0000-0000-0000-000000000001', true);
-select public.start_session((select value::uuid from session_test_context where key = 'session_id'));
+select extensions.is(
+  public.start_session((select value::uuid from session_test_context where key = 'session_id'))->'session'->>'activity_type',
+  'estimation',
+  'start_session mutation returns explicit estimation activity type'
+);
 
 select set_config('request.jwt.claim.sub', '10000000-0000-0000-0000-000000000002', true);
 select extensions.is(
@@ -247,7 +316,11 @@ select extensions.throws_ok(
 );
 
 select set_config('request.jwt.claim.sub', '10000000-0000-0000-0000-000000000001', true);
-select public.reveal_votes((select value::uuid from session_test_context where key = 'session_id'));
+select extensions.is(
+  public.reveal_votes((select value::uuid from session_test_context where key = 'session_id'))->'session'->>'activity_type',
+  'estimation',
+  'reveal_votes mutation returns explicit estimation activity type'
+);
 
 select set_config('request.jwt.claim.sub', '10000000-0000-0000-0000-000000000002', true);
 select extensions.throws_ok(
@@ -283,7 +356,11 @@ select extensions.throws_ok(
 );
 
 select set_config('request.jwt.claim.sub', '10000000-0000-0000-0000-000000000001', true);
-select public.next_round((select value::uuid from session_test_context where key = 'session_id'));
+select extensions.is(
+  public.next_round((select value::uuid from session_test_context where key = 'session_id'))->'session'->>'activity_type',
+  'estimation',
+  'next_round mutation returns explicit estimation activity type'
+);
 
 select set_config('request.jwt.claim.sub', '10000000-0000-0000-0000-000000000002', true);
 select public.cast_vote(
@@ -407,6 +484,175 @@ select extensions.throws_ok(
   '42501',
   'session_not_available',
   'claim_round requires active membership'
+);
+
+-- Privileged setup for a room type whose creator RPC does not exist yet.
+reset role;
+insert into public.sessions (
+  id, status, current_round, join_code, votes_revealed, started,
+  consensus_streak, facilitator_user_id, create_request_id, activity_type
+) values (
+  '50000000-0000-0000-0000-000000000001', 'active', 1, 'HLTH', false, false,
+  0, '10000000-0000-0000-0000-000000000005',
+  '50000000-0000-0000-0000-000000000002', 'health_check'
+);
+insert into public.participants (id, session_id, name, role, user_id)
+values
+  ('50000000-0000-0000-0000-000000000003', '50000000-0000-0000-0000-000000000001', 'Health Fac', 'facilitator', '10000000-0000-0000-0000-000000000005');
+
+select set_config('request.jwt.claim.sub', '10000000-0000-0000-0000-000000000006', true);
+insert into session_test_context (key, value)
+select 'health_join_result', public.join_session('HLTH', 'Health Member rejoined')::text;
+
+select extensions.is(
+  (
+    select count(*)::text from public.participants
+     where session_id = '50000000-0000-0000-0000-000000000001'
+       and user_id = '10000000-0000-0000-0000-000000000006'
+       and role = 'participant'
+  ),
+  '1',
+  'join_session inserts a new member into a health room'
+);
+
+select extensions.is(
+  (select value::jsonb->'session'->>'activity_type' from session_test_context where key = 'health_join_result'),
+  'health_check',
+  'join_session supports health rooms and returns their activity type'
+);
+
+select extensions.ok(
+  (select value::jsonb->'round_participant' from session_test_context where key = 'health_join_result') = 'null'::jsonb,
+  'health join has no estimation round participant'
+);
+
+insert into session_test_context (key, value)
+select 'health_restore_result', public.restore_session('50000000-0000-0000-0000-000000000001')::text;
+
+select extensions.is(
+  (select value::jsonb->'session'->>'activity_type' from session_test_context where key = 'health_restore_result'),
+  'health_check',
+  'restore_session supports health room membership'
+);
+
+select extensions.ok(
+  (select value::jsonb->'vote' from session_test_context where key = 'health_restore_result') = 'null'::jsonb
+  and (select value::jsonb->'round_participant' from session_test_context where key = 'health_restore_result') = 'null'::jsonb,
+  'health restore returns null legacy estimation fields'
+);
+
+select extensions.is(
+  public.leave_session('50000000-0000-0000-0000-000000000001')->>'status',
+  'ok',
+  'leave_session supports health rooms'
+);
+
+select extensions.is(
+  public.join_session('HLTH', 'Health Member returned')->'session'->>'activity_type',
+  'health_check',
+  'health membership can rejoin after leave'
+);
+
+select extensions.throws_ok(
+  $$select public.claim_round('50000000-0000-0000-0000-000000000001')$$,
+  '22023', 'wrong_activity_type',
+  'claim_round rejects a health room after membership authorization'
+);
+select extensions.throws_ok(
+  $$select public.cast_vote('50000000-0000-0000-0000-000000000001', 1, 'm', 'gold')$$,
+  '22023', 'wrong_activity_type',
+  'cast_vote rejects a health room after membership authorization'
+);
+select extensions.throws_ok(
+  $$select public.retract_vote('50000000-0000-0000-0000-000000000001', 1)$$,
+  '22023', 'wrong_activity_type',
+  'retract_vote rejects a health room after membership authorization'
+);
+
+select set_config('request.jwt.claim.sub', '10000000-0000-0000-0000-000000000005', true);
+select extensions.throws_ok(
+  $$select public.create_session('50000000-0000-0000-0000-000000000002', 'Health Fac')$$,
+  '22023', 'wrong_activity_type',
+  'create_session rejects an idempotent active health room'
+);
+select extensions.throws_ok(
+  $$select public.create_session(null, 'Health Fac')$$,
+  '22023', 'wrong_activity_type',
+  'create_session checks active room activity before request id validation'
+);
+select extensions.throws_ok(
+  $$select public.create_session('50000000-0000-0000-0000-000000000099', '')$$,
+  '22023', 'wrong_activity_type',
+  'create_session checks active room activity before name validation'
+);
+select extensions.throws_ok(
+  $$select public.start_session('50000000-0000-0000-0000-000000000001')$$,
+  '22023', 'wrong_activity_type',
+  'start_session rejects a health room after facilitator authorization'
+);
+select extensions.throws_ok(
+  $$select public.reveal_votes('50000000-0000-0000-0000-000000000001')$$,
+  '22023', 'wrong_activity_type',
+  'reveal_votes rejects a health room after facilitator authorization'
+);
+select extensions.throws_ok(
+  $$select public.next_round('50000000-0000-0000-0000-000000000001')$$,
+  '22023', 'wrong_activity_type',
+  'next_round rejects a health room after facilitator authorization'
+);
+select extensions.throws_ok(
+  $$select public.end_session('50000000-0000-0000-0000-000000000001')$$,
+  '22023', 'wrong_activity_type',
+  'end_session rejects a health room after facilitator authorization'
+);
+select extensions.throws_ok(
+  $$select public.get_round_vote_statuses('50000000-0000-0000-0000-000000000001', 1)$$,
+  '22023', 'wrong_activity_type',
+  'get_round_vote_statuses rejects a health room after facilitator authorization'
+);
+
+select set_config('request.jwt.claim.sub', '10000000-0000-0000-0000-000000000004', true);
+select extensions.throws_ok(
+  $$select public.claim_round('50000000-0000-0000-0000-000000000001')$$,
+  '42501', 'session_not_available',
+  'claim_round authorizes before exposing health activity type'
+);
+select extensions.throws_ok(
+  $$select public.start_session('50000000-0000-0000-0000-000000000001')$$,
+  '42501', 'facilitator_required',
+  'facilitator mutation authorizes before exposing health activity type'
+);
+
+select extensions.ok(
+  exists (
+    select 1 from public.sessions
+     where id = '50000000-0000-0000-0000-000000000001'
+       and status = 'active'
+       and current_round = 1
+       and not started
+       and not votes_revealed
+       and consensus_streak = 0
+  ),
+  'rejected estimation RPCs do not mutate health session lifecycle fields'
+);
+
+select extensions.ok(
+  not exists (
+    select 1 from public.round_participants
+     where session_id = '50000000-0000-0000-0000-000000000001'
+  )
+  and not exists (
+    select 1 from public.votes
+     where session_id = '50000000-0000-0000-0000-000000000001'
+  ),
+  'rejected estimation RPCs do not create health votes or round participation'
+);
+
+select set_config('request.jwt.claim.sub', '10000000-0000-0000-0000-000000000003', true);
+select extensions.is(
+  public.end_session((select value::uuid from session_test_context where key = 'second_session_id'))->'session'->>'activity_type',
+  'estimation',
+  'end_session mutation returns explicit estimation activity type'
 );
 
 select set_config('request.jwt.claim.sub', '10000000-0000-0000-0000-000000000001', true);

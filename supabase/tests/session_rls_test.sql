@@ -4,7 +4,7 @@
 begin;
 
 create extension if not exists pgtap with schema extensions;
-select extensions.plan(14);
+select extensions.plan(17);
 
 insert into auth.users (id, aud, role, email, created_at, updated_at)
 values
@@ -64,6 +64,7 @@ select extensions.ok(
 );
 select extensions.ok(
   has_column_privilege('authenticated', 'public.sessions', 'id', 'SELECT')
+  and has_column_privilege('authenticated', 'public.sessions', 'activity_type', 'SELECT')
   and has_column_privilege('authenticated', 'public.sessions', 'status', 'SELECT')
   and not has_column_privilege('authenticated', 'public.sessions', 'facilitator_user_id', 'SELECT')
   and not has_column_privilege('authenticated', 'public.sessions', 'create_request_id', 'SELECT')
@@ -76,11 +77,27 @@ select extensions.ok(
 );
 select extensions.ok(
   not has_table_privilege('authenticated', 'public.sessions', 'INSERT,UPDATE,DELETE')
+  and not has_column_privilege('authenticated', 'public.sessions', 'activity_type', 'UPDATE')
   and not has_table_privilege('authenticated', 'public.participants', 'INSERT,UPDATE,DELETE')
   and not has_table_privilege('authenticated', 'public.votes', 'INSERT,UPDATE,DELETE')
   and not has_table_privilege('authenticated', 'public.round_participants', 'INSERT,UPDATE,DELETE'),
   'authenticated mutations remain RPC-only'
 );
+
+set local role authenticated;
+select set_config('request.jwt.claim.sub', '30000000-0000-0000-0000-000000000002', true);
+select set_config('request.jwt.claim.role', 'authenticated', true);
+select extensions.throws_ok(
+  format(
+    'update public.sessions set activity_type = %L where id = %L::uuid',
+    'health_check',
+    (select value from session_rls_context where key = 'session_id')
+  ),
+  '42501',
+  null,
+  'authenticated members cannot write activity_type'
+);
+reset role;
 
 set local role authenticated;
 select set_config('request.jwt.claim.sub', '30000000-0000-0000-0000-000000000004', true);
@@ -100,8 +117,12 @@ select extensions.is(
   '0',
   'an outsider cannot read another session'
 );
-
 select set_config('request.jwt.claim.sub', '30000000-0000-0000-0000-000000000002', true);
+select extensions.is(
+  (select activity_type from public.sessions where id = (select value::uuid from session_rls_context where key = 'session_id')),
+  'estimation',
+  'an active member can read the room activity type'
+);
 select extensions.is(
   private.can_access_presence_topic('session:' || (select value from session_rls_context where key = 'session_id')),
   true,
@@ -131,6 +152,17 @@ select extensions.is(
 );
 reset role;
 
+set local role anon;
+select set_config('request.jwt.claim.sub', '', true);
+select set_config('request.jwt.claim.role', 'anon', true);
+select extensions.ok(
+  not has_column_privilege('anon', 'public.sessions', 'activity_type', 'SELECT'),
+  'anon has no privilege to read room activity types'
+);
+reset role;
+
+select set_config('request.jwt.claim.sub', '30000000-0000-0000-0000-000000000001', true);
+select set_config('request.jwt.claim.role', 'authenticated', true);
 select public.reveal_votes((select value::uuid from session_rls_context where key = 'session_id'));
 set local role authenticated;
 select set_config('request.jwt.claim.sub', '30000000-0000-0000-0000-000000000001', true);

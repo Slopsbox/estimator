@@ -107,6 +107,7 @@ const FACILITATOR_PARTICIPANT: LocalParticipant = {
 };
 
 const BASE_SESSION: Session = {
+  activity_type: 'estimation',
   id: 'ses-1',
   status: 'active',
   current_round: 1,

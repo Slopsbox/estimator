@@ -7,6 +7,7 @@ import type { RpcClient } from '../../../../platform/supabase/rpcClient';
 const SESSION = {
   id: 'session-1', status: 'active', current_round: 1, created_at: '2026-01-01T00:00:00Z',
   join_code: 'ABCD', votes_revealed: false, started: true, consensus_streak: 0,
+  activity_type: 'estimation' as const,
 };
 const LOCAL_PARTICIPANT = {
   participantId: 'participant-1', sessionId: SESSION.id, name: 'Kari', role: 'participant' as const,
@@ -38,7 +39,7 @@ describe('estimationService', () => {
   ] as const)('%s sender riktig RPC og returnerer validert Session', async (method, rpcName) => {
     rpc.mockResolvedValue({ data: { status: 'ok', session: SESSION }, error: null });
 
-    const result = await service[method](SESSION.id);
+    const result = await service[method](SESSION);
 
     expect(rpc).toHaveBeenCalledWith(rpcName, { p_session_id: SESSION.id });
     expect(result).toEqual({ ok: true, session: SESSION });
@@ -47,13 +48,13 @@ describe('estimationService', () => {
   it('behandler already_revealed som idempotent reveal-suksess', async () => {
     rpc.mockResolvedValue({ data: { status: 'already_revealed', session: SESSION }, error: null });
 
-    await expect(service.reveal(SESSION.id)).resolves.toEqual({ ok: true, session: SESSION });
+    await expect(service.reveal(SESSION)).resolves.toEqual({ ok: true, session: SESSION });
   });
 
   it('avviser already_revealed for andre sessionmutasjoner', async () => {
     rpc.mockResolvedValue({ data: { status: 'already_revealed', session: SESSION }, error: null });
 
-    await expect(service.start(SESSION.id)).resolves.toEqual({ ok: false, reason: 'malformed' });
+    await expect(service.start(SESSION)).resolves.toEqual({ ok: false, reason: 'malformed' });
   });
 
   it('claim sender session-ID og returnerer scope-validert RoundParticipant', async () => {
@@ -108,8 +109,35 @@ describe('estimationService', () => {
     await expect(service.retract(SESSION)).resolves.toEqual({ ok: false, reason: 'malformed' });
   });
 
+  it.each(['start', 'reveal', 'next', 'end', 'claim', 'cast', 'retract'] as const)(
+    '%s nekter health session uten identitet eller RPC-kall',
+    async (operation) => {
+      const healthSession = { ...SESSION, activity_type: 'health_check' as const };
+      const run = operation === 'claim'
+        ? service.claim(healthSession, LOCAL_PARTICIPANT)
+        : operation === 'cast'
+          ? service.cast(healthSession, LOCAL_PARTICIPANT, { size: 'm', value: 'gold' })
+          : operation === 'retract'
+            ? service.retract(healthSession)
+            : service[operation](healthSession);
+
+      await expect(run).resolves.toEqual({ ok: false, reason: 'malformed' });
+      expect(ensureIdentity).not.toHaveBeenCalled();
+      expect(rpc).not.toHaveBeenCalled();
+    },
+  );
+
+  it('avviser mutation response med non-estimation session', async () => {
+    rpc.mockResolvedValue({
+      data: { status: 'ok', session: { ...SESSION, activity_type: 'health_check' } },
+      error: null,
+    });
+
+    await expect(service.start(SESSION)).resolves.toEqual({ ok: false, reason: 'malformed' });
+  });
+
   it.each([
-    ['session', () => service.start(SESSION.id), { status: 'ok', session: { ...SESSION, id: 'other' } }],
+    ['session', () => service.start(SESSION), { status: 'ok', session: { ...SESSION, id: 'other' } }],
     ['claim', () => service.claim(SESSION, LOCAL_PARTICIPANT), { status: 'ok', round_participant: {} }],
     ['cast', () => service.cast(SESSION, LOCAL_PARTICIPANT, { size: 'm', value: 'gold' }), { status: 'ok', vote: null }],
   ])('avviser malformed %s-payload', async (_operation, run, data) => {
@@ -120,12 +148,12 @@ describe('estimationService', () => {
 
   it('normaliserer identity- og RPC-feil uten å lekke detaljer', async () => {
     ensureIdentity.mockRejectedValueOnce(new Error('secret identity detail'));
-    await expect(service.start(SESSION.id)).resolves.toEqual({ ok: false, reason: 'identity' });
+    await expect(service.start(SESSION)).resolves.toEqual({ ok: false, reason: 'identity' });
 
     rpc.mockResolvedValueOnce({ data: null, error: { message: 'secret DB detail' } });
-    await expect(service.start(SESSION.id)).resolves.toEqual({ ok: false, reason: 'rpc' });
+    await expect(service.start(SESSION)).resolves.toEqual({ ok: false, reason: 'rpc' });
 
     rpc.mockRejectedValueOnce(new Error('network detail'));
-    await expect(service.start(SESSION.id)).resolves.toEqual({ ok: false, reason: 'rpc' });
+    await expect(service.start(SESSION)).resolves.toEqual({ ok: false, reason: 'rpc' });
   });
 });

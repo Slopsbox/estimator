@@ -58,19 +58,21 @@ function parseMembership(value: unknown): RoomMembershipSnapshot | null {
   const session = parseSession(sessionRecord);
   const participant = parseParticipant(value.participant);
   const hasEnvelopeActivityType = hasOwn(value, 'activity_type');
-  const hasSessionActivityType = hasOwn(sessionRecord, 'activity_type');
   if (
     (hasEnvelopeActivityType && !isActivityType(value.activity_type))
-    || (hasSessionActivityType && !isActivityType(sessionRecord.activity_type))
-    || (hasEnvelopeActivityType && hasSessionActivityType && value.activity_type !== sessionRecord.activity_type)
+    || (hasEnvelopeActivityType && value.activity_type !== session?.activity_type)
   ) return null;
-  const activityType = hasEnvelopeActivityType
-    ? value.activity_type as RoomActivityType
-    : hasSessionActivityType
-      ? sessionRecord.activity_type as RoomActivityType
-      : 'estimation';
 
   if (!session || !participant || participant.session_id !== session.id) return null;
+  const activityType = session.activity_type;
+  if (activityType !== 'estimation' && (
+    (hasOwn(value, 'round_participant') && value.round_participant != null)
+    || (hasOwn(value, 'vote') && value.vote != null)
+  )) return null;
+  if (activityType === 'estimation' && (
+    (hasOwn(value, 'round_participant') && value.round_participant != null && !parseRoundParticipant(value.round_participant))
+    || (hasOwn(value, 'vote') && value.vote != null && !parseVote(value.vote))
+  )) return null;
   const roundParticipant = parseRoundParticipant(value.round_participant);
   if (roundParticipant && (
       roundParticipant.session_id !== session.id

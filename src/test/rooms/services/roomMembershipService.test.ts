@@ -8,6 +8,7 @@ import type { RpcClient } from '../../../platform/supabase/rpcClient';
 const SESSION = {
   id: 'session-1', status: 'active', current_round: 1, created_at: '2026-01-01T00:00:00Z',
   join_code: 'ABCD', votes_revealed: false, started: true, consensus_streak: 0,
+  activity_type: 'estimation',
 };
 const PARTICIPANT = {
   id: 'participant-1', session_id: SESSION.id, name: 'Kari', role: 'participant',
@@ -71,10 +72,10 @@ describe('roomMembershipService', () => {
   });
 
   it.each([
-    ['manglende type', {}, 'estimation'],
-    ['envelope', { activity_type: 'health_check' }, 'health_check'],
-    ['session', { session: { ...SESSION, activity_type: 'health_check' } }, 'health_check'],
-  ])('tolker activity type fra %s', async (_scenario, overrides, expected) => {
+    ['estimation', {}, 'estimation'],
+    ['health', { session: { ...SESSION, activity_type: 'health_check' }, round_participant: null }, 'health_check'],
+    ['matching envelope', { activity_type: 'estimation' }, 'estimation'],
+  ])('tolker activity type fra session for %s', async (_scenario, overrides, expected) => {
     rpc.mockResolvedValue({ data: membership(overrides), error: null });
 
     const result = await service.join('ABCD', 'Kari');
@@ -83,11 +84,33 @@ describe('roomMembershipService', () => {
   });
 
   it.each([
+    ['manglende session-type', { session: { ...SESSION, activity_type: undefined } }],
     ['konflikt', { activity_type: 'estimation', session: { ...SESSION, activity_type: 'health_check' } }],
     ['ukjent envelope', { activity_type: 'retro' }],
     ['ukjent session', { session: { ...SESSION, activity_type: 'retro' } }],
   ])('avviser activity type ved %s', async (_scenario, overrides) => {
     rpc.mockResolvedValue({ data: membership(overrides), error: null });
+
+    await expect(service.join('ABCD', 'Kari')).resolves.toEqual({ ok: false, reason: 'malformed' });
+  });
+
+  it('avviser estimation legacy-felter i health-respons', async () => {
+    rpc.mockResolvedValue({
+      data: membership({ session: { ...SESSION, activity_type: 'health_check' } }),
+      error: null,
+    });
+
+    await expect(service.join('ABCD', 'Kari')).resolves.toEqual({ ok: false, reason: 'malformed' });
+  });
+
+  it('avviser malformed non-null legacy-felt i health-respons', async () => {
+    rpc.mockResolvedValue({
+      data: membership({
+        session: { ...SESSION, activity_type: 'health_check' },
+        round_participant: {},
+      }),
+      error: null,
+    });
 
     await expect(service.join('ABCD', 'Kari')).resolves.toEqual({ ok: false, reason: 'malformed' });
   });
@@ -103,8 +126,20 @@ describe('roomMembershipService', () => {
     await expect(service.join('ABCD', 'Kari')).resolves.toEqual({ ok: false, reason: 'malformed' });
   });
 
+  it.each([
+    ['malformed vote', { vote: { id: 'vote-only' } }],
+    ['malformed round participant', { round_participant: { session_id: SESSION.id } }],
+  ])('avviser non-null %s i estimation snapshot', async (_scenario, overrides) => {
+    rpc.mockResolvedValue({ data: membership(overrides), error: null });
+
+    await expect(service.restore(SESSION.id)).resolves.toEqual({
+      ok: false,
+      reason: 'malformed',
+    });
+  });
+
   it('restore validerer legacy ownVote-scope og returnerer hele snapshotet', async () => {
-    rpc.mockResolvedValue({ data: membership({ vote: VOTE, activity_type: 'health_check' }), error: null });
+    rpc.mockResolvedValue({ data: membership({ vote: VOTE }), error: null });
 
     const result = await service.restore(SESSION.id);
 
@@ -118,19 +153,17 @@ describe('roomMembershipService', () => {
           participantId: PARTICIPANT.id, sessionId: SESSION.id, name: 'Kari', role: 'participant',
         },
         pointer: {
-          version: 2, activityType: 'health_check', participantId: PARTICIPANT.id,
+          version: 2, activityType: 'estimation', participantId: PARTICIPANT.id,
           sessionId: SESSION.id, name: 'Kari', role: 'participant',
         },
-        activityType: 'health_check', ownVote: VOTE, roundParticipant: ROUND_PARTICIPANT,
+        activityType: 'estimation', ownVote: VOTE, roundParticipant: ROUND_PARTICIPANT,
       },
     });
   });
 
-  it('bevarer legacy-toleranse for malformed valgfri vote, men avviser cross-scope', async () => {
+  it('avviser malformed og cross-scope valgfri vote', async () => {
     rpc.mockResolvedValueOnce({ data: membership({ vote: { ...VOTE, size: 'xxl' } }), error: null });
-    await expect(service.restore(SESSION.id)).resolves.toMatchObject({
-      ok: true, snapshot: { ownVote: null },
-    });
+    await expect(service.restore(SESSION.id)).resolves.toEqual({ ok: false, reason: 'malformed' });
 
     rpc.mockResolvedValueOnce({ data: membership({ vote: { ...VOTE, participant_id: 'other' } }), error: null });
     await expect(service.restore(SESSION.id)).resolves.toEqual({ ok: false, reason: 'malformed' });

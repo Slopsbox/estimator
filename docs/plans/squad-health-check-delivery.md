@@ -17,6 +17,10 @@ ende-til-ende-test er godkjent.
 - flytt estimeringsoperasjoner til `EstimationService/Provider`
 - behold eksisterende estimeringsruter som redirects
 - bevis med eksisterende tester at Estimat oppfører seg identisk
+- produksjonsrekkefølge: deploy kompatibel frontend `d58f3c8`, kjør
+  `estimation_activity_type_foundation`, deploy deretter strict frontend
+- rollbackrekkefølge: kjør `rollback_activity_type_foundation.sql` før eventuell
+  bredere session-integrity rollback
 
 **Commitpunkt:** `refactor: separate room and estimation domains`
 

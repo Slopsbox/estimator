@@ -1,12 +1,14 @@
 -- MANUAL ROLLBACK STEPS (not performed by this SQL file):
--- 1. Run this file in a maintenance window with application traffic stopped.
+-- 1. If estimation_activity_type_foundation is applied, first run
+--    rollback_activity_type_foundation.sql and verify it committed successfully.
+-- 2. Run this file in a maintenance window with application traffic stopped.
 --    The script takes ACCESS EXCLUSIVE locks and aborts rather than deleting or
 --    overwriting rows created or changed after the cutover.
--- 2. After this transaction succeeds, enable Realtime Settings >
+-- 3. After this transaction succeeds, enable Realtime Settings >
 --    "Allow public access" in the Supabase Dashboard for the legacy frontend.
 --    Dashboard Realtime settings cannot be changed safely from SQL.
--- 3. Redeploy the legacy Vercel deployment fd5c462 before reopening traffic.
--- 4. If migration 20260825111134 is registered as applied, mark only its
+-- 4. Redeploy the legacy Vercel deployment fd5c462 before reopening traffic.
+-- 5. If migration 20260825111134 is registered as applied, mark only its
 --    migration-history entry reverted after this SQL succeeds (do not re-run
 --    this command blindly):
 --      supabase migration repair 20260825111134 --status reverted --linked
