@@ -47,7 +47,9 @@ begrensningen er en eksplisitt produktrisikoaksept.
 - PDF og CSV sendes på e-post. Leverandør avklares før rapporttjenesten bygges.
 - Etter bekreftet levering slettes e-post, medlemskap, aggregater og øvrige
   helsesjekkdata.
-- Uferdige sesjoner og leveringskø slettes senest etter 24 timer.
+- Tilgang til uferdige sesjoner og leveringskø utløper senest etter 23 timer og
+  55 minutter. Cleanup kjører hvert femte minutt, slik at forventet fysisk
+  sletting er innen 24 timer; schedulerforsinkelse overvåkes og varsles.
 
 ## Arkitekturprinsipper
 
@@ -221,9 +223,9 @@ Leverandør velges senere. Domenet skal ikke importere en konkret mail-SDK.
 ### RetentionService
 
 - sletter all helsesjekkdata etter bekreftet e-postlevering
-- sletter uferdige sesjoner etter 24 timer
-- sletter krypterte leveringsjobber etter 24 timer
-- kjøres minst hver time via `pg_cron`
+- nekter all tilgang ved absolutt `expires_at`, også før fysisk cleanup
+- sletter krypterte leveringsjobber før de RESTRICT-koblede rommene
+- kjøres hvert femte minutt via `pg_cron`, med heartbeat og watchdog
 
 ## Datamodell
 
@@ -276,9 +278,12 @@ health_check_question_aggregates
 
 health_check_report_jobs
 ├── id = delivery_id
-├── source_room_id uuid UNIQUE
+├── source_room_id uuid NOT NULL UNIQUE, FK RESTRICT
+├── aad_room_id uuid NOT NULL
 ├── encrypted_recipient envelope
+├── recipient_nonce 96-bit
 ├── encrypted_report_snapshot envelope
+├── snapshot_nonce 96-bit nullable
 ├── encrypted_pdf envelope nullable
 ├── encrypted_csv envelope nullable
 ├── encryption_key_version
@@ -434,18 +439,20 @@ trimmes, begrenses til 80 tegn og avviser kontrolltegn.
 2. `finalize_health_check` låser room-raden, verifiserer kohorten på nytt og
    går atomisk fra `collecting` til `delivery_pending`.
 3. I samme transaksjon fryses aggregatene og det opprettes nøyaktig én durable,
-   idempotent outbox-jobb med status `pending`, `id = delivery_id`, unik
-   `source_room_id` og unik idempotency key. Jobben eksisterer før ekstern I/O.
-4. En privat, autentisert worker claimer jobben med lease, genererer PDF/CSV,
-   krypterer artefaktene og forsøker sending til den validerte
+   idempotent outbox-jobb med status `awaiting_materialization`, `id = delivery_id`,
+   unik `source_room_id`, stabil `aad_room_id`, kryptert mottaker/nonce og unik
+   idempotency key. Jobben eksisterer før ekstern I/O, men er ikke sendeklar.
+4. En privat, autentisert worker materialiserer og krypterer rapportsnapshotet,
+   genererer og krypterer PDF/CSV, setter status `pending`, claimer jobben med
+   lease og forsøker sending til den validerte
    `@gjensidige.no`-adressen.
 5. Leverandøraksept med en unik provider message ID regnes som «sendt»; faktisk
    levering til innboks kan ikke garanteres uten leverandør-webhook. Ukjent
    resultat retries med samme idempotency key.
 6. Etter leverandøraksept slettes live-rommet, medlemskap, aggregater,
    kryptert mottaker og rapportartefakter.
-7. Ved feil beholdes bare den krypterte outbox-jobben. Den prøves på nytt og
-   slettes senest etter 24 timer.
+7. Ved feil beholdes bare den krypterte outbox-jobben. Den prøves på nytt frem
+   til absolutt tilgangsutløp; forventet fysisk sletting er innen 24 timer.
 
 E-postadresse lagres aldri i klartekst i databasen. Krypteringsnøkkelen ligger
 kun som versjonert Edge Function-secret og aldri i frontend eller database.
@@ -461,21 +468,36 @@ og slettes ved TTL, aldri sendes som klartekst.
 En målrettet cleanup er tryggere enn å «flushe hele databasen»:
 
 ```text
-hver time:
-  delete health-check rooms where expires_at < now()
-  delete report jobs where expires_at < now()
-  delete eksakte FK-orphans og jobs med utløpt lease/TTL
+hvert femte minutt:
+  delete report jobs where job expires_at <= now() or source expires_at <= now()
+  release expired processing leases to failed
+  delete RESTRICT-linked health-check rooms where expires_at <= now()
 ```
 
 Alle FK-er bruker cascade der det er korrekt. Cleanup-funksjonen er
 `SECURITY DEFINER`, ligger utenfor eksponert schema og er ikke kjørbar av
 klientroller.
+Outbox-identitet, envelope, AAD, `created_at`, idempotency key og absolutt expiry
+er uforanderlige etter insert, og jobbens expiry må være eksakt lik
+kildesesjonens. Snapshot/nonce kan materialiseres nøyaktig én gang sammen.
+PDF og CSV kan materialiseres én gang hver, må være ikke-tomme og kan aldri
+erstattes eller nullstilles. Komplett snapshot/PDF/CSV kreves før `pending`.
+`attempts` er monoton, provider-ID kan bare settes samtidig med overgang til
+`sent` og blir deretter uforanderlig. `sent` er terminal. Claim/lease må ha lik
+nullstatus, kreves for `processing` og er tomme for `awaiting_materialization`,
+`pending`, `failed` og `sent`. Tillatte overganger er eksplisitt lukket til
+`awaiting_materialization -> awaiting_materialization|pending|failed`,
+`pending -> pending|processing|failed`,
+`processing -> processing|pending|sent|failed`,
+`failed -> failed|processing|pending` før expiry og `sent -> sent`.
 
 Cleanup er en primær kontroll, ikke bare en reserve. Jobben skriver en separat,
 ikke-sensitiv heartbeat-rad med jobbnavn, start/slutt og status. En uavhengig
 watchdog varsler navngitt systemeier hvis siste vellykkede kjøring er eldre enn
-to timer, hvis eldste aktive helsesjekk er over 24 timer, eller hvis en jobb har
-utløpt lease. Runbooken dekker manuell cleanup, stoppet cron, nøkkelproblem og
+15 minutter, hvis eldste aktive helsesjekk er over 24 timer, eller hvis en jobb
+har utløpt lease. Schedulerforsinkelse gjør ikke rommet lesbart etter
+`expires_at`; den påvirker bare fysisk sletting. Runbooken dekker manuell
+cleanup, stoppet cron, nøkkelproblem og
 leverandørfeil. Alarmkanal og systemeier må konfigureres før pilot.
 
 ## Sikkerhetsmodell
@@ -542,7 +564,8 @@ Konkrete health-check-privilegier:
 - deltaker kan bare sende gjennom `submit_health_check`, som returnerer status
 - fasilitatorprogresjon kommer bare fra fasilitatorautorisert RPC og returnerer
   navn + grov status fra respondentkohorten
-- aggregater og report jobs kan bare leses av rapportworkerens særskilte rolle
+- rapportworkeren kan lese katalog, health-sessioner, aggregater og report jobs,
+  men har ingen respondentprivilegier; cleanup-definer trenger ingen grant
 - respondenttabellen har sammensatt FK til `(room_id, member_id)`
 - alle health-check-RPC-er verifiserer `activity_type = 'health_check'`, og alle
   estimerings-RPC-er verifiserer `activity_type = 'estimation'`

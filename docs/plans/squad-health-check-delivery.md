@@ -36,6 +36,23 @@ ende-til-ende-test er godkjent.
 
 ## Steg 3 – Datamodell, RPC og RLS
 
+**Implementeringsstatus 2026-08-26:** Første lokale backend-slice er lagt i
+`20260826083155_anonymous_health_check_core.sql` med pgTAP-kontrakter for RPC og
+RLS. Runtime SQL og reelle samtidighetsløp gjenstår fordi Docker ikke er
+tilgjengelig i implementeringsmiljøet. Se
+`docs/plans/health-check-concurrency-tests.md`. Cleanup-funksjonen er med, men
+cron/heartbeat/watchdog er bevisst ikke schedulert i denne slicen. Migrasjonen
+krever at den separate member-scoped room-RLS-lockdownen allerede er brukt og
+feiler ellers før DDL. Preflight verifiserer RLS-flagg, nøyaktig én permissiv
+`authenticated` SELECT-policy per `sessions`/`participants` mot en eksakt,
+whitespace-normalisert allowlist av medlemsuttrykk, ingen klient-DML-policyer,
+ingen anon-grants og bare eksplisitte offentlige SELECT-kolonner for
+`authenticated`. Monitoring-schedule har en egen companion-rollback; core-
+rollback nekter å fortsette mens wrapper eller heartbeat-tabell finnes. Outboxen
+håndhever en lukket statusmaskin, monotone forsøk, immutable identitet/envelope/
+provider-ID og write-once snapshot, nonce, PDF og CSV. Rapportworkeren kan lese
+katalog, health-sessioner, aggregater og jobber, men aldri respondentkohorten.
+
 - opprett `health_check_sessions`, frosset respondentkohort og aggregater
 - implementer create/start/submit/progress/remove/finalize
 - implementer `abort_health_check` og gjør generisk leave utilgjengelig etter start

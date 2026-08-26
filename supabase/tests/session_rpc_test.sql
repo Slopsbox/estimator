@@ -20,7 +20,7 @@ create temporary table session_test_context (
   value text not null
 );
 
-grant select on session_test_context to authenticated;
+grant all on session_test_context to authenticated;
 
 select extensions.is(
   (select count(*)::text from public.sessions where status = 'active' and facilitator_user_id is null),
@@ -486,7 +486,7 @@ select extensions.throws_ok(
   'claim_round requires active membership'
 );
 
--- Privileged setup for a room type whose creator RPC does not exist yet.
+-- Privileged fixture keeps the common RPC test independent of health creation.
 reset role;
 insert into public.sessions (
   id, status, current_round, join_code, votes_revealed, started,
@@ -499,10 +499,23 @@ insert into public.sessions (
 insert into public.participants (id, session_id, name, role, user_id)
 values
   ('50000000-0000-0000-0000-000000000003', '50000000-0000-0000-0000-000000000001', 'Health Fac', 'facilitator', '10000000-0000-0000-0000-000000000005');
+insert into public.health_check_sessions (
+  room_id, delivery_id, template_version, squad_name, measurement_date,
+  encrypted_facilitator_email, email_nonce, email_key_version, expires_at
+) values (
+  '50000000-0000-0000-0000-000000000001',
+  '50000000-0000-0000-0000-000000000004',
+  'squad-health-v1', 'Health fixture', current_date,
+  decode(repeat('ab', 32), 'hex'), decode(repeat('01', 12), 'hex'), 1,
+  statement_timestamp() + interval '23 hours 55 minutes'
+);
 
+set local role authenticated;
 select set_config('request.jwt.claim.sub', '10000000-0000-0000-0000-000000000006', true);
+select set_config('request.jwt.claim.role', 'authenticated', true);
 insert into session_test_context (key, value)
 select 'health_join_result', public.join_session('HLTH', 'Health Member rejoined')::text;
+reset role;
 
 select extensions.is(
   (
@@ -511,48 +524,60 @@ select extensions.is(
        and user_id = '10000000-0000-0000-0000-000000000006'
        and role = 'participant'
   ),
-  '1',
-  'join_session inserts a new member into a health room'
+  '0',
+  'common join_session never inserts a member into a health room'
 );
 
 select extensions.is(
-  (select value::jsonb->'session'->>'activity_type' from session_test_context where key = 'health_join_result'),
-  'health_check',
-  'join_session supports health rooms and returns their activity type'
+  (select value::jsonb->>'status' from session_test_context where key = 'health_join_result'),
+  'session_not_found',
+  'common join_session hides health rooms behind the server gate'
 );
 
 select extensions.ok(
-  (select value::jsonb->'round_participant' from session_test_context where key = 'health_join_result') = 'null'::jsonb,
-  'health join has no estimation round participant'
+  not ((select value::jsonb from session_test_context where key = 'health_join_result') ? 'session'),
+  'denied common health join returns no room metadata'
 );
 
+set local role authenticated;
 insert into session_test_context (key, value)
 select 'health_restore_result', public.restore_session('50000000-0000-0000-0000-000000000001')::text;
+reset role;
 
 select extensions.is(
   (select value::jsonb->'session'->>'activity_type' from session_test_context where key = 'health_restore_result'),
-  'health_check',
-  'restore_session supports health room membership'
+  null,
+  'restore_session returns no health room without gated membership'
 );
 
 select extensions.ok(
-  (select value::jsonb->'vote' from session_test_context where key = 'health_restore_result') = 'null'::jsonb
-  and (select value::jsonb->'round_participant' from session_test_context where key = 'health_restore_result') = 'null'::jsonb,
-  'health restore returns null legacy estimation fields'
+  (select value::jsonb->>'status' from session_test_context where key = 'health_restore_result') = 'membership_missing',
+  'health restore fails closed without service-created membership'
 );
 
+set local role authenticated;
 select extensions.is(
   public.leave_session('50000000-0000-0000-0000-000000000001')->>'status',
-  'ok',
-  'leave_session supports health rooms'
+  'membership_missing',
+  'leave_session reveals no ungated health membership'
 );
 
 select extensions.is(
-  public.join_session('HLTH', 'Health Member returned')->'session'->>'activity_type',
-  'health_check',
-  'health membership can rejoin after leave'
+  public.join_session('HLTH', 'Health Member returned')->>'status',
+  'session_not_found',
+  'common join remains closed on repeated health attempts'
 );
+reset role;
 
+set local role service_role;
+select public.join_health_check_room(
+  '10000000-0000-0000-0000-000000000006', 'HLTH', 'Health Member'
+);
+reset role;
+
+set local role authenticated;
+select set_config('request.jwt.claim.role', 'authenticated', true);
+select set_config('request.jwt.claim.sub', '10000000-0000-0000-0000-000000000006', true);
 select extensions.throws_ok(
   $$select public.claim_round('50000000-0000-0000-0000-000000000001')$$,
   '22023', 'wrong_activity_type',

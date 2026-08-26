@@ -25,7 +25,9 @@ feilsendt rapport er sensitiv.
 - Ved leverandøraksept slettes hele helsesjekksesjonen og rapportdataene.
 - Ved sendefeil krypteres mottaker, PDF og CSV i en privat leveringsjobb.
   Rå aggregater og medlemskap slettes når den krypterte jobben er opprettet.
-- Jobben bruker lease, idempotency key, retries og absolutt TTL på 24 timer.
+- Jobben bruker lease, idempotency key og retries. Tilgang utløper etter 23 timer
+  og 55 minutter; overvåket cleanup hvert femte minutt gir forventet fysisk
+  sletting innen 24 timer.
 - Sletteløftet gjelder appens live-data og kø, ikke umiddelbar fysisk sletting
   fra backup/PITR, leverandørlogger eller mottakerens postkasse.
 - Ved utløp slettes jobben uten videre historikk.
@@ -49,5 +51,5 @@ Avvist. En leverandørfeil kan da gi ubestemt retensjon.
 
 - E-postleverandør må godkjennes før funksjonen kan ferdigstilles.
 - Rapportjobber trenger applikasjonskryptering og nøkkelrotasjon.
-- Support kan ikke hente frem gamle rapporter etter 24 timer.
+- Support kan ikke hente rapporter etter det absolutte tilgangsutløpet.
 - Fasilitatoren er ansvarlig for videre lagring i godkjent internt verktøy.

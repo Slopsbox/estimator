@@ -54,12 +54,19 @@ Kopier `API URL` og `anon key` fra `supabase status` inn i `.env.local`.
 #### Kjør migrasjoner og databasetester
 
 ```bash
-supabase db reset --local
-supabase test db --local supabase/tests/session_rpc_test.sql
-
-# Etter at lockdown-filen er brukt i testdatabasen:
+supabase db reset --local --version 20260825140936
 psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" -v ON_ERROR_STOP=1 \
   -f supabase/releases/enforce_session_rls_after_frontend.sql
+supabase migration up --local
+supabase test db --local supabase/tests/session_rpc_test.sql
+supabase test db --local supabase/tests/health_check_rpc_test.sql
+supabase test db --local supabase/tests/health_check_rls_test.sql
+node scripts/check-pgtap-plan.mjs \
+  supabase/tests/session_rpc_test.sql \
+  supabase/tests/session_rls_test.sql \
+  supabase/tests/health_check_rpc_test.sql \
+  supabase/tests/health_check_rls_test.sql
+
 supabase test db --local supabase/tests/session_rls_test.sql
 ```
 
@@ -135,6 +142,37 @@ før en bredere session-integrity rollback. Ikke rull strict frontend tilbake f�
 databasekontrakten og kompatibel frontend igjen er koordinert.
 Etter at rollback-SQL er verifisert, marker historikken eksplisitt med
 `supabase migration repair 20260825140936 --status reverted --linked`.
+
+### Anonymous Health Check core
+
+Migrasjonen `anonymous_health_check_core` legger bare til databasekatalog,
+aggregering, RPC/RLS, durable outbox og uscheduled cleanup. Migrasjonen har en
+fail-closed preflight som krever at member-scoped room-RLS fra
+`enforce_session_rls_after_frontend.sql` allerede er aktiv; en fersk migrasjonskjede
+uten dette manuelle release-steget stopper med
+`health_check_requires_member_scoped_room_rls`. Den oppretter ingen
+UI, worker, e-postintegrasjon eller cron-jobb. Cleanup skal senere schedules med
+det eksakte jobbnavnet `cleanup-expired-health-checks` hvert femte minutt, men
+først sammen
+med heartbeat, watchdog og navngitt systemeier som beskrevet i arkitekturen.
+Den gatede releasefilen
+`supabase/releases/schedule_health_check_cleanup_after_monitoring.sql` avbryter
+dersom heartbeat-wrapperen eller tabellen ikke finnes.
+Den har en eksplisitt companion-rollback i
+`supabase/releases/rollback_health_check_cleanup_monitoring.sql`. Kjør den før
+core-rollback; core-rollback avbryter fail-closed så lenge wrapperen eller
+heartbeat-tabellen finnes.
+
+Kontrollert rollback ligger i
+`supabase/releases/rollback_anonymous_health_check_core.sql` og avbryter hvis
+health-rom eller rapportjobber finnes. Etter vellykket rollback repareres bare
+denne historikkposten med
+`supabase migration repair 20260826083155 --status reverted --linked`.
+Ved en avbrutt eller delvis utrulling brukes `supabase migration list --linked`
+før samme målrettede repair; aldri marker migrasjonen applied/reverted uten at
+preflight eller rollback-SQL faktisk har fullført.
+Reelle submit/remove/finalize-races må kjøres etter planen i
+`docs/plans/health-check-concurrency-tests.md` før produksjonsutrulling.
 
 ---
 
