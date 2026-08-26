@@ -146,6 +146,10 @@ innsikt.
 - alle spørsmålsnøkler er unike
 - hvert spørsmål tilhører nøyaktig ett område
 - rekkefølgen over brukes i UI, PDF og CSV
+- minimum én respondent; fasilitator teller aldri med
+- resultatet er et gruppeaggregat, men én respondent gir et resultat identisk
+  med respondentens svar, og små grupper kan være attribuerbare; produktet lover
+  aldri anonymitet
 - PDF og CSV leveres samlet i én ZIP med sanitert squadnavn og måledato i
   filnavnet; appen beholder ingen rapporthistorikk eller browser-kopi
 - en språklig eller semantisk endring etter første måling lager ny versjon

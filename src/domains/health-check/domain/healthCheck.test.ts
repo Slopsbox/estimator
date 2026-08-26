@@ -453,11 +453,12 @@ describe('aggregateHealthCheckSnapshot', () => {
     expect(result.value.areaAverages[0].average).toBe(78 / 24);
   });
 
-  it('avviser færre enn fem svar', () => {
-    expect(aggregateHealthCheckSnapshot(validSnapshot(4))).toEqual({
+  it('avviser null svar og godtar ett svar', () => {
+    expect(aggregateHealthCheckSnapshot(validSnapshot(0))).toEqual({
       valid: false,
       errors: [{ code: 'COUNT_BELOW_MINIMUM' }],
     });
+    expect(aggregateHealthCheckSnapshot(validSnapshot(1)).valid).toBe(true);
   });
 
   it('avviser ulik count mellom spørsmål', () => {
@@ -480,7 +481,7 @@ describe('aggregateHealthCheckSnapshot', () => {
     });
   });
 
-  it.each([4, 5.5, Number.MAX_SAFE_INTEGER + 1])(
+  it.each([0, 5.5, Number.MAX_SAFE_INTEGER + 1])(
     'avviser ugyldig expectedRespondentCount: %s',
     (expectedRespondentCount) => {
       const snapshot = { ...validSnapshot(), expectedRespondentCount };

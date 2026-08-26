@@ -10,9 +10,10 @@ Proposed
 
 ## Context
 
-Helsesjekken skal være praktisk anonym for fasilitator, deltakere og eksterne brukere.
-Appen må samtidig hindre dobbeltinnsending, vise hvem som er fullført og lage
-snitt per spørsmål og område.
+Helsesjekken skal redusere unødvendig eksponering av individuelle svar for
+fasilitator, deltakere og eksterne brukere. Appen må samtidig hindre
+dobbeltinnsending, vise hvem som er fullført og lage snitt per spørsmål og
+område.
 
 Pseudonymiserte råsvar er ikke tilstrekkelig. En kobling mellom participant-ID
 og svar kan senere gjenidentifiseres, og løpende aggregater kan avsløre siste
@@ -28,14 +29,17 @@ Deltakeren holder alle 31 svar lokalt og sender én samlet array. En atomisk RPC
 - lagrer aldri svararray eller respondentkobling til score
 
 Ingen klient, heller ikke fasilitator, får lese aggregater mens sesjonen pågår.
-Rapport kan bare lages når alle aktive medlemmer har fullført og antallet er
-minst fem.
+Rapport kan bare lages når alle aktive respondenter har fullført. Minimum er én
+respondent; fasilitatoren teller aldri med.
 
-Produktet lover ikke kryptografisk eller statistisk anonymitet mot koordinert
-n−1-samarbeid. Eksakte snitt gjør det matematisk mulig for fire av fem som
-kjenner egne svar å utlede den femtes svar. Produkteier har valgt presise
-spørsmåls- og områdesnitt fremfor statistisk støy eller høyere terskel, og
-aksepterer denne begrensningen eksplisitt.
+Produktet lover ikke anonymitet. Resultatet er et gruppeaggregat, men med én
+respondent er aggregatet identisk med respondentens svar og er direkte
+attribuerbart. Også i små grupper kan svar tilskrives enkeltpersoner gjennom
+kontekst eller koordinert n−1-samarbeid. Den tidligere planlagte grensen på fem
+reduserte ikke denne risikoen tilstrekkelig til å begrunne et anonymitetsløfte.
+Produkteier har valgt minimum én og presise spørsmåls- og områdesnitt fremfor
+statistisk støy eller en høyere terskel, og aksepterer attribusjonsrisikoen
+eksplisitt.
 
 ## Alternatives Considered
 
@@ -58,6 +62,7 @@ Avvist. Gir mer sensitiv mellomlagring og gjør differanse-/timingangrep enklere
 - Utkast går tapt ved refresh i første versjon.
 - Vi kan ikke tilby svarfordeling, spredning eller fritekst uten ny
   personvernsvurdering.
-- Produkttekst og rapport må bruke «praktisk anonym» og beskrive begrensningen;
-  de må ikke love absolutt anonymitet.
+- Produkttekst og rapport må kalle resultatet et gruppeaggregat, forklare at én
+  respondent betyr at resultatet er identisk med respondentens svar, og advare
+  om attribusjonsrisiko i små grupper. De må aldri love anonymitet.
 - Databasetester må bevise at ingen råsvartabell eller SELECT-vei finnes.

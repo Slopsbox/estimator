@@ -2,20 +2,24 @@
 
 ## Status og formål
 
-Foreslått arkitektur, oppdatert 2026-08-26. Squad Helsesjekk er en praktisk
-anonym temperaturmåling, ikke et verktøy for individuell vurdering eller
-historikk i appen. Første versjon har 31 spørsmål i syv områder. Individuelle
-svar persisteres aldri; bare summer og antall oppdateres ved endelig innsending.
+Foreslått arkitektur, oppdatert 2026-08-26. Squad Helsesjekk er en
+temperaturmåling med aggregert resultat, ikke et verktøy for individuell
+vurdering eller historikk i appen. Første versjon har 31 spørsmål i syv områder.
+Individuelle svar persisteres aldri; bare summer og antall oppdateres ved endelig
+innsending.
 
-Fire av fem personer som kjenner egne svar kan matematisk utlede den femtes
-verdi fra et eksakt snitt. Denne n-1-begrensningen er eksplisitt akseptert.
+Minimum er én respondent. Med én respondent er aggregatet identisk med
+respondentens svar og er ikke anonymt. Små grupper gir direkte attribusjonsrisiko,
+blant annet fordi n-1 personer som kjenner egne svar kan utlede den siste verdien
+fra et eksakt snitt. Produktet lover aldri anonymitet.
 
 ## Produktregler
 
 - Felles romplattform gir Auth-identitet, kode, medlemskap, lobby og Presence.
 - Respondentkohorten fryses ved start. Join stenges, og alle aktive må fullføre.
-- Minst fem deltakere kreves. En ufullført deltaker kan fjernes; en fullført
-  deltaker kan bare håndteres ved å avbryte hele målingen.
+- Minst én deltaker kreves, og fasilitatoren teller aldri med. En ufullført
+  deltaker kan fjernes; en fullført deltaker kan bare håndteres ved å avbryte
+  hele målingen.
 - Alle 31 spørsmål må besvares på en berørt syvpunktsskala. Utkast finnes bare i
   React-minne og går tapt ved refresh.
 - Fasilitator oppgir navn, squadnavn og måledato.
@@ -112,7 +116,7 @@ terminal og hele raden er uforanderlig, bortsett fra eksakte no-op updates.
 
 ## Pipeline og transaksjoner
 
-1. `finalize_health_check` låser rommet, verifiserer minst fem fullførte, 31
+1. `finalize_health_check` låser rommet, verifiserer minst én fullført respondent, 31
    aggregater og identisk respondentantall, setter `download_pending` og lager
    nøyaktig én owner-bound jobb i `awaiting_materialization`.
 2. Worker claimer jobben med kort lease gjennom privat RPC. Forsøk er monotone.
@@ -160,7 +164,10 @@ terminal og hele raden er uforanderlig, bortsett fra eksakte no-op updates.
 ## Rapportkontrakt
 
 PDF og CSV inneholder squadnavn, måledato, template-versjon, antall fullførte,
-snitt per område og spørsmål samt forklaring av skala og praktisk anonymitet.
+snitt per område og spørsmål samt forklaring av skala og attribusjonsrisiko. De
+skal uttrykkelig si at resultatet er et gruppeaggregat, at én respondent gir et
+resultat identisk med respondentens svar, og at små grupper kan være
+attribuerbare. De skal aldri love anonymitet.
 De inneholder ikke navn, medlems-ID-er, enkeltverdier, fordeling,
 fullføringstidspunkt, trend eller fritekst.
 

@@ -3,7 +3,7 @@
 begin;
 
 create extension if not exists pgtap with schema extensions;
-select extensions.plan(136);
+select extensions.plan(142);
 
 insert into auth.users (id, aud, role, created_at, updated_at)
 values
@@ -212,7 +212,7 @@ select set_config('request.jwt.claim.sub', '61000000-0000-0000-0000-000000000001
 select extensions.throws_ok(
   format('select public.start_health_check(%L::uuid)', (select value from health_test_context where key = 'room_id')),
   '22023', 'health_check_minimum_participants',
-  'start requires at least five active participant memberships'
+  'start rejects zero active participant memberships and does not count the facilitator'
 );
 
 reset role;
@@ -769,29 +769,24 @@ update public.sessions
  where id = (select value::uuid from health_test_context where key = 'room_id');
 set local session_replication_role = origin;
 
-update public.health_check_question_aggregates as a
-   set response_count = 4
-  from public.health_check_questions as q
- where a.room_id = (select value::uuid from health_test_context where key = 'room_id')
-   and q.template_version = a.template_version
-   and q.question_key = a.question_key
-   and q.sequence = 1;
+update public.health_check_question_aggregates
+   set score_sum = 0, response_count = 0
+ where room_id = (select value::uuid from health_test_context where key = 'room_id');
 set local role service_role;
 select extensions.throws_ok(
   $$select * from public.get_health_check_report_snapshot_for_service(
     '63000000-0000-0000-0000-000000000001', 'report-worker'
   )$$,
   '55000', 'health_check_report_snapshot_invariant',
-  'snapshot rejects inconsistent aggregate response counts'
+  'snapshot rejects a consistent zero-respondent aggregate set'
 );
 reset role;
 update public.health_check_question_aggregates as a
-   set response_count = 5
+   set score_sum = 16 + (((q.sequence - 1) % 7) + 1), response_count = 5
   from public.health_check_questions as q
  where a.room_id = (select value::uuid from health_test_context where key = 'room_id')
    and q.template_version = a.template_version
-   and q.question_key = a.question_key
-   and q.sequence = 1;
+   and q.question_key = a.question_key;
 
 create temporary table health_saved_question as
 select * from public.health_check_questions
@@ -1087,42 +1082,91 @@ reset role;
 
 set local role service_role;
 insert into health_test_context (key, value)
+select 'singleton_create_result', public.create_health_check_room(
+  '61000000-0000-0000-0000-000000000001',
+  '62000000-0000-0000-0000-000000000011',
+  'Singleton Fac', 'Singleton Squad', date '2026-08-26',
+  '63000000-0000-0000-0000-000000000011'
+)::text;
+reset role;
+insert into health_test_context
+select 'singleton_room', value::jsonb->'session'->>'id'
+from health_test_context where key = 'singleton_create_result';
+insert into health_test_context
+select 'singleton_code', value::jsonb->'session'->>'join_code'
+from health_test_context where key = 'singleton_create_result';
+set local role service_role;
+select public.join_health_check_room(
+  '61000000-0000-0000-0000-000000000002',
+  (select value from health_test_context where key = 'singleton_code'),
+  'Only Respondent'
+);
+reset role;
+set local role authenticated;
+select set_config('request.jwt.claim.role', 'authenticated', true);
+select set_config('request.jwt.claim.sub', '61000000-0000-0000-0000-000000000001', true);
+select extensions.is(
+  public.start_health_check((select value::uuid from health_test_context where key = 'singleton_room'))->>'phase',
+  'collecting',
+  'one participant is sufficient to start the health check'
+);
+reset role;
+select extensions.is(
+  (select count(*)::text from public.health_check_respondents
+    where room_id = (select value::uuid from health_test_context where key = 'singleton_room')),
+  '1',
+  'singleton cohort contains the participant and never the facilitator'
+);
+set local role authenticated;
+select set_config('request.jwt.claim.role', 'authenticated', true);
+select set_config('request.jwt.claim.sub', '61000000-0000-0000-0000-000000000001', true);
+select extensions.is(
+  jsonb_array_length(public.get_health_check_progress(
+    (select value::uuid from health_test_context where key = 'singleton_room')
+  ))::text,
+  '1',
+  'facilitator progress works for a singleton cohort'
+);
+select set_config('request.jwt.claim.sub', '61000000-0000-0000-0000-000000000002', true);
+select extensions.is(
+  public.submit_health_check(
+    (select value::uuid from health_test_context where key = 'singleton_room'),
+    array_fill(4::smallint, array[31])
+  )->>'status',
+  'completed',
+  'the singleton participant can complete the health check'
+);
+select set_config('request.jwt.claim.sub', '61000000-0000-0000-0000-000000000001', true);
+select extensions.is(
+  public.finalize_health_check(
+    (select value::uuid from health_test_context where key = 'singleton_room')
+  )->>'status',
+  'download_pending',
+  'one completed participant is sufficient to finalize the health check'
+);
+reset role;
+set local role service_role;
+select private.claim_health_check_report_job(
+  '63000000-0000-0000-0000-000000000011', 'singleton-worker', interval '1 minute'
+);
+select extensions.is(
+  (select count(*)::text || ':' || min(expected_respondent_count)::text || ':' || min(response_count)::text
+     from public.get_health_check_report_snapshot_for_service(
+       '63000000-0000-0000-0000-000000000011', 'singleton-worker'
+     )),
+  '31:1:1',
+  'report snapshot accepts 31 aggregate rows from one respondent'
+);
+reset role;
+
+set local role service_role;
+insert into health_test_context (key, value)
 select 'abort_room', public.create_health_check_room(
   '61000000-0000-0000-0000-000000000009',
   '62000000-0000-0000-0000-000000000009', 'Abort Fac', 'Abort Squad', date '2026-08-26',
   '63000000-0000-0000-0000-000000000009'
 )->'session'->>'id';
-do $join_abort_members$
-declare
-  v_user uuid;
-begin
-  foreach v_user in array array[
-    '61000000-0000-0000-0000-000000000002'::uuid,
-    '61000000-0000-0000-0000-000000000003'::uuid,
-    '61000000-0000-0000-0000-000000000004'::uuid,
-    '61000000-0000-0000-0000-000000000005'::uuid
-  ] loop
-    perform public.join_health_check_room(
-      v_user,
-      (select join_code from public.sessions
-        where id = (select value::uuid from health_test_context where key = 'abort_room')),
-      'Small ' || right(v_user::text, 1)
-    );
-  end loop;
-end;
-$join_abort_members$;
 reset role;
-insert into public.health_check_respondents (room_id, member_id, state)
-select (select value::uuid from health_test_context where key = 'abort_room'), id, 'completed'
-from public.participants
-where session_id = (select value::uuid from health_test_context where key = 'abort_room')
-  and role = 'participant';
-insert into public.health_check_question_aggregates (
-  room_id, template_version, question_key, score_sum, response_count
-)
-select (select value::uuid from health_test_context where key = 'abort_room'),
-       template_version, question_key, 16, 4
-from public.health_check_questions where template_version = 'squad-health-v1';
 update public.health_check_sessions set phase = 'collecting', opened_at = now()
 where room_id = (select value::uuid from health_test_context where key = 'abort_room');
 set local role authenticated;
@@ -1131,7 +1175,7 @@ select set_config('request.jwt.claim.sub', '61000000-0000-0000-0000-000000000009
 select extensions.throws_ok(
   format('select public.finalize_health_check(%L::uuid)', (select value from health_test_context where key = 'abort_room')),
   '22023', 'health_check_minimum_participants',
-  'finalize rejects a fully completed cohort smaller than five'
+  'finalize rejects a zero-respondent cohort'
 );
 select extensions.is(
   public.abort_health_check((select value::uuid from health_test_context where key = 'abort_room'))->>'status',

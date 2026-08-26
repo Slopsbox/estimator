@@ -49,7 +49,7 @@ const actionClassName =
 export function HealthCheckFacilitatorDashboard({
   squadName,
   progressRows,
-  minimum = 5,
+  minimum = 1,
   actionLoading,
   error,
   deliveryStatus = null,
@@ -63,7 +63,7 @@ export function HealthCheckFacilitatorDashboard({
   confirmAbort = () => window.confirm('Vil du avbryte helsesjekken?'),
   confirmFinalize = () => window.confirm('Vil du avslutte helsesjekken og klargjøre rapporten? Dette kan ikke angres.'),
 }: HealthCheckFacilitatorDashboardProps) {
-  const enforcedMinimum = Math.max(5, minimum);
+  const enforcedMinimum = Math.max(1, minimum);
   const completedCount = progressRows.filter((row) => row.status === 'completed').length;
   const deliveryLocked = deliveryStatus !== null;
   const canFinalize =
@@ -151,7 +151,7 @@ export function HealthCheckFacilitatorDashboard({
               Deltakerstatus
             </h2>
             <p className="text-sm" style={{ color: 'var(--color-neutral-500)' }}>
-              Minst {enforcedMinimum} deltakere
+              Minimum {enforcedMinimum} {enforcedMinimum === 1 ? 'deltaker' : 'deltakere'}
             </p>
           </div>
 

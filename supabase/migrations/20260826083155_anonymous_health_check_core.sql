@@ -1107,7 +1107,7 @@ begin
   select count(*) into v_cohort_count
     from public.participants
    where session_id = p_room_id and role = 'participant' and left_at is null;
-  if v_cohort_count < 5 then
+  if v_cohort_count < 1 then
     raise exception 'health_check_minimum_participants' using errcode = '22023';
   end if;
 
@@ -1445,7 +1445,7 @@ begin
     select count(*), count(*) filter (where state = 'completed')
       into v_cohort_count, v_completed_count
       from public.health_check_respondents where room_id = p_room_id;
-    if v_cohort_count < 5 then
+    if v_cohort_count < 1 then
       raise exception 'health_check_minimum_participants' using errcode = '22023';
     end if;
     if v_completed_count <> v_cohort_count then
@@ -1809,7 +1809,7 @@ begin
      or v_joined_count <> 31
      or v_joined_area_count <> 7
      or v_min_response_count is null
-     or v_min_response_count < 5
+     or v_min_response_count < 1
      or v_min_response_count <> v_max_response_count
      or exists (
        select 1

@@ -13,8 +13,10 @@ device er fasilitatorens ansvar.
 1. Felles romplattform har autoritativ `activity_type`, medlems-RLS og separate
    health-RPC-er.
 2. Immutable v1-katalog har syv områder og 31 spørsmål.
-3. Live-modellen har frosset respondentkohort, kun aggregater, minimum fem,
-   komplett submit og 23t55m failsafe-retensjon.
+3. Live-modellen har frosset respondentkohort, kun aggregater, minimum én
+   respondent ekskludert fasilitator, komplett submit og 23t55m
+   failsafe-retensjon. Den tidligere planlagte femgrensen er erstattet av denne
+   produktbeslutningen.
 4. Rapportjobben er refaktorert til owner-bound device-download:
    `awaiting_materialization | processing | ready | failed`, nullable
    `source_room_id`, write-once AES-GCM-pakke og opptil 15 minutter retry etter
@@ -90,7 +92,8 @@ device er fasilitatorens ansvar.
 ## Obligatoriske testscenarier
 
 1. Samme Auth-identitet kan ikke sende to ganger; malformed arrays er atomiske.
-2. Minst fem og alle i frosset kohort må fullføre.
+2. Null respondenter avvises; én respondent kan starte, fullføre og gi snapshot.
+   Fasilitatoren teller aldri med, og alle i frosset kohort må fullføre.
 3. Klientroller kan aldri lese aggregater, jobbtabell eller pakke.
 4. Finalisering lager én idempotent `awaiting_materialization`-jobb med korrekt
    fasilitatorbinding og uten pakke.
@@ -139,4 +142,6 @@ device er fasilitatorens ansvar.
 - [ ] Endpoint-runtime, minne-/størrelsesgrenser og JWT-validering godkjent.
 - [ ] Personvernforvaltning, DPIA-screening, backupretensjon og filansvar godkjent.
 - [ ] Cleanup-monitorering, systemeier og alarmkanal konfigurert.
-- [x] Praktisk anonymitet og n-1-begrensning akseptert.
+- [x] Minimum én respondent og direkte attribusjonsrisiko er akseptert. Resultat
+  med én respondent er identisk med respondentens svar, små grupper kan være
+  attribuerbare, og produktet lover aldri anonymitet.

@@ -112,7 +112,7 @@ export function aggregateHealthCheckSnapshot(
     return invalidAggregate('INVALID_COUNT');
   }
   const expectedRespondentCount = expectedRespondentCountProperty.value;
-  if (expectedRespondentCount < 5) {
+  if (expectedRespondentCount < 1) {
     return invalidAggregate('COUNT_BELOW_MINIMUM');
   }
 

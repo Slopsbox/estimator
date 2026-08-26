@@ -55,14 +55,12 @@ describe('HealthCheckFacilitatorDashboard', () => {
     expect(screen.getByLabelText('Bjørn er offline')).toBeVisible();
   });
 
-  it('aktiverer fullføring bare ved minst 5 rader og når alle er fullført', () => {
-    const { rerender, props } = renderDashboard();
+  it('avviser 0 rader og aktiverer fullføring med 1 fullført rad', () => {
+    const { rerender, props } = renderDashboard({ progressRows: [] });
     const finalize = () => screen.getByRole('button', { name: 'Fullfør helsesjekk' });
 
     expect(finalize()).toBeDisabled();
-    rerender(<HealthCheckFacilitatorDashboard {...props} progressRows={completeRows.slice(0, 4)} />);
-    expect(finalize()).toBeDisabled();
-    rerender(<HealthCheckFacilitatorDashboard {...props} progressRows={completeRows} />);
+    rerender(<HealthCheckFacilitatorDashboard {...props} progressRows={completeRows.slice(0, 1)} />);
     expect(finalize()).toBeEnabled();
   });
 
@@ -76,14 +74,17 @@ describe('HealthCheckFacilitatorDashboard', () => {
     renderDashboard({ progressRows: completeRows, minimum: 6 });
 
     expect(screen.getByRole('button', { name: 'Fullfør helsesjekk' })).toBeDisabled();
-    expect(screen.getByText(/minst 6 deltakere/i)).toBeVisible();
+    expect(screen.getByText(/minimum 6 deltakere/i)).toBeVisible();
   });
 
-  it.each([0, 1, 4])('håndhever alltid anonymitetsminimum 5 selv om prop er %i', (minimum) => {
-    renderDashboard({ progressRows: completeRows.slice(0, 4), minimum });
+  it('håndhever hard minimumsgrense 1 selv om prop er 0', () => {
+    const { rerender, props } = renderDashboard({ progressRows: [], minimum: 0 });
 
-    expect(screen.getByText(/minst 5 deltakere/i)).toBeVisible();
     expect(screen.getByRole('button', { name: 'Fullfør helsesjekk' })).toBeDisabled();
+    expect(screen.getByText(/minimum 1 deltaker/i)).toBeVisible();
+
+    rerender(<HealthCheckFacilitatorDashboard {...props} minimum={0} progressRows={completeRows.slice(0, 1)} />);
+    expect(screen.getByRole('button', { name: 'Fullfør helsesjekk' })).toBeEnabled();
   });
 
   it('krever bekreftelse før helsesjekken finaliseres og rapport klargjøres', async () => {

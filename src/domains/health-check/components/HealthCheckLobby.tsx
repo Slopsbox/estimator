@@ -32,7 +32,7 @@ export function HealthCheckLobby({
   joinCode,
   codeCopied,
   members,
-  minimumRespondents = 5,
+  minimumRespondents = 1,
   actionLoading,
   error,
   onCopyCode,
@@ -42,7 +42,7 @@ export function HealthCheckLobby({
   confirmRemove = (member) => window.confirm(`Vil du fjerne ${member.displayName} fra helsesjekken?`),
   confirmAbort = () => window.confirm('Vil du avbryte helsesjekken?'),
 }: HealthCheckLobbyProps) {
-  const enforcedMinimum = Math.max(5, minimumRespondents);
+  const enforcedMinimum = Math.max(1, minimumRespondents);
   const canStart = members.length >= enforcedMinimum && !actionLoading;
 
   return (
@@ -93,16 +93,16 @@ export function HealthCheckLobby({
         </section>
 
         <aside
-          aria-labelledby="practical-anonymity-heading"
+          aria-labelledby="privacy-warning-heading"
           className="rounded-xl border bg-white p-4 text-sm"
           style={{ borderColor: 'var(--color-neutral-200)', color: 'var(--color-neutral-700)' }}
         >
-          <h2 id="practical-anonymity-heading" className="font-bold" style={{ color: 'var(--color-navy-900)' }}>Praktisk anonymitet</h2>
+          <h2 id="privacy-warning-heading" className="font-bold" style={{ color: 'var(--color-navy-900)' }}>Personvern og attribusjonsrisiko</h2>
           <p className="mt-1">
-            Resultater vises samlet, aldri per person. Helsesjekken krever minst {enforcedMinimum} deltakere.
+            Resultatet er et gruppeaggregat. Med én deltaker er resultatet lik denne deltakerens svar og er ikke anonymt.
           </p>
           <p className="mt-2">
-            Hvis nesten alle deltakere samarbeider og kjenner sine egne svar, kan de i noen tilfeller regne ut den siste deltakerens svar.
+            Også i små grupper kan resultater tilskrives enkeltpersoner. Helsesjekken krever minimum {enforcedMinimum} {enforcedMinimum === 1 ? 'deltaker' : 'deltakere'}.
           </p>
         </aside>
 
@@ -112,7 +112,7 @@ export function HealthCheckLobby({
               Deltakere
             </h2>
             <p className="text-sm tabular-nums" style={{ color: 'var(--color-neutral-500)' }}>
-              {members.length} av minst {enforcedMinimum}
+              {members.length} av minimum {enforcedMinimum}
             </p>
           </div>
 

@@ -33,23 +33,24 @@ function renderLobby(
 }
 
 describe('HealthCheckLobby', () => {
-  it('viser squad, måledato, kode og praktisk anonymitetsgrense', () => {
+  it('viser squad, måledato, kode og eksplisitt attribusjonsrisiko', () => {
     renderLobby();
 
     expect(screen.getByRole('heading', { level: 1, name: 'Plattform' })).toBeVisible();
     expect(screen.getByText('26. august 2026')).toBeVisible();
     expect(screen.getByText('4821')).toBeVisible();
-    expect(screen.getByText(/aldri per person/i)).toBeVisible();
-    expect(screen.getByText(/minst 5 deltakere/i)).toBeVisible();
-    expect(screen.getByText(/nesten alle deltakere samarbeider/i)).toBeVisible();
+    expect(screen.getByText(/resultatet er et gruppeaggregat/i)).toBeVisible();
+    expect(screen.getByText(/med én deltaker.*ikke anonymt/i)).toBeVisible();
+    expect(screen.getByText(/små grupper.*tilskrives enkeltpersoner/i)).toBeVisible();
+    expect(screen.getByText(/minimum 1 deltaker/i)).toBeVisible();
   });
 
-  it('deaktiverer start med 4 medlemmer og aktiverer med 5', () => {
-    const { rerender, props } = renderLobby({ members: members.slice(0, 4) });
+  it('deaktiverer start med 0 medlemmer og aktiverer med 1', () => {
+    const { rerender, props } = renderLobby({ members: [] });
 
     expect(screen.getByRole('button', { name: 'Start helsesjekk' })).toBeDisabled();
 
-    rerender(<HealthCheckLobby {...props} members={members} />);
+    rerender(<HealthCheckLobby {...props} members={members.slice(0, 1)} />);
     expect(screen.getByRole('button', { name: 'Start helsesjekk' })).toBeEnabled();
   });
 
@@ -127,7 +128,7 @@ describe('HealthCheckLobby', () => {
   it('bruker konfigurert minimum, semantiske mål og synlige fokusstiler', () => {
     renderLobby({ minimumRespondents: 6 });
 
-    expect(screen.getByText(/minst 6 deltakere/i)).toBeVisible();
+    expect(screen.getByText(/minimum 6 deltakere/i)).toBeVisible();
     expect(screen.getByRole('button', { name: 'Start helsesjekk' })).toBeDisabled();
     for (const button of screen.getAllByRole('button')) {
       expect(button.className).toContain('min-h-11');
@@ -135,11 +136,14 @@ describe('HealthCheckLobby', () => {
     }
   });
 
-  it.each([0, 1, 4])('håndhever alltid anonymitetsminimum 5 selv om prop er %i', (minimumRespondents) => {
-    renderLobby({ minimumRespondents, members: members.slice(0, 4) });
+  it('håndhever hard minimumsgrense 1 selv om prop er 0', () => {
+    const { rerender, props } = renderLobby({ minimumRespondents: 0, members: [] });
 
-    expect(screen.getByText(/minst 5 deltakere/i)).toBeVisible();
     expect(screen.getByRole('button', { name: 'Start helsesjekk' })).toBeDisabled();
+    expect(screen.getByText(/minimum 1 deltaker/i)).toBeVisible();
+
+    rerender(<HealthCheckLobby {...props} minimumRespondents={0} members={members.slice(0, 1)} />);
+    expect(screen.getByRole('button', { name: 'Start helsesjekk' })).toBeEnabled();
   });
 
   it('rendrer skadelig medlemsnavn som tekst og eksponerer ingen helsedetaljer', () => {

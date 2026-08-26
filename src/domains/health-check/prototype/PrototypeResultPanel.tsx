@@ -78,7 +78,7 @@ export function PrototypeResultPanel() {
         style={{ color: 'var(--color-neutral-700)' }}
       >
         <li>Resultatet bruker kun syntetiske demodata.</li>
-        <li>Ingen enkeltpersoner kan identifiseres, og dette er ikke en faktisk måling.</li>
+        <li>Et ekte resultat er et gruppeaggregat. Med én deltaker er det lik deltakerens svar og ikke anonymt; i små grupper kan det tilskrives enkeltpersoner.</li>
       </ul>
     </section>
   );

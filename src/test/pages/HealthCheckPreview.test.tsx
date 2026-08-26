@@ -97,6 +97,9 @@ describe('HealthCheckPreviewPage', () => {
     expect(screen.getByRole('list', { name: 'Viktig om demoresultatet' })).toHaveTextContent(
       'Resultatet bruker kun syntetiske demodata',
     );
+    expect(screen.getByRole('list', { name: 'Viktig om demoresultatet' })).toHaveTextContent(
+      /med én deltaker.*ikke anonymt.*små grupper.*tilskrives enkeltpersoner/i,
+    );
     expect(screen.getByRole('row', { name: /Arbeidsglede og energi 5,8\/7 6/ })).toBeVisible();
   });
 
