@@ -1,6 +1,11 @@
 export { createHealthCheckService } from './healthCheckService';
 export {
+  createHealthCheckDownloadGateway,
+  createSupabaseHealthCheckDownloadGateway,
+} from './healthCheckDownloadGateway';
+export {
   isUuid,
+  isSafeHealthReportFilename,
   parseAbortHealthCheckResult,
   parseFinalizeHealthCheckResult,
   parseHealthCheckDownloadStatus,
@@ -11,6 +16,13 @@ export {
   parseSubmitHealthCheckResult,
 } from './parsers';
 export type { HealthCheckService } from './healthCheckService';
+export type {
+  HealthCheckDownloadAnchorPort,
+  HealthCheckDownloadAuthPort,
+  HealthCheckDownloadDependencies,
+  HealthCheckDownloadUrlPort,
+  SupabaseHealthCheckDownloadDependencies,
+} from './healthCheckDownloadGateway';
 export type {
   CreateHealthCheckRoomInput,
   HealthCheckGateway,

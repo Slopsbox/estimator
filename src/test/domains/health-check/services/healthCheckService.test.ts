@@ -330,6 +330,7 @@ describe('healthCheckService', () => {
     [{ status: 'ready', filename: `${'😀'.repeat(177)}.zip` }, false],
     [{ status: 'ready', filename: 'squad.zip', aad_room_id: ROOM_ID }, false],
     [{ status: 'ready', filename: '../rapport.zip' }, false],
+    [{ status: 'ready', filename: 'safe\u202etxt.zip' }, false],
     [{ status: 'ready', filename: null }, false],
   ] as const)('parses download status %#', async (data, valid) => {
     rpc.mockResolvedValue({ data, error: null });

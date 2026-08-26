@@ -129,7 +129,7 @@ export function parseHealthCheckDownloadStatus(
   if (!record) return null;
   const status = dataValue(record, 'status');
   const filename = dataValue(record, 'filename');
-  if (!isDownloadStatus(status) || (filename !== null && !isSafeFilename(filename))) {
+  if (!isDownloadStatus(status) || (filename !== null && !isSafeHealthReportFilename(filename))) {
     return null;
   }
   if ((status === 'ready') !== (filename !== null)) return null;
@@ -152,7 +152,7 @@ function isDownloadStatus(value: unknown): value is HealthCheckDownloadStatus {
   return value === 'expired' || isJobStatus(value);
 }
 
-function isSafeFilename(value: unknown): value is string {
+export function isSafeHealthReportFilename(value: unknown): value is string {
   return typeof value === 'string'
     && value === value.trim()
     && Array.from(value).length >= 5
@@ -160,10 +160,7 @@ function isSafeFilename(value: unknown): value is string {
     && value.toLowerCase().endsWith('.zip')
     && !value.includes('/')
     && !value.includes('\\')
-    && !Array.from(value).some((character) => {
-      const codePoint = character.codePointAt(0);
-      return codePoint !== undefined && (codePoint <= 31 || codePoint === 127);
-    });
+    && !/[\p{Cc}\p{Cf}]/u.test(value);
 }
 
 function isSafeName(value: unknown): value is string {
