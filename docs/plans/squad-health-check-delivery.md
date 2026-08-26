@@ -34,6 +34,12 @@ device er fasilitatorens ansvar.
 7. Delivery receipt-foundation har egen localStorage-nøkkel og eksakt
    `{version: 1, roomId, jobId, expiresAt}`. Den er ikke koblet til route/UI,
    overlever session-pointer/source-sletting og fjernes ved utløp.
+8. En ekte terminal prototype-RPC, `finalize_health_check_prototype`, returnerer
+   den ferdige aggregate-only JSON-rapporten og sletter hele live-rommet atomisk
+   uten jobb eller serverpersistens. Dette er en one-shot prototype: mistet
+   respons etter commit kan ikke gjenopprettes, automatisk retry er ikke trygt,
+   og UI-advarsel/gating gjenstår. Den fulle worker-/download-stien over er
+   fortsatt fremtidig produksjonssti.
 
 ## Neste steg
 
@@ -123,6 +129,10 @@ device er fasilitatorens ansvar.
     `membership_missing`. Ferdig estimation beholder `session_completed`.
 20. Finalize og owner-only status returnerer eksakt jobb-utløp; receipt-parseren
     avviser ekstra felt, ugyldig UUID/tid, mismatch og utløpt metadata.
+21. Prototype-finalize avviser null/ufullført/malformed kohort, returnerer eksakt
+    `health-check-prototype-v1` med 7/31 sorterte ett-desimals aggregater, ingen
+    identitetsfelt og ingen jobb, og sletter hele romgrafen atomisk. Retry gir
+    generisk `facilitator_required`.
 
 ## Kvalitetsport
 

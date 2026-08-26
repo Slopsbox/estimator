@@ -1502,6 +1502,191 @@ begin
 end;
 $function$;
 
+create function public.finalize_health_check_prototype(p_room_id uuid)
+returns jsonb
+language plpgsql
+security definer
+set search_path = pg_catalog
+as $function$
+declare
+  v_user_id uuid := auth.uid();
+  v_session public.sessions%rowtype;
+  v_health public.health_check_sessions%rowtype;
+  v_cohort_count integer;
+  v_completed_count integer;
+  v_area_count integer;
+  v_question_count integer;
+  v_question_area_count integer;
+  v_aggregate_count integer;
+  v_catalogued_aggregate_count integer;
+  v_min_response_count integer;
+  v_max_response_count integer;
+  v_report jsonb;
+begin
+  if v_user_id is null then
+    raise exception 'authentication_required' using errcode = '28000';
+  end if;
+
+  select s.* into v_session
+    from public.sessions s
+   where s.id = p_room_id
+     and s.facilitator_user_id = v_user_id
+     and exists (
+       select 1 from public.participants p
+        where p.session_id = s.id
+          and p.user_id = v_user_id
+          and p.left_at is null
+          and p.role = 'facilitator'
+     )
+   for update;
+  if not found then
+    raise exception 'facilitator_required' using errcode = '42501';
+  end if;
+  if v_session.activity_type <> 'health_check' then
+    raise exception 'wrong_activity_type' using errcode = '22023';
+  end if;
+
+  select * into v_health
+    from public.health_check_sessions
+   where room_id = p_room_id;
+  if not found or v_health.expires_at <= clock_timestamp() then
+    raise exception 'facilitator_required' using errcode = '42501';
+  end if;
+  if v_health.phase <> 'collecting' or v_session.status <> 'active' then
+    raise exception 'health_check_not_collecting' using errcode = '22023';
+  end if;
+
+  select count(*), count(*) filter (where state = 'completed')
+    into v_cohort_count, v_completed_count
+    from public.health_check_respondents
+   where room_id = p_room_id;
+  if v_cohort_count < 1 then
+    raise exception 'health_check_minimum_participants' using errcode = '22023';
+  end if;
+  if v_completed_count <> v_cohort_count then
+    raise exception 'health_check_incomplete' using errcode = '22023';
+  end if;
+
+  if not exists (
+    select 1 from public.health_check_templates
+     where version = v_health.template_version
+       and area_count = 7 and question_count = 31
+  ) then
+    raise exception 'health_check_template_invariant';
+  end if;
+  select count(*) into v_area_count
+    from public.health_check_areas
+   where template_version = v_health.template_version;
+  select count(*), count(distinct q.area_key)
+    into v_question_count, v_question_area_count
+    from public.health_check_questions q
+    join public.health_check_areas a
+      on a.template_version = q.template_version
+     and a.area_key = q.area_key
+   where q.template_version = v_health.template_version;
+  if v_area_count <> 7 or v_question_count <> 31 or v_question_area_count <> 7 then
+    raise exception 'health_check_template_invariant';
+  end if;
+
+  select count(*), count(q.question_key),
+         min(aggregate_row.response_count), max(aggregate_row.response_count)
+    into v_aggregate_count, v_catalogued_aggregate_count,
+         v_min_response_count, v_max_response_count
+    from public.health_check_question_aggregates aggregate_row
+    left join public.health_check_questions q
+      on q.template_version = aggregate_row.template_version
+     and q.question_key = aggregate_row.question_key
+   where aggregate_row.room_id = p_room_id
+     and aggregate_row.template_version = v_health.template_version;
+  if v_aggregate_count <> 31
+     or v_catalogued_aggregate_count <> 31
+     or v_min_response_count <> v_cohort_count
+     or v_max_response_count <> v_cohort_count
+     or exists (
+       select 1 from public.health_check_question_aggregates aggregate_row
+        where aggregate_row.room_id = p_room_id
+          and aggregate_row.template_version = v_health.template_version
+          and (
+            aggregate_row.response_count <> v_cohort_count
+            or aggregate_row.score_sum < aggregate_row.response_count
+            or aggregate_row.score_sum > aggregate_row.response_count::bigint * 7
+          )
+     ) then
+    raise exception 'health_check_aggregate_invariant';
+  end if;
+
+  select jsonb_build_object(
+    'status', 'completed',
+    'report_schema_version', 'health-check-prototype-v1',
+    'squad_name', v_health.squad_name,
+    'measurement_date', v_health.measurement_date,
+    'template_version', v_health.template_version,
+    'response_count', v_cohort_count,
+    'areas', coalesce(jsonb_agg(
+      jsonb_build_object(
+        'area_key', area.area_key,
+        'sequence', area.sequence,
+        'title', area.title,
+        'average', (
+          select round(
+            sum(aggregate_row.score_sum)::numeric
+              / sum(aggregate_row.response_count)::numeric,
+            1
+          )
+            from public.health_check_questions question
+            join public.health_check_question_aggregates aggregate_row
+              on aggregate_row.room_id = p_room_id
+             and aggregate_row.template_version = question.template_version
+             and aggregate_row.question_key = question.question_key
+           where question.template_version = area.template_version
+             and question.area_key = area.area_key
+        ),
+        'questions', (
+          select coalesce(jsonb_agg(
+            jsonb_build_object(
+              'question_key', question.question_key,
+              'sequence', question.sequence,
+              'text', question.text,
+              'average', round(
+                aggregate_row.score_sum::numeric
+                  / aggregate_row.response_count::numeric,
+                1
+              )
+            ) order by question.sequence
+          ), '[]'::jsonb)
+            from public.health_check_questions question
+            join public.health_check_question_aggregates aggregate_row
+              on aggregate_row.room_id = p_room_id
+             and aggregate_row.template_version = question.template_version
+             and aggregate_row.question_key = question.question_key
+           where question.template_version = area.template_version
+             and question.area_key = area.area_key
+        )
+      ) order by area.sequence
+    ), '[]'::jsonb)
+  ) into v_report
+    from public.health_check_areas area
+   where area.template_version = v_health.template_version;
+
+  if jsonb_array_length(v_report->'areas') <> 7
+     or (
+       select sum(jsonb_array_length(area->'questions'))
+         from jsonb_array_elements(v_report->'areas') as areas(area)
+     ) <> 31 then
+    raise exception 'health_check_report_invariant';
+  end if;
+
+  if v_health.expires_at <= clock_timestamp() then
+    raise exception 'facilitator_required' using errcode = '42501';
+  end if;
+  delete from public.sessions where id = p_room_id;
+  if not found then
+    raise exception 'health_check_delete_invariant';
+  end if;
+  return v_report;
+end;
+$function$;
+
 create function public.get_health_check_download_status(p_job_id uuid)
 returns jsonb
 language plpgsql
@@ -2016,6 +2201,7 @@ revoke execute on function public.get_health_check_progress(uuid) from public, a
 revoke execute on function public.remove_health_check_respondent(uuid, uuid) from public, anon;
 revoke execute on function public.abort_health_check(uuid) from public, anon;
 revoke execute on function public.finalize_health_check(uuid) from public, anon;
+revoke execute on function public.finalize_health_check_prototype(uuid) from public, anon, authenticated, service_role;
 revoke execute on function public.get_health_check_download_status(uuid) from public, anon;
 revoke execute on function public.get_health_check_download_package_for_service(uuid, uuid) from public, anon, authenticated;
 revoke execute on function public.get_health_check_report_snapshot_for_service(uuid, text) from public, anon, authenticated;
@@ -2036,6 +2222,7 @@ grant execute on function public.get_health_check_progress(uuid) to authenticate
 grant execute on function public.remove_health_check_respondent(uuid, uuid) to authenticated;
 grant execute on function public.abort_health_check(uuid) to authenticated;
 grant execute on function public.finalize_health_check(uuid) to authenticated;
+grant execute on function public.finalize_health_check_prototype(uuid) to authenticated;
 grant execute on function public.get_health_check_download_status(uuid) to authenticated;
 grant execute on function public.get_health_check_download_package_for_service(uuid, uuid) to service_role;
 grant execute on function public.get_health_check_report_snapshot_for_service(uuid, text) to service_role;

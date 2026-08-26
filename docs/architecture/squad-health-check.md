@@ -116,6 +116,31 @@ terminal og hele raden er uforanderlig, bortsett fra eksakte no-op updates.
 
 ## Pipeline og transaksjoner
 
+### Prototype: terminalt resultat i RPC-responsen
+
+Den lokale, ikke utrullede prototypen bruker
+`finalize_health_check_prototype(room_id)` i stedet for rapportjobb-stien. RPC-en
+krever den aktive, autentiserte fasilitatoren, låser den felles `sessions`-raden
+før andre romdata, validerer komplett kohort, katalog og alle 31 aggregater, og
+bygger `health-check-prototype-v1` med syv sorterte områder og 31 sorterte
+spørsmål. Bare ett-desimals aggregatsnitt returneres; identiteter, rom-/jobb-ID,
+join-kode og individuelle verdier eller tider inngår ikke.
+
+Rapport-JSON bygges før `sessions` slettes. Slettingen cascader live-session,
+medlemskap, respondenter og aggregater i samme database-transaksjon. Ingen
+rapportjobb eller serverlagret rapport opprettes. Resultatet er derfor one-shot:
+etter commit finnes det ingen receipt eller serverkopi å hente ved retry, og en
+mistet HTTP/RPC-respons kan ikke gjenopprettes. UI må senere advare om dette og
+skal bare bruke stien når RPC-kallets transaksjonsrespons kan behandles direkte.
+Nettverksfeil etter commit må behandles som mulig permanent resultattap, ikke
+automatisk retry.
+
+`finalize_health_check_prototype` er en midlertidig prototypekontrakt. Den
+owner-bound worker-/jobb-/download-stien nedenfor er fortsatt planlagt
+produksjonsarkitektur og beholdes i migrasjonen for senere ferdigstilling.
+
+### Fremtidig worker- og download-sti
+
 1. `finalize_health_check` låser rommet, verifiserer minst én fullført respondent, 31
    aggregater og identisk respondentantall, setter `download_pending` og lager
    nøyaktig én owner-bound jobb i `awaiting_materialization`.
@@ -194,6 +219,9 @@ bundne fasilitatoren og returnerer eksisterende jobb/status. Andre brukere får
 samme generiske `facilitator_required` som for et ukjent rom. `abort_health_check`
 har ingen varig artifact eller privat receipt; retry etter vellykket sletting er
 derfor eksternt ikke-idempotent og returnerer generisk `facilitator_required`.
+Det samme gjelder prototype-RPC-en: etter vellykket terminal sletting returnerer
+retry generisk `facilitator_required`, men uten noen jobb eller receipt som kan
+gjenopprette resultatet.
 
 Frontend-adapteren utløser nedlasting uten å skrive Blob, rapport eller pakke til
 Cache API, IndexedDB, localStorage eller sessionStorage. Nettleserens ordinære,

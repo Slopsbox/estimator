@@ -152,6 +152,23 @@ where h.room_id = :'room_id'::uuid;
 
 No job may coexist with partial aggregate counts.
 
+## Submit versus terminal prototype-finalize
+
+Bruk en egen fersk singleton-fixture og kall
+`finalize_health_check_prototype(room_id)` i Session B. Begge operasjoner låser
+samme `sessions`-rad først. Submit-first skal gi `completed`; prototype-finalize
+skal deretter returnere hele `health-check-prototype-v1` og slette rommet i samme
+transaksjon. Prototype-finalize-first mens respondenten fortsatt pågår skal gi
+SQLSTATE `22023` / `health_check_incomplete` uten sletting; submit skal deretter
+kunne fullføres normalt.
+
+Etter submit-first og vellykket terminal finalize skal alle seks tellerne under
+`Abort versus mutations` være `0`, inkludert report jobs. En ny finalize som
+tidligere eier skal gi SQLSTATE `42501` / `facilitator_required`. Det finnes
+ingen idempotent retry eller receipt for prototype-resultatet; mistet RPC-respons
+etter commit kan ikke gjenopprettes. Kjør derfor aldri automatisk retry i denne
+testen.
+
 ## Remove versus finalize
 
 Use six respondents: five completed and one in progress. Race removal of the

@@ -3,7 +3,7 @@
 begin;
 
 create extension if not exists pgtap with schema extensions;
-select extensions.plan(142);
+select extensions.plan(155);
 
 insert into auth.users (id, aud, role, created_at, updated_at)
 values
@@ -16,7 +16,10 @@ values
   ('61000000-0000-0000-0000-000000000007', 'authenticated', 'authenticated', now(), now()),
   ('61000000-0000-0000-0000-000000000008', 'authenticated', 'authenticated', now(), now()),
   ('61000000-0000-0000-0000-000000000009', 'authenticated', 'authenticated', now(), now()),
-  ('61000000-0000-0000-0000-000000000010', 'authenticated', 'authenticated', now(), now());
+  ('61000000-0000-0000-0000-000000000010', 'authenticated', 'authenticated', now(), now()),
+  ('61000000-0000-0000-0000-000000000011', 'authenticated', 'authenticated', now(), now()),
+  ('61000000-0000-0000-0000-000000000012', 'authenticated', 'authenticated', now(), now()),
+  ('61000000-0000-0000-0000-000000000013', 'authenticated', 'authenticated', now(), now());
 
 create temporary table health_test_context (key text primary key, value text not null);
 grant all on health_test_context to service_role, authenticated;
@@ -1156,6 +1159,222 @@ select extensions.is(
      )),
   '31:1:1',
   'report snapshot accepts 31 aggregate rows from one respondent'
+);
+reset role;
+
+set local role service_role;
+insert into health_test_context (key, value)
+select 'prototype_create_result', public.create_health_check_room(
+  '61000000-0000-0000-0000-000000000011',
+  '62000000-0000-0000-0000-000000000021',
+  'Prototype Fac', 'Prototype Squad', date '2026-08-27',
+  '63000000-0000-0000-0000-000000000021'
+)::text;
+reset role;
+insert into health_test_context
+select 'prototype_room', value::jsonb->'session'->>'id'
+from health_test_context where key = 'prototype_create_result';
+insert into health_test_context
+select 'prototype_code', value::jsonb->'session'->>'join_code'
+from health_test_context where key = 'prototype_create_result';
+
+update public.health_check_sessions set phase = 'collecting', opened_at = now()
+where room_id = (select value::uuid from health_test_context where key = 'prototype_room');
+set local role authenticated;
+select set_config('request.jwt.claim.role', 'authenticated', true);
+select set_config('request.jwt.claim.sub', '', true);
+select extensions.throws_ok(
+  format(
+    'select public.finalize_health_check_prototype(%L::uuid)',
+    (select value from health_test_context where key = 'prototype_room')
+  ),
+  '28000', 'authentication_required',
+  'prototype terminal finalize requires an authenticated identity'
+);
+select set_config('request.jwt.claim.sub', '61000000-0000-0000-0000-000000000011', true);
+select extensions.throws_ok(
+  format(
+    'select public.finalize_health_check_prototype(%L::uuid)',
+    (select value from health_test_context where key = 'prototype_room')
+  ),
+  '22023', 'health_check_minimum_participants',
+  'prototype terminal finalize rejects a zero-respondent collecting fixture'
+);
+reset role;
+update public.health_check_sessions set phase = 'lobby', opened_at = null
+where room_id = (select value::uuid from health_test_context where key = 'prototype_room');
+
+set local role service_role;
+select public.join_health_check_room(
+  '61000000-0000-0000-0000-000000000012',
+  (select value from health_test_context where key = 'prototype_code'),
+  'Prototype Respondent'
+);
+reset role;
+set local role authenticated;
+select set_config('request.jwt.claim.role', 'authenticated', true);
+select set_config('request.jwt.claim.sub', '61000000-0000-0000-0000-000000000011', true);
+select public.start_health_check(
+  (select value::uuid from health_test_context where key = 'prototype_room')
+);
+select extensions.throws_ok(
+  format(
+    'select public.finalize_health_check_prototype(%L::uuid)',
+    (select value from health_test_context where key = 'prototype_room')
+  ),
+  '22023', 'health_check_incomplete',
+  'prototype terminal finalize rejects an incomplete singleton cohort'
+);
+select set_config('request.jwt.claim.sub', '61000000-0000-0000-0000-000000000013', true);
+select extensions.throws_ok(
+  format(
+    'select public.finalize_health_check_prototype(%L::uuid)',
+    (select value from health_test_context where key = 'prototype_room')
+  ),
+  '42501', 'facilitator_required',
+  'non-owner cannot terminally finalize a prototype health check'
+);
+select set_config('request.jwt.claim.sub', '61000000-0000-0000-0000-000000000012', true);
+select public.submit_health_check(
+  (select value::uuid from health_test_context where key = 'prototype_room'),
+  array(select (((i - 1) % 7) + 1)::smallint from generate_series(1, 31) i)
+);
+reset role;
+
+delete from public.health_check_question_aggregates aggregate_row
+using public.health_check_questions question
+where aggregate_row.room_id = (select value::uuid from health_test_context where key = 'prototype_room')
+  and question.template_version = aggregate_row.template_version
+  and question.question_key = aggregate_row.question_key
+  and question.sequence = 31;
+set local role authenticated;
+select set_config('request.jwt.claim.role', 'authenticated', true);
+select set_config('request.jwt.claim.sub', '61000000-0000-0000-0000-000000000011', true);
+select extensions.throws_ok(
+  format(
+    'select public.finalize_health_check_prototype(%L::uuid)',
+    (select value from health_test_context where key = 'prototype_room')
+  ),
+  null, 'health_check_aggregate_invariant',
+  'prototype terminal finalize rejects malformed aggregates'
+);
+reset role;
+select extensions.ok(
+  exists (
+    select 1 from public.sessions
+     where id = (select value::uuid from health_test_context where key = 'prototype_room')
+  )
+  and (select count(*) from public.health_check_question_aggregates
+        where room_id = (select value::uuid from health_test_context where key = 'prototype_room')) = 30,
+  'malformed aggregate failure rolls back the terminal operation and retains the room'
+);
+insert into public.health_check_question_aggregates (
+  room_id, template_version, question_key, score_sum, response_count
+)
+select (select value::uuid from health_test_context where key = 'prototype_room'),
+       question.template_version, question.question_key, 3, 1
+  from public.health_check_questions question
+ where question.template_version = 'squad-health-v1' and question.sequence = 31;
+
+set local role authenticated;
+select set_config('request.jwt.claim.role', 'authenticated', true);
+select set_config('request.jwt.claim.sub', '61000000-0000-0000-0000-000000000011', true);
+insert into health_test_context (key, value)
+select 'prototype_result', public.finalize_health_check_prototype(
+  (select value::uuid from health_test_context where key = 'prototype_room')
+)::text;
+select extensions.ok(
+  (select value::jsonb->>'status' = 'completed'
+      and value::jsonb->>'report_schema_version' = 'health-check-prototype-v1'
+      and value::jsonb->>'squad_name' = 'Prototype Squad'
+      and value::jsonb->>'measurement_date' = '2026-08-27'
+      and value::jsonb->>'template_version' = 'squad-health-v1'
+      and value::jsonb->>'response_count' = '1'
+      and jsonb_array_length(value::jsonb->'areas') = 7
+      and (select array_agg(key order by key)
+             from jsonb_object_keys(value::jsonb) as keys(key))
+          = array[
+              'areas', 'measurement_date', 'report_schema_version',
+              'response_count', 'squad_name', 'status', 'template_version'
+            ]::text[]
+     from health_test_context where key = 'prototype_result'),
+  'prototype terminal finalize returns the exact top-level report contract'
+);
+select extensions.ok(
+  (select bool_and(
+      (select array_agg(key order by key)
+         from jsonb_object_keys(area) as keys(key))
+        = array['area_key', 'average', 'questions', 'sequence', 'title']::text[]
+    )
+     from health_test_context context,
+          jsonb_array_elements(context.value::jsonb->'areas') as areas(area)
+    where context.key = 'prototype_result'),
+  'every prototype area contains only its documented aggregate fields'
+);
+select extensions.is(
+  (select string_agg(
+      (area->>'sequence') || ':' || (area->>'average'), ',' order by ordinality
+    )
+     from health_test_context context,
+          jsonb_array_elements(context.value::jsonb->'areas')
+            with ordinality as areas(area, ordinality)
+    where context.key = 'prototype_result'),
+  '1:2.5,2:4.2,3:5.0,4:3.0,5:4.0,6:5.0,7:2.0',
+  'prototype areas are ordered one through seven with one-decimal averages'
+);
+select extensions.ok(
+  (select count(*) = 31
+      and array_agg((question->>'sequence')::integer order by area_order, question_order)
+          = array(select generate_series(1, 31))
+      and bool_and(
+        (question->>'average')::numeric
+          = ((((question->>'sequence')::integer - 1) % 7) + 1)::numeric
+      )
+      and bool_and(
+        (select array_agg(key order by key)
+           from jsonb_object_keys(question) as keys(key))
+          = array['average', 'question_key', 'sequence', 'text']::text[]
+      )
+     from health_test_context context,
+          jsonb_array_elements(context.value::jsonb->'areas')
+            with ordinality as areas(area, area_order),
+          jsonb_array_elements(area->'questions')
+            with ordinality as questions(question, question_order)
+    where context.key = 'prototype_result'),
+  'prototype questions are exactly 31 catalog entries in sequence with one-decimal aggregate averages'
+);
+select extensions.ok(
+  (select value::jsonb::text !~ '"(room_id|member_id|user_id|delivery_id|job_id|join_code|created_at|joined_at|opened_at|completed_at|expires_at)"[[:space:]]*:'
+     from health_test_context where key = 'prototype_result'),
+  'prototype report contains no identity, room, job, join-code or timing fields'
+);
+reset role;
+select extensions.ok(
+  (select count(*) from public.sessions
+    where id = (select value::uuid from health_test_context where key = 'prototype_room')) = 0
+  and (select count(*) from public.participants
+    where session_id = (select value::uuid from health_test_context where key = 'prototype_room')) = 0
+  and (select count(*) from public.health_check_sessions
+    where room_id = (select value::uuid from health_test_context where key = 'prototype_room')) = 0
+  and (select count(*) from public.health_check_respondents
+    where room_id = (select value::uuid from health_test_context where key = 'prototype_room')) = 0
+  and (select count(*) from public.health_check_question_aggregates
+    where room_id = (select value::uuid from health_test_context where key = 'prototype_room')) = 0
+  and (select count(*) from public.health_check_report_jobs
+    where source_room_id = (select value::uuid from health_test_context where key = 'prototype_room')
+       or aad_room_id = (select value::uuid from health_test_context where key = 'prototype_room')) = 0,
+  'prototype terminal success deletes the complete room graph and creates no report job'
+);
+set local role authenticated;
+select set_config('request.jwt.claim.role', 'authenticated', true);
+select set_config('request.jwt.claim.sub', '61000000-0000-0000-0000-000000000011', true);
+select extensions.throws_ok(
+  format(
+    'select public.finalize_health_check_prototype(%L::uuid)',
+    (select value from health_test_context where key = 'prototype_room')
+  ),
+  '42501', 'facilitator_required',
+  'prototype terminal finalize retry returns the generic unavailable error'
 );
 reset role;
 

@@ -3,7 +3,7 @@
 begin;
 
 create extension if not exists pgtap with schema extensions;
-select extensions.plan(37);
+select extensions.plan(38);
 
 insert into auth.users (id, aud, role, created_at, updated_at)
 values
@@ -148,6 +148,8 @@ select extensions.ok(
   and has_function_privilege('authenticated', 'public.remove_health_check_respondent(uuid,uuid)', 'EXECUTE')
   and has_function_privilege('authenticated', 'public.abort_health_check(uuid)', 'EXECUTE')
   and has_function_privilege('authenticated', 'public.finalize_health_check(uuid)', 'EXECUTE')
+  and has_function_privilege('authenticated', 'public.finalize_health_check_prototype(uuid)', 'EXECUTE')
+  and not has_function_privilege('service_role', 'public.finalize_health_check_prototype(uuid)', 'EXECUTE')
   and has_function_privilege('authenticated', 'public.get_health_check_download_status(uuid)', 'EXECUTE'),
   'authenticated receives only the expected health domain RPCs'
 );
@@ -159,6 +161,7 @@ select extensions.ok(
   and not has_function_privilege('anon', 'public.remove_health_check_respondent(uuid,uuid)', 'EXECUTE')
   and not has_function_privilege('anon', 'public.abort_health_check(uuid)', 'EXECUTE')
   and not has_function_privilege('anon', 'public.finalize_health_check(uuid)', 'EXECUTE')
+  and not has_function_privilege('anon', 'public.finalize_health_check_prototype(uuid)', 'EXECUTE')
   and not has_function_privilege('anon', 'public.get_health_check_download_status(uuid)', 'EXECUTE'),
   'anon cannot execute health domain RPCs'
 );
@@ -238,6 +241,26 @@ select extensions.ok(
   'report snapshot owner also owns every source table it must read'
 );
 select extensions.ok(
+  (select not exists (
+      select 1
+        from pg_class as c
+       where c.oid = any (array[
+         'public.sessions'::regclass::oid,
+         'public.participants'::regclass::oid,
+         'public.health_check_templates'::regclass::oid,
+         'public.health_check_areas'::regclass::oid,
+         'public.health_check_questions'::regclass::oid,
+         'public.health_check_sessions'::regclass::oid,
+         'public.health_check_respondents'::regclass::oid,
+         'public.health_check_question_aggregates'::regclass::oid
+       ]::oid[])
+         and c.relowner <> p.proowner
+    )
+     from pg_proc as p
+    where p.oid = 'public.finalize_health_check_prototype(uuid)'::regprocedure),
+  'prototype terminal finalize owner also owns every RLS-protected source table'
+);
+select extensions.ok(
   (select count(*) = 7
           and bool_and(c.relrowsecurity and not c.relforcerowsecurity)
      from pg_class as c
@@ -277,6 +300,7 @@ select extensions.ok(
      'public.remove_health_check_respondent(uuid,uuid)'::regprocedure,
      'public.abort_health_check(uuid)'::regprocedure,
      'public.finalize_health_check(uuid)'::regprocedure,
+      'public.finalize_health_check_prototype(uuid)'::regprocedure,
       'public.get_health_check_download_status(uuid)'::regprocedure,
       'private.materialize_health_check_download(uuid,text,bytea,bytea,integer,text)'::regprocedure,
       'private.claim_health_check_report_job(uuid,text,interval)'::regprocedure,
