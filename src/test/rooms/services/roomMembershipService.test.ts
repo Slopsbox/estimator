@@ -242,6 +242,45 @@ describe('roomMembershipService', () => {
     });
   });
 
+  it('tolker Postgres composite med alle nullfelt som fraværende stemme', async () => {
+    rpc.mockResolvedValue({
+      data: membership({
+        vote: {
+          id: null, session_id: null, participant_id: null, round: null,
+          size: null, value: null, created_at: null,
+        },
+      }),
+      error: null,
+    });
+
+    await expect(service.restore(SESSION.id)).resolves.toMatchObject({
+      ok: true,
+      snapshot: { ownVote: null, roundParticipant: ROUND_PARTICIPANT },
+    });
+  });
+
+  it('tolker all-null optional composites som fraværende for health restore', async () => {
+    rpc.mockResolvedValue({
+      data: membership({
+        session: { ...SESSION, activity_type: 'health_check' },
+        vote: {
+          id: null, session_id: null, participant_id: null, round: null,
+          size: null, value: null, created_at: null,
+        },
+        round_participant: {
+          session_id: null, round: null, participant_id: null,
+          joined_at: null, reestimate_used: null,
+        },
+      }),
+      error: null,
+    });
+
+    await expect(service.restore(SESSION.id)).resolves.toMatchObject({
+      ok: true,
+      snapshot: { activityType: 'health_check', ownVote: null, roundParticipant: null },
+    });
+  });
+
   it('avviser malformed og cross-scope valgfri vote', async () => {
     rpc.mockResolvedValueOnce({ data: membership({ vote: { ...VOTE, size: 'xxl' } }), error: null });
     await expect(service.restore(SESSION.id)).resolves.toEqual({ ok: false, reason: 'malformed' });

@@ -61,12 +61,30 @@ function isActivityType(value: unknown): value is RoomActivityType {
   return value === 'estimation' || value === 'health_check';
 }
 
+const voteFields = ['id', 'session_id', 'participant_id', 'round', 'size', 'value', 'created_at'] as const;
+const roundParticipantFields = ['session_id', 'round', 'participant_id', 'joined_at', 'reestimate_used'] as const;
+
+function normalizeNullableComposite(
+  value: unknown,
+  expectedFields: readonly string[],
+): unknown {
+  if (value === null || value === undefined || !isRecord(value)) return value;
+  const keys = Object.keys(value);
+  return keys.length === expectedFields.length
+    && expectedFields.every((field) => Object.prototype.hasOwnProperty.call(value, field))
+    && expectedFields.every((field) => value[field] === null)
+    ? null
+    : value;
+}
+
 function parseMembership(value: unknown): RoomMembershipSnapshot | null {
   if (!isRecord(value) || (value.status !== 'ok' && value.status !== 'active_session_exists')) return null;
   if (!isRecord(value.session)) return null;
   const sessionRecord = value.session;
   const session = parseSession(sessionRecord);
   const participant = parseParticipant(value.participant);
+  const rawRoundParticipant = normalizeNullableComposite(value.round_participant, roundParticipantFields);
+  const rawVote = normalizeNullableComposite(value.vote, voteFields);
   const hasEnvelopeActivityType = hasOwn(value, 'activity_type');
   if (
     (hasEnvelopeActivityType && !isActivityType(value.activity_type))
@@ -76,20 +94,20 @@ function parseMembership(value: unknown): RoomMembershipSnapshot | null {
   if (!session || !participant || participant.session_id !== session.id) return null;
   const activityType = session.activity_type;
   if (activityType !== 'estimation' && (
-    (hasOwn(value, 'round_participant') && value.round_participant != null)
-    || (hasOwn(value, 'vote') && value.vote != null)
+    (hasOwn(value, 'round_participant') && rawRoundParticipant != null)
+    || (hasOwn(value, 'vote') && rawVote != null)
   )) return null;
   if (activityType === 'estimation' && (
-    (hasOwn(value, 'round_participant') && value.round_participant != null && !parseRoundParticipant(value.round_participant))
-    || (hasOwn(value, 'vote') && value.vote != null && !parseVote(value.vote))
+    (hasOwn(value, 'round_participant') && rawRoundParticipant != null && !parseRoundParticipant(rawRoundParticipant))
+    || (hasOwn(value, 'vote') && rawVote != null && !parseVote(rawVote))
   )) return null;
-  const roundParticipant = parseRoundParticipant(value.round_participant);
+  const roundParticipant = parseRoundParticipant(rawRoundParticipant);
   if (roundParticipant && (
       roundParticipant.session_id !== session.id
       || roundParticipant.participant_id !== participant.id
       || roundParticipant.round !== session.current_round
   )) return null;
-  const ownVote = parseVote(value.vote);
+  const ownVote = parseVote(rawVote);
   if (ownVote && (
       ownVote.session_id !== session.id
       || ownVote.participant_id !== participant.id
