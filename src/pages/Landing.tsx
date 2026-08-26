@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { TurnstileGate } from '../components/TurnstileGate';
 import { AppLogo } from '../components/AppLogo';
 import { resolveRoomRoute } from '../lib/roomRoutes';
@@ -99,6 +99,34 @@ export function LandingPage() {
             style={{ background: 'var(--color-neutral-200)' }}
           />
         </div>
+
+        <section
+          aria-labelledby="health-prototype-heading"
+          className="rounded-lg border p-4"
+          style={{ borderColor: 'var(--color-neutral-200)', background: 'var(--color-neutral-100)' }}
+        >
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h2
+                id="health-prototype-heading"
+                className="text-base font-bold"
+                style={{ color: 'var(--color-navy-900)' }}
+              >
+                Squad Health – prototype
+              </h2>
+              <p className="mt-1 text-sm" style={{ color: 'var(--color-neutral-700)' }}>
+                Bruker kun demodata
+              </p>
+            </div>
+            <Link
+              to="/health-check-preview"
+              className="flex min-h-11 items-center rounded-md border px-4 text-sm font-bold hover:bg-white focus-visible:ring-2 focus-visible:ring-[var(--color-navy-700)] focus-visible:ring-offset-2"
+              style={{ borderColor: 'var(--color-navy-700)', color: 'var(--color-navy-700)' }}
+            >
+              Åpne Squad Health – prototype
+            </Link>
+          </div>
+        </section>
 
         {/* Turnstile */}
         <div className="space-y-1">

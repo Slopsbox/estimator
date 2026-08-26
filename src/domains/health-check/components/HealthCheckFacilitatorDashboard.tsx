@@ -1,4 +1,5 @@
 import { NavyPageLayout } from '../../../components/NavyPageLayout';
+import type { ReactNode } from 'react';
 
 export type HealthCheckProgressStatus = 'in_progress' | 'completed';
 
@@ -23,6 +24,8 @@ export interface HealthCheckFacilitatorDashboardProps {
   readonly actionLoading: boolean;
   readonly error: string | null | undefined;
   readonly deliveryStatus?: HealthCheckDeliveryStatus | null;
+  readonly readyDescription?: string;
+  readonly readyContent?: ReactNode;
   readonly onRemoveInProgress: (memberId: string) => void;
   readonly onFinalize: () => void;
   readonly onAbort: () => void;
@@ -50,6 +53,8 @@ export function HealthCheckFacilitatorDashboard({
   actionLoading,
   error,
   deliveryStatus = null,
+  readyDescription = 'ZIP-filen kan lastes ned i inntil 15 minutter. Den nedlastede filen blir liggende på enheten og er ditt ansvar.',
+  readyContent,
   onRemoveInProgress,
   onFinalize,
   onAbort,
@@ -113,7 +118,7 @@ export function HealthCheckFacilitatorDashboard({
               style={{ color: deliveryStatus === 'failed' ? 'var(--color-danger)' : 'var(--color-neutral-500)' }}
             >
               {deliveryStatus === 'ready'
-                ? 'ZIP-filen kan lastes ned i inntil 15 minutter. Den nedlastede filen blir liggende på enheten og er ditt ansvar.'
+                ? readyDescription
                 : deliveryStatus === 'expired'
                   ? 'Nedlastingsvinduet er utløpt, og rapporten kan ikke lenger lastes ned. Pakken slettes av planlagt opprydding.'
                 : deliveryStatus === 'failed'
@@ -133,6 +138,8 @@ export function HealthCheckFacilitatorDashboard({
             ) : null}
           </section>
         ) : null}
+
+        {deliveryStatus === 'ready' ? readyContent : null}
 
         <section
           aria-labelledby="progress-heading"

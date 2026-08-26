@@ -6,6 +6,9 @@ import {
   type HealthCheckDeliveryStatus,
   type HealthCheckProgressRow,
 } from '../domains/health-check/components';
+import { PrototypeResultPanel } from '../domains/health-check/prototype/PrototypeResultPanel';
+import { downloadPrototypeCsv } from '../domains/health-check/prototype/prototypeCsvDownload';
+import { createPrototypeReportCsv } from '../domains/health-check/prototype/prototypeReport';
 
 type PreviewRole = 'participant' | 'facilitator';
 
@@ -68,6 +71,20 @@ export function HealthCheckPreviewPage() {
     setProgressRows(initialProgressRows);
     setDeliveryStatus(null);
     setDemoStatus('Demoen er tilbakestilt.');
+  };
+
+  const handleDownload = () => {
+    const downloaded = downloadPrototypeCsv(createPrototypeReportCsv(), {
+      createBlob: (text, mediaType) => new Blob([text], { type: mediaType }),
+      createObjectURL: (blob) => window.URL.createObjectURL(blob),
+      revokeObjectURL: (url) => window.URL.revokeObjectURL(url),
+      createAnchor: () => document.createElement('a'),
+      appendAnchor: (anchor) => document.body.append(anchor as HTMLAnchorElement),
+      scheduleCleanup: (cleanup) => window.setTimeout(cleanup, 0),
+    });
+    setDemoStatus(downloaded
+      ? 'Demo: CSV-filen er lastet ned lokalt.'
+      : 'Demo: CSV-filen kunne ikke lastes ned.');
   };
 
   return (
@@ -220,6 +237,8 @@ export function HealthCheckPreviewPage() {
           actionLoading={false}
           error={null}
           deliveryStatus={deliveryStatus}
+          readyDescription="Prototype-CSV-en opprettes lokalt fra syntetiske demodata og blir liggende på enheten."
+          readyContent={<PrototypeResultPanel />}
           onRemoveInProgress={(memberId) => {
             setProgressRows((rows) => rows.filter((row) => row.memberId !== memberId));
             setDemoStatus('Demo: Deltakeren ble fjernet lokalt.');
@@ -229,7 +248,7 @@ export function HealthCheckPreviewPage() {
             setDemoStatus('Demo: Helsesjekken er fullført lokalt.');
           }}
           onAbort={resetFacilitator}
-          onDownload={() => setDemoStatus('Demo: Nedlasting er simulert. Ingen fil ble opprettet.')}
+          onDownload={handleDownload}
           confirmRemove={() => true}
           confirmAbort={() => true}
           confirmFinalize={() => true}

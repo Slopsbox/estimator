@@ -63,6 +63,24 @@ describe('LandingPage', () => {
     expect(screen.getByRole('button', { name: /fasilitator/i })).toBeDisabled();
   });
 
+  it('viser prototypeinngangen som eksakt preview-lenke før verifisering', () => {
+    render(
+      <MemoryRouter>
+        <LandingPage />
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByText('Squad Health – prototype')).toBeVisible();
+    expect(screen.getByText('Bruker kun demodata')).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Deltager' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Fasilitator' })).toBeDisabled();
+
+    expect(screen.getByRole('link', { name: 'Åpne Squad Health – prototype' })).toHaveAttribute(
+      'href',
+      '/health-check-preview',
+    );
+  });
+
   it('viser veiledningstest om verifisering', () => {
     render(
       <MemoryRouter>
