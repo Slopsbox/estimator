@@ -55,7 +55,9 @@ describe('HealthCheckResponseFlow', () => {
     const toggle = screen.getByRole('switch', { name: 'Gå automatisk til neste spørsmål' });
 
     expect(toggle).toBeChecked();
+    expect(toggle).toHaveAttribute('aria-checked', 'true');
     fireEvent.click(toggle);
+    expect(toggle).toHaveAttribute('aria-checked', 'false');
     fireEvent.input(screen.getByRole('slider'), { target: { value: '5' } });
     act(() => vi.advanceTimersByTime(5000));
     expect(screen.getByText('Spørsmål 1 av 31')).toBeVisible();

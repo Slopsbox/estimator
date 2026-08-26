@@ -139,6 +139,7 @@ export function HealthCheckResponseFlow({
             type="checkbox"
             role="switch"
             checked={autoAdvance}
+            aria-checked={autoAdvance}
             onChange={(event) => setAutoAdvance(event.currentTarget.checked)}
             style={{ width: 24, height: 24, accentColor: 'var(--color-red-600)' }}
           />

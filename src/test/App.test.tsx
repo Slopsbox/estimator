@@ -1,6 +1,6 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import type { PropsWithChildren } from 'react';
-import { vi, describe, expect, it } from 'vitest';
+import { beforeEach, vi, describe, expect, it } from 'vitest';
 
 const providerSpy = vi.fn();
 vi.mock('../hooks/SessionProvider', () => ({
@@ -13,15 +13,22 @@ vi.mock('../pages/Landing', () => ({ LandingPage: () => <div>Landing route</div>
 vi.mock('../pages/DeltagerJoin', () => ({ DeltagerJoinPage: () => <div>Join route</div> }));
 vi.mock('../pages/Vote', () => ({ VotePage: () => <div>Vote route</div> }));
 vi.mock('../pages/Dashboard', () => ({ DashboardPage: () => <div>Dashboard route</div> }));
+vi.mock('../pages/HealthCheckPreview', () => ({
+  HealthCheckPreviewPage: () => <div>Health Check preview route</div>,
+}));
 
 import { App } from '../App';
 
 describe('App', () => {
-  it('wrapper alle routes i SessionProvider', () => {
+  beforeEach(() => {
+    providerSpy.mockClear();
+  });
+
+  it('wrapper produksjonsrutene i SessionProvider', async () => {
     window.history.pushState({}, '', '/');
     render(<App />);
-    expect(providerSpy).toHaveBeenCalled();
-    expect(screen.getByText('Landing route')).toBeInTheDocument();
+    expect(await screen.findByText('Landing route')).toBeInTheDocument();
+    await waitFor(() => expect(providerSpy).toHaveBeenCalled());
   });
 
   it.each([
@@ -48,10 +55,27 @@ describe('App', () => {
     expect(window.history.length).toBe(historyLengthBeforeRedirect);
   });
 
-  it('eksponerer ingen Health Check-ruter i router-konfigurasjonen', async () => {
+  it('viser den isolerte Health Check preview-ruten', async () => {
+    window.history.pushState({}, '', '/health-check-preview');
+    render(<App />);
+
+    expect(await screen.findByText('Health Check preview route')).toBeInTheDocument();
+    expect(providerSpy).not.toHaveBeenCalled();
+  });
+
+  it('holder sessionlaget ute av preview-bundlen', async () => {
+    const appSource = await import('../App?raw').then((module) => module.default);
+
+    expect(appSource).not.toContain("from './hooks/SessionProvider'");
+    expect(appSource).toContain("import('./app/SessionRoutes')");
+  });
+
+  it('eksponerer ingen andre Health Check-ruter i router-konfigurasjonen', async () => {
     const appSource = await import('../App?raw').then((module) => module.default);
 
     expect(appSource).not.toContain("resolveRoomRoute('health_check'");
-    expect(appSource).not.toContain('HealthCheck');
+    expect(appSource.match(/path="\/health-check[^"]*"/g)).toEqual([
+      'path="/health-check-preview"',
+    ]);
   });
 });

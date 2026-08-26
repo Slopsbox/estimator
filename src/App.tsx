@@ -3,7 +3,6 @@ import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { LandingPage } from './pages/Landing';
 import { AppLogo } from './components/AppLogo';
 import { ChunkErrorBoundary } from './components/ChunkErrorBoundary';
-import { SessionProvider } from './hooks/SessionProvider';
 import { resolveRoomRoute } from './lib/roomRoutes';
 
 function lazyWithRetry<T extends React.ComponentType<unknown>>(
@@ -36,6 +35,12 @@ const VotePage = lazyWithRetry(() =>
 const DashboardPage = lazyWithRetry(() =>
   import('./pages/Dashboard').then((m) => ({ default: m.DashboardPage })),
 );
+const HealthCheckPreviewPage = lazyWithRetry(() =>
+  import('./pages/HealthCheckPreview').then((m) => ({ default: m.HealthCheckPreviewPage })),
+);
+const SessionRoutes = lazyWithRetry(() =>
+  import('./app/SessionRoutes').then((m) => ({ default: m.SessionRoutes })),
+);
 
 function LoadingScreen() {
   return (
@@ -56,9 +61,10 @@ export function App() {
   return (
     <BrowserRouter>
       <ChunkErrorBoundary>
-        <SessionProvider>
-          <Suspense fallback={<LoadingScreen />}>
-            <Routes>
+        <Suspense fallback={<LoadingScreen />}>
+          <Routes>
+            <Route path="/health-check-preview" element={<HealthCheckPreviewPage />} />
+            <Route element={<SessionRoutes />}>
               <Route path="/" element={<LandingPage />} />
               <Route path={resolveRoomRoute('estimation', 'join')} element={<DeltagerJoinPage />} />
               <Route path={resolveRoomRoute('estimation', 'participant')} element={<VotePage />} />
@@ -66,9 +72,9 @@ export function App() {
               <Route path="/join" element={<Navigate to={resolveRoomRoute('estimation', 'join')} replace />} />
               <Route path="/vote" element={<Navigate to={resolveRoomRoute('estimation', 'participant')} replace />} />
               <Route path="/dashboard" element={<Navigate to={resolveRoomRoute('estimation', 'facilitator')} replace />} />
-            </Routes>
-          </Suspense>
-        </SessionProvider>
+            </Route>
+          </Routes>
+        </Suspense>
       </ChunkErrorBoundary>
     </BrowserRouter>
   );

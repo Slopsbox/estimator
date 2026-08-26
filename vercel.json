@@ -4,6 +4,7 @@
     { "source": "/estimation/join", "destination": "/index.html" },
     { "source": "/estimation/vote", "destination": "/index.html" },
     { "source": "/estimation/dashboard", "destination": "/index.html" },
+    { "source": "/health-check-preview", "destination": "/index.html" },
     { "source": "/join", "destination": "/index.html" },
     { "source": "/vote", "destination": "/index.html" },
     { "source": "/dashboard", "destination": "/index.html" }
