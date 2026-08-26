@@ -41,6 +41,8 @@ export interface RoomMembershipSnapshot {
 type ServiceFailure = 'identity' | 'rpc' | 'malformed';
 export type CreateRoomResult = { ok: true; snapshot: RoomMembershipSnapshot }
   | { ok: false; reason: ServiceFailure };
+export type CreateHealthRoomResult = { ok: true; snapshot: RoomMembershipSnapshot }
+  | { ok: false; reason: ServiceFailure | 'active_session_exists' | 'request_already_used' };
 export type JoinRoomResult = { ok: true; snapshot: RoomMembershipSnapshot }
   | { ok: false; reason: ServiceFailure | 'session_not_found' | 'role_conflict' };
 export type RestoreRoomResult = { ok: true; snapshot: RoomMembershipSnapshot }
@@ -201,7 +203,7 @@ export function createRoomMembershipService({
       return snapshot ? { ok: true, snapshot } : { ok: false, reason: 'malformed' };
     },
 
-    async createHealth(input: CreateHealthRoomInput): Promise<CreateRoomResult> {
+    async createHealth(input: CreateHealthRoomInput): Promise<CreateHealthRoomResult> {
       const result = await membershipRpc('create_health_check_room_prototype', {
         p_request_id: input.requestId,
         p_facilitator_name: input.name.trim(),
@@ -210,6 +212,10 @@ export function createRoomMembershipService({
         p_delivery_id: input.deliveryId,
       });
       if ('reason' in result) return { ok: false, reason: result.reason };
+      if (isRecord(result.data)
+        && (result.data.status === 'active_session_exists' || result.data.status === 'request_already_used')) {
+        return { ok: false, reason: result.data.status };
+      }
       const snapshot = parseHealthMembership(result.data);
       return snapshot ? { ok: true, snapshot } : { ok: false, reason: 'malformed' };
     },

@@ -630,6 +630,7 @@ begin
     from public.sessions
    where facilitator_user_id = p_facilitator_user_id
      and status = 'active'
+     and activity_type = 'health_check'
    order by created_at desc
    limit 1;
   if found then

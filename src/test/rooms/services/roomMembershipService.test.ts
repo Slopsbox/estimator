@@ -124,6 +124,19 @@ describe('roomMembershipService', () => {
     })).resolves.toEqual({ ok: false, reason: 'malformed' });
   });
 
+  it.each(['active_session_exists', 'request_already_used'] as const)(
+    'returnerer health create-status %s uten å feilparse snapshot',
+    async (status) => {
+      rpc.mockResolvedValue({ data: { status }, error: null });
+
+      await expect(service.createHealth({
+        name: 'Ola', squadName: 'Plattform', measurementDate: '2026-08-26',
+        requestId: '30000000-0000-4000-8000-000000000003',
+        deliveryId: '40000000-0000-4000-8000-000000000004',
+      })).resolves.toEqual({ ok: false, reason: status });
+    },
+  );
+
   it('trimmer og uppercaser join-argumenter', async () => {
     rpc.mockResolvedValue({ data: membership(), error: null });
 

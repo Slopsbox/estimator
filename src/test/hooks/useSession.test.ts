@@ -272,6 +272,18 @@ describe('SessionProvider', () => {
     expect(result.current.activityType).toBe('health_check');
   });
 
+  it('viser en presis melding når fasilitatoren allerede har en aktiv helsesjekk', async () => {
+    roomMocks.createHealth.mockResolvedValueOnce({ ok: false, reason: 'active_session_exists' });
+    const { result } = renderHook(() => useSession(), { wrapper });
+
+    await act(async () => { await result.current.createHealthCheck('Ola', 'Plattform', '2026-08-26'); });
+
+    expect(result.current.error).toBe(
+      'Du har allerede en aktiv helsesjekk. Åpne den aktive sesjonen eller avslutt den først.',
+    );
+    expect(roomMocks.persist).not.toHaveBeenCalled();
+  });
+
   it('stale create skriver ikke pointer eller rydder request-ID', async () => {
     let resolveCreate!: (value: { ok: true; snapshot: ReturnType<typeof snapshot> }) => void;
     roomMocks.create.mockReturnValueOnce(new Promise((resolve) => { resolveCreate = resolve; }));

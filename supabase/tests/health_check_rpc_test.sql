@@ -1,9 +1,9 @@
 -- `supabase test db --local supabase/tests/health_check_rpc_test.sql`
--- Requires all migrations through anonymous_health_check_core.
+-- Requires all migrations through allow_parallel_facilitator_activities.
 begin;
 
 create extension if not exists pgtap with schema extensions;
-select extensions.plan(162);
+select extensions.plan(163);
 
 insert into auth.users (id, aud, role, created_at, updated_at)
 values
@@ -19,7 +19,8 @@ values
   ('61000000-0000-0000-0000-000000000010', 'authenticated', 'authenticated', now(), now()),
   ('61000000-0000-0000-0000-000000000011', 'authenticated', 'authenticated', now(), now()),
   ('61000000-0000-0000-0000-000000000012', 'authenticated', 'authenticated', now(), now()),
-  ('61000000-0000-0000-0000-000000000013', 'authenticated', 'authenticated', now(), now());
+  ('61000000-0000-0000-0000-000000000013', 'authenticated', 'authenticated', now(), now()),
+  ('61000000-0000-0000-0000-000000000014', 'authenticated', 'authenticated', now(), now());
 
 create temporary table health_test_context (key text primary key, value text not null);
 grant all on health_test_context to service_role, authenticated;
@@ -214,6 +215,26 @@ select extensions.ok(
     where room_id = (select value::uuid from health_test_context where key = 'room_id')),
   'new rooms expire no later than 23 hours 55 minutes after creation'
 );
+insert into public.sessions (
+  id, status, current_round, join_code, votes_revealed, started,
+  consensus_streak, facilitator_user_id, create_request_id, activity_type
+) values (
+  '64000000-0000-0000-0000-000000000010', 'active', 1, 'PARA', false, false,
+  0, '61000000-0000-0000-0000-000000000014',
+  '64000000-0000-0000-0000-000000000011', 'estimation'
+);
+set local role service_role;
+select extensions.is(
+  public.create_health_check_room(
+    '61000000-0000-0000-0000-000000000014',
+    '64000000-0000-0000-0000-000000000012',
+    'Parallel', 'Parallel squad', date '2026-08-26',
+    '64000000-0000-0000-0000-000000000013'
+  )->>'status',
+  'ok',
+  'an active estimation does not block the same facilitator from creating a health check'
+);
+reset role;
 insert into public.sessions (
   id, status, current_round, join_code, votes_revealed, started,
   consensus_streak, facilitator_user_id, create_request_id, activity_type

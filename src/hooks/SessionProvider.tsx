@@ -226,12 +226,21 @@ export function SessionProvider({ children }: PropsWithChildren) {
         deliveryId: crypto.randomUUID(),
       });
       if (generation !== generationRef.current) return null;
-      if (!result.ok) throw new Error('create_health_failed');
+      if (!result.ok) {
+        if (result.reason === 'active_session_exists') {
+          throw new Error('active_health_session_exists');
+        }
+        throw new Error('create_health_failed');
+      }
       roomMembership.persist(result.snapshot, { clearCreateRequestId: true });
       applyMembership(result.snapshot);
       return result.snapshot.session;
-    } catch {
-      if (generation === generationRef.current) setError('Kunne ikke opprette helsesjekken. Prøv igjen.');
+    } catch (error) {
+      if (generation === generationRef.current) {
+        setError(error instanceof Error && error.message === 'active_health_session_exists'
+          ? 'Du har allerede en aktiv helsesjekk. Åpne den aktive sesjonen eller avslutt den først.'
+          : 'Kunne ikke opprette helsesjekken. Prøv igjen.');
+      }
       return null;
     } finally {
       if (generation === generationRef.current) setLoading(false);

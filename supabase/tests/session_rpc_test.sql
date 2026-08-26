@@ -437,11 +437,19 @@ select extensions.ok(
 
 select extensions.ok(
   exists (
-    select 1 from pg_indexes
-     where schemaname = 'public'
-       and indexname = 'sessions_one_active_facilitator_uidx'
+    select 1
+      from pg_catalog.pg_class index_relation
+      join pg_catalog.pg_namespace namespace
+        on namespace.oid = index_relation.relnamespace
+      join pg_catalog.pg_index index_metadata
+        on index_metadata.indexrelid = index_relation.oid
+     where namespace.nspname = 'public'
+       and index_relation.relname = 'sessions_one_active_facilitator_activity_uidx'
+       and index_metadata.indisunique
+       and index_metadata.indpred is not null
+       and pg_get_indexdef(index_relation.oid) like '%(facilitator_user_id, activity_type)%'
   ),
-  'active facilitator session quota is enforced by a partial unique index'
+  'active facilitator quota is enforced per activity by a partial unique index'
 );
 
 select extensions.ok(
