@@ -1,6 +1,11 @@
 -- Lockdown rollout. Additive migration and RPC frontend already removed direct
 -- writes; this release completes member-scoped SELECT RLS and private presence.
 
+begin;
+
+set local lock_timeout = '30s';
+set local statement_timeout = '5min';
+
 do $preflight$
 begin
   if to_regclass('public.health_check_sessions') is not null
@@ -211,3 +216,5 @@ create policy "Session members can publish presence"
     realtime.messages.extension = 'presence'
     and (select private.can_access_presence_topic((select realtime.topic())))
   );
+
+commit;

@@ -154,6 +154,8 @@ uten dette manuelle release-steget stopper med
 med `session_rls_lockdown_must_precede_health_core` før første mutasjon dersom
 health core allerede finnes, slik at health-aware medlems- og Presence-helperne
 ikke kan overskrives ved rerun. Lockdown-releasen registrerer
+hele policy-/grant-/helper-endringen i én eksplisitt transaksjon med lock- og
+statement-timeout; enhver feil ruller hele release-steget tilbake. Den registrerer
 førtilstanden for `authenticated` og `service_role` før den sikrer `USAGE` på
 `private`; session-integrity-rollbacken tilbakefører bare rettigheter releasen
 selv introduserte. Health-migrasjonen krever `service_role`-rettigheten i
