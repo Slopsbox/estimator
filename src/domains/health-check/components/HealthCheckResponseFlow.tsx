@@ -14,7 +14,6 @@ import { HealthResponseReview } from './HealthResponseReview';
 export interface HealthCheckResponseFlowProps {
   readonly template?: HealthCheckTemplate;
   readonly participantName?: string;
-  readonly autoAdvanceDefault?: boolean;
   readonly submitting: boolean;
   readonly submitError: string | null | undefined;
   readonly onSubmit: (responses: HealthCheckResponseMap) => Promise<void> | void;
@@ -27,7 +26,6 @@ export interface HealthCheckResponseFlowProps {
 export function HealthCheckResponseFlow({
   template = SQUAD_HEALTH_TEMPLATE_V1,
   participantName,
-  autoAdvanceDefault = true,
   submitting,
   submitError,
   onSubmit,
@@ -36,7 +34,6 @@ export function HealthCheckResponseFlow({
   onUnsavedChangesChange,
 }: HealthCheckResponseFlowProps) {
   const [state, dispatch] = useHealthCheckDraft();
-  const [autoAdvance, setAutoAdvance] = useState(autoAdvanceDefault);
   const [announcementSequence, setAnnouncementSequence] = useState(0);
   const headingRef = useRef<HTMLHeadingElement>(null);
   const unsavedChangesCallbackRef = useRef(onUnsavedChangesChange);
@@ -46,6 +43,7 @@ export function HealthCheckResponseFlow({
   const area = template.areas.find((candidate) =>
     candidate.questions.some((candidateQuestion) => candidateQuestion.key === question.key),
   );
+  const areaIndex = template.areas.findIndex((candidate) => candidate.key === area?.key);
   const response = state.responses[question.key];
   const allAnswered = questions.every((candidate) => state.responses[candidate.key] !== undefined);
   const hasDraft = Object.keys(state.responses).length > 0;
@@ -100,7 +98,7 @@ export function HealthCheckResponseFlow({
   if (state.view === 'review' && allAnswered) {
     const responses = completeResponses();
     return (
-      <main className="mx-auto w-full max-w-3xl px-4 py-8 sm:px-6">
+      <main className="health-response-main mx-auto w-full max-w-3xl py-8">
         <HealthResponseReview
           template={template}
           responses={responses}
@@ -117,68 +115,60 @@ export function HealthCheckResponseFlow({
   }
 
   return (
-    <main className="mx-auto w-full max-w-2xl px-4 py-6 sm:px-6 sm:py-10">
-      <div className="flex min-h-11 items-center justify-between gap-3">
-        {onLeave ? (
-          <button
-            type="button"
-            disabled={submitting}
-            onClick={() => {
-              if (!hasDraft || confirmDiscard()) onLeave();
-            }}
-            className="rounded-md px-3 text-sm font-bold focus-visible:ring-2 focus-visible:ring-[var(--color-navy-700)] focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-40"
-            style={{ minHeight: 44, color: 'var(--color-navy-700)' }}
-          >
-            Forlat
-          </button>
-        ) : (
-          <span />
-        )}
-        <label className="flex min-h-11 items-center gap-2 text-sm" style={{ color: 'var(--color-neutral-700)' }}>
-          <input
-            type="checkbox"
-            role="switch"
-            checked={autoAdvance}
-            aria-checked={autoAdvance}
-            onChange={(event) => setAutoAdvance(event.currentTarget.checked)}
-            style={{ width: 24, height: 24, accentColor: 'var(--color-red-600)' }}
-          />
-          Gå automatisk til neste spørsmål
-        </label>
-      </div>
+    <main className="health-response-main mx-auto w-full max-w-2xl">
+      <AreaProgress
+        template={template}
+        currentAreaIndex={areaIndex}
+        currentQuestionKey={question.key}
+        currentQuestionIndex={state.currentQuestionIndex}
+        questionCount={questions.length}
+      />
 
-      {participantName ? (
-        <p className="mt-4 break-words text-sm" style={{ color: 'var(--color-neutral-500)' }}>
-          Svarer som: {participantName}
-        </p>
+      {onLeave || participantName ? (
+        <div className="mt-5 flex min-h-11 items-center justify-between gap-3">
+          {onLeave ? (
+            <button
+              type="button"
+              disabled={submitting}
+              onClick={() => {
+                if (!hasDraft || confirmDiscard()) onLeave();
+              }}
+              className="rounded-md px-3 text-sm font-bold focus-visible:ring-2 focus-visible:ring-[var(--color-navy-700)] focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-40"
+              style={{ minHeight: 44, color: 'var(--color-navy-700)' }}
+            >
+              Forlat
+            </button>
+          ) : (
+            <span />
+          )}
+          {participantName ? <ParticipantIdentity participantName={participantName} /> : null}
+        </div>
       ) : null}
 
-      <p className="mt-6 text-sm font-bold" style={{ color: 'var(--color-red-600)' }}>
-        Spørsmål {state.currentQuestionIndex + 1} av {questions.length}
-      </p>
-      <p className="mt-4 text-sm font-bold uppercase tracking-wide" style={{ color: 'var(--color-navy-500)' }}>
-        {area?.title}
-      </p>
-      <p className="mt-1 text-sm" style={{ color: 'var(--color-neutral-500)' }}>
+      <div className="mt-10 flex items-center gap-3 sm:mt-12">
+        <span className="h-6 w-1 rounded-full" style={{ background: 'var(--color-red-600)' }} aria-hidden="true" />
+        <p className="text-sm font-bold" style={{ color: 'var(--color-navy-700)' }}>
+          {area?.title}
+        </p>
+      </div>
+      <p className="mt-2 text-sm italic sm:text-base" style={{ color: 'var(--color-neutral-500)' }}>
         {area?.introduction}
       </p>
       <h1
         ref={headingRef}
         tabIndex={-1}
-        className="mt-5 rounded-sm text-2xl font-bold focus:ring-2 focus:ring-[var(--color-navy-700)] focus:ring-offset-4 sm:text-3xl"
+        className="mt-5 max-w-xl text-3xl font-bold leading-tight text-balance focus-visible:rounded-sm focus-visible:ring-2 focus-visible:ring-[var(--color-navy-700)] focus-visible:ring-offset-4 sm:text-4xl"
         style={{ color: 'var(--color-navy-900)' }}
       >
         {question.text}
       </h1>
 
-      <div className="mt-8 rounded-xl border bg-white p-5 sm:p-8" style={{ borderColor: 'var(--color-neutral-200)' }}>
+      <div className="mt-8 border-t pt-6 sm:mt-10 sm:pt-8" style={{ borderColor: 'var(--color-neutral-200)' }}>
         <HealthQuestionSlider
-          key={`${question.key}:${autoAdvance ? 'auto' : 'manual'}`}
           questionText={question.text}
           scoreLabels={template.scoreLabels}
           touched={response !== undefined}
           score={response}
-          autoAdvance={autoAdvance}
           nextLabel={state.returnToReview ? 'Tilbake til gjennomgang' : state.currentQuestionIndex === questions.length - 1 ? 'Se gjennom svar' : 'Neste'}
           onAnswer={(score: SevenPointScore) =>
             dispatch({ type: 'answer', questionKey: question.key, score })
@@ -193,7 +183,7 @@ export function HealthCheckResponseFlow({
           onClick={() => {
             dispatch({ type: 'previous' });
           }}
-          className="mt-4 rounded-md px-4 text-sm font-bold"
+          className="mt-4 min-h-11 touch-manipulation rounded-md px-4 text-sm font-bold focus-visible:ring-2 focus-visible:ring-[var(--color-navy-700)] focus-visible:ring-offset-2"
           style={{ minHeight: 44, color: 'var(--color-navy-700)' }}
         >
           Forrige
@@ -206,5 +196,104 @@ export function HealthCheckResponseFlow({
         ) : null}
       </p>
     </main>
+  );
+}
+
+function AreaProgress({
+  template,
+  currentAreaIndex,
+  currentQuestionKey,
+  currentQuestionIndex,
+  questionCount,
+}: {
+  readonly template: HealthCheckTemplate;
+  readonly currentAreaIndex: number;
+  readonly currentQuestionKey: QuestionKey;
+  readonly currentQuestionIndex: number;
+  readonly questionCount: number;
+}) {
+  const currentArea = template.areas[currentAreaIndex];
+  const currentAreaQuestionIndex = currentArea?.questions.findIndex(
+    (candidate) => candidate.key === currentQuestionKey,
+  ) ?? 0;
+  const currentAreaProgress = currentArea
+    ? (currentAreaQuestionIndex + 1) / currentArea.questions.length
+    : 0;
+
+  return (
+    <div
+      role="progressbar"
+      aria-label="Fremdrift gjennom helsesjekken"
+      aria-valuemin={1}
+      aria-valuemax={questionCount}
+      aria-valuenow={currentQuestionIndex + 1}
+      aria-valuetext={`Spørsmål ${currentQuestionIndex + 1} av ${questionCount}, ${currentArea?.title ?? 'Helsesjekk'}`}
+      className="flex gap-1.5"
+    >
+      {template.areas.map((candidate, index) => {
+        const state = index < currentAreaIndex
+          ? 'completed'
+          : index === currentAreaIndex
+            ? 'current'
+            : 'future';
+
+        return (
+          <span
+            key={candidate.key}
+            data-area-progress-segment
+            data-state={state}
+            className="h-2 flex-1 overflow-hidden rounded-full border"
+            style={{
+              background: 'var(--color-neutral-100)',
+              borderColor: 'var(--color-neutral-500)',
+            }}
+            aria-hidden="true"
+          >
+            <span
+              className="health-area-progress-fill block h-full origin-left rounded-full transition-transform duration-200"
+              style={{
+                background: state === 'current'
+                  ? 'var(--color-red-600)'
+                  : 'var(--color-navy-700)',
+                transform: state === 'future'
+                  ? 'scaleX(0)'
+                  : state === 'current'
+                    ? `scaleX(${currentAreaProgress})`
+                    : 'scaleX(1)',
+              }}
+            />
+          </span>
+        );
+      })}
+    </div>
+  );
+}
+
+function ParticipantIdentity({ participantName }: { readonly participantName: string }) {
+  return (
+    <div
+      role="group"
+      aria-label={`Svar som ${participantName}`}
+      className="flex min-w-0 max-w-[70%] items-center gap-2 rounded-full px-3 py-2"
+      style={{ background: 'var(--color-neutral-200)', color: 'var(--color-navy-900)' }}
+    >
+      <svg
+        aria-hidden="true"
+        viewBox="0 0 24 24"
+        className="h-4 w-4 shrink-0"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <circle cx="12" cy="8" r="3" />
+        <path d="M5.5 19c.8-3.1 3-4.7 6.5-4.7s5.7 1.6 6.5 4.7" />
+      </svg>
+      <span className="shrink-0 text-xs" style={{ color: 'var(--color-neutral-700)' }}>
+        Svar som
+      </span>
+      <span className="truncate text-sm font-bold">{participantName}</span>
+    </div>
   );
 }

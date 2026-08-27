@@ -1,35 +1,25 @@
-import { useCallback, useEffect, useId, useRef, useState } from 'react';
+import { useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent } from 'react';
 import type { HealthCheckTemplate, SevenPointScore } from '../domain';
 
-const SCORE_PRESENTATION: Readonly<
-  Record<SevenPointScore, { readonly emoji: string; readonly color: string }>
-> = {
-  1: { emoji: '😞', color: 'var(--color-danger)' },
-  2: { emoji: '🙁', color: 'var(--color-danger)' },
-  3: { emoji: '😕', color: 'var(--color-navy-700)' },
-  4: { emoji: '😐', color: 'var(--color-neutral-500)' },
-  5: { emoji: '🙂', color: 'var(--color-success)' },
-  6: { emoji: '😊', color: 'var(--color-success)' },
-  7: { emoji: '😄', color: 'var(--color-success)' },
+const SCORE_EMOJI: Readonly<Record<SevenPointScore, string>> = {
+  1: '😞',
+  2: '🙁',
+  3: '😕',
+  4: '😐',
+  5: '🙂',
+  6: '😊',
+  7: '😄',
 };
 
-const KEYBOARD_RANGE_KEYS = new Set([
-  'ArrowDown',
-  'ArrowLeft',
-  'ArrowRight',
-  'ArrowUp',
-  'End',
-  'Home',
-  'PageDown',
-  'PageUp',
-]);
+interface SliderStyle extends CSSProperties {
+  '--health-score-progress': string;
+}
 
 export interface HealthQuestionSliderProps {
   readonly questionText: string;
   readonly scoreLabels: HealthCheckTemplate['scoreLabels'];
   readonly touched: boolean;
   readonly score: SevenPointScore | undefined;
-  readonly autoAdvance: boolean;
   readonly nextLabel?: string;
   readonly onAnswer: (score: SevenPointScore) => void;
   readonly onAdvance: () => void;
@@ -47,164 +37,125 @@ export function HealthQuestionSlider({
   scoreLabels,
   touched,
   score,
-  autoAdvance,
   nextLabel = 'Neste',
   onAnswer,
   onAdvance,
 }: HealthQuestionSliderProps) {
-  const [localScore, setLocalScore] = useState<SevenPointScore>(score ?? 4);
-  const [locallyTouched, setLocallyTouched] = useState(false);
-  const [countdown, setCountdown] = useState<number | null>(null);
-  const instructionId = useId();
-  const isTouched = touched || locallyTouched;
-  const selectedScore = locallyTouched ? localScore : (score ?? 4);
-  const presentation = SCORE_PRESENTATION[selectedScore];
-  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const pointerActiveRef = useRef(false);
+  const [localAnswer, setLocalAnswer] = useState<{
+    readonly questionText: string;
+    readonly score: SevenPointScore;
+  } | null>(null);
+  const [dragValue, setDragValue] = useState<number | null>(null);
   const pointerInputRef = useRef(false);
-  const inputRef = useRef<HTMLInputElement>(null);
-  const latestScoreRef = useRef<SevenPointScore>(selectedScore);
-  const onAdvanceRef = useRef(onAdvance);
-  const autoAdvanceRef = useRef(autoAdvance);
-  useEffect(() => {
-    onAdvanceRef.current = onAdvance;
-  }, [onAdvance]);
-
-  const cancelCountdown = useCallback(() => {
-    if (timerRef.current !== null) {
-      clearInterval(timerRef.current);
-      timerRef.current = null;
-    }
-    setCountdown(null);
-  }, []);
-
-  const startCountdown = useCallback(() => {
-    cancelCountdown();
-    if (!autoAdvance) return;
-
-    let remaining = 3;
-    setCountdown(remaining);
-    timerRef.current = setInterval(() => {
-      remaining -= 1;
-      if (remaining === 0 || !autoAdvanceRef.current) {
-        if (timerRef.current !== null) clearInterval(timerRef.current);
-        timerRef.current = null;
-        setCountdown(null);
-        if (autoAdvanceRef.current) onAdvanceRef.current();
-        return;
-      }
-      setCountdown(remaining);
-    }, 1000);
-  }, [autoAdvance, cancelCountdown]);
-
-  useEffect(
-    () => () => {
-      if (timerRef.current !== null) clearInterval(timerRef.current);
-    },
-    [],
-  );
-
-  const answer = useCallback((nextScore: SevenPointScore) => {
-    latestScoreRef.current = nextScore;
-    setLocalScore(nextScore);
-    setLocallyTouched(true);
-    onAnswer(nextScore);
-  }, [onAnswer]);
-
-  const handleInput = (value: string) => {
-    cancelCountdown();
-    const nextScore = parseScore(value);
-    if (nextScore === undefined) return;
-    if (pointerActiveRef.current) pointerInputRef.current = true;
-    answer(nextScore);
-    if (!pointerActiveRef.current) startCountdown();
+  const hasLocalAnswer = localAnswer?.questionText === questionText;
+  const isTouched = touched || hasLocalAnswer;
+  const selectedScore = hasLocalAnswer ? localAnswer.score : (score ?? 4);
+  const visualValue = dragValue ?? selectedScore;
+  const sliderStyle: SliderStyle = {
+    '--health-score-progress': `${((visualValue - 1) / 6) * 100}%`,
   };
 
-  const finishPointerInteraction = useCallback(() => {
-    if (!pointerActiveRef.current) return;
-    pointerActiveRef.current = false;
-    const releasedScore = parseScore(inputRef.current?.value ?? '') ?? latestScoreRef.current;
-    if (!pointerInputRef.current) answer(releasedScore);
-    pointerInputRef.current = false;
-    startCountdown();
-  }, [answer, startCountdown]);
+  const handleInput = (value: string) => {
+    const numericValue = Number(value);
+    if (!Number.isFinite(numericValue)) return;
+    setDragValue(numericValue);
+    const nextScore = parseScore(String(Math.round(numericValue)));
+    if (nextScore === undefined) return;
 
-  useEffect(() => {
-    window.addEventListener('pointerup', finishPointerInteraction);
-    return () => window.removeEventListener('pointerup', finishPointerInteraction);
-  }, [finishPointerInteraction]);
+    setLocalAnswer({ questionText, score: nextScore });
+    onAnswer(nextScore);
+  };
+
+  const answerAtPointer = (event: PointerEvent<HTMLInputElement>) => {
+    const bounds = event.currentTarget.getBoundingClientRect();
+    if (bounds.width <= 0 || !Number.isFinite(event.clientX)) return;
+    const ratio = Math.max(0, Math.min(1, (event.clientX - bounds.left) / bounds.width));
+    const continuousValue = 1 + ratio * 6;
+    const nextScore = Math.round(continuousValue) as SevenPointScore;
+    setDragValue(continuousValue);
+    setLocalAnswer({ questionText, score: nextScore });
+    onAnswer(nextScore);
+  };
+
+  const handleKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+    let nextScore: SevenPointScore | undefined;
+    if (event.key === 'ArrowRight' || event.key === 'ArrowUp') {
+      nextScore = Math.min(7, selectedScore + 1) as SevenPointScore;
+    } else if (event.key === 'ArrowLeft' || event.key === 'ArrowDown') {
+      nextScore = Math.max(1, selectedScore - 1) as SevenPointScore;
+    } else if (event.key === 'Home') {
+      nextScore = 1;
+    } else if (event.key === 'End') {
+      nextScore = 7;
+    }
+    if (nextScore === undefined) return;
+    event.preventDefault();
+    setDragValue(null);
+    setLocalAnswer({ questionText, score: nextScore });
+    onAnswer(nextScore);
+  };
 
   return (
     <div>
       <div className="flex min-h-24 flex-col items-center justify-center text-center">
-        <span aria-hidden="true" className="text-4xl">
-          {presentation.emoji}
+        <span aria-hidden="true" className="text-[3.5rem] leading-none">
+          {SCORE_EMOJI[selectedScore]}
         </span>
         <p
-          className="mt-2 text-base font-bold"
-          style={{ color: isTouched ? presentation.color : 'var(--color-neutral-500)' }}
+          className="mt-3 min-h-6 text-base font-bold"
+          style={{ color: 'var(--color-navy-700)' }}
+          aria-hidden={!isTouched}
         >
-          {isTouched ? scoreLabels[selectedScore] : 'Ikke besvart'}
+          {isTouched ? scoreLabels[selectedScore] : null}
         </p>
       </div>
 
-      <p id={instructionId} className="mb-3 text-sm" style={{ color: 'var(--color-neutral-500)' }}>
-        {autoAdvance
-          ? 'Velg hvor enig du er. Skalaen er ikke besvart før du bruker den. Etter valg går du automatisk videre om 3 sekunder. Trykk Escape eller bruk skalaen igjen for å avbryte.'
-          : 'Velg hvor enig du er. Skalaen er ikke besvart før du bruker den. Trykk Neste når du er klar.'}
-      </p>
-      <input
-        ref={inputRef}
-        type="range"
-        min={1}
-        max={7}
-        step={1}
-        value={selectedScore}
-        aria-label={`Svar på: ${questionText}`}
-        aria-valuetext={isTouched ? scoreLabels[selectedScore] : 'Ikke besvart'}
-        aria-describedby={instructionId}
-        onPointerDown={() => {
-          pointerActiveRef.current = true;
-          pointerInputRef.current = false;
-          cancelCountdown();
-        }}
-        onPointerUp={finishPointerInteraction}
-        onPointerCancel={() => {
-          pointerActiveRef.current = false;
-          pointerInputRef.current = false;
-          cancelCountdown();
-        }}
-        onInput={(event) => handleInput(event.currentTarget.value)}
-        onKeyDown={(event) => {
-          if (event.key === 'Escape') {
-            cancelCountdown();
-            return;
-          }
-          if (KEYBOARD_RANGE_KEYS.has(event.key)) {
-            cancelCountdown();
-          }
-        }}
-        className="w-full"
-        style={{ minHeight: 44, accentColor: presentation.color }}
-      />
-
-      <div className="mt-3 min-h-6 text-center" aria-hidden="true">
-        {autoAdvance && countdown !== null ? (
-          <span className="text-sm font-medium" style={{ color: 'var(--color-neutral-700)' }}>
-            Neste spørsmål om {countdown}
-          </span>
-        ) : null}
+      <div
+        className={`health-slider-shell ${isTouched ? 'health-slider-shell--touched' : ''}`}
+        style={sliderStyle}
+      >
+        <div className="health-slider-visual" aria-hidden="true">
+          <span className="health-slider-fill" />
+          <span className="health-slider-thumb" />
+        </div>
+        <input
+          type="range"
+          min={1}
+          max={7}
+          step={1}
+          value={selectedScore}
+          aria-label={`Svar på: ${questionText}`}
+          aria-valuetext={isTouched ? scoreLabels[selectedScore] : 'Ikke besvart'}
+          onPointerDown={(event) => {
+            pointerInputRef.current = true;
+            event.currentTarget.setPointerCapture?.(event.pointerId);
+            answerAtPointer(event);
+          }}
+          onPointerMove={(event) => {
+            if (pointerInputRef.current) answerAtPointer(event);
+          }}
+          onInput={(event) => {
+            if (!pointerInputRef.current) handleInput(event.currentTarget.value);
+          }}
+          onKeyDown={handleKeyDown}
+          onPointerUp={(event) => {
+            answerAtPointer(event);
+            pointerInputRef.current = false;
+            setDragValue(null);
+          }}
+          onPointerCancel={() => {
+            pointerInputRef.current = false;
+            setDragValue(null);
+          }}
+          className="health-question-slider"
+        />
       </div>
 
       <button
         type="button"
         disabled={!isTouched}
-        onClick={() => {
-          cancelCountdown();
-          onAdvanceRef.current();
-        }}
-        className="mt-3 w-full rounded-lg px-4 font-bold text-white disabled:cursor-not-allowed disabled:opacity-40"
-        style={{ minHeight: 48, background: 'var(--color-red-600)' }}
+        onClick={onAdvance}
+        className="mt-6 min-h-[52px] w-full touch-manipulation rounded-lg bg-[var(--color-red-600)] px-4 font-bold text-white transition-colors hover:bg-[var(--color-red-700)] focus-visible:ring-2 focus-visible:ring-[var(--color-navy-700)] focus-visible:ring-offset-2 active:bg-[var(--color-red-900)] disabled:cursor-not-allowed disabled:bg-[var(--color-neutral-300)] disabled:text-[var(--color-neutral-700)]"
       >
         {nextLabel}
       </button>

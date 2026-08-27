@@ -65,6 +65,82 @@ body {
   color: var(--color-neutral-900);
 }
 
+.health-response-main {
+  padding-top: max(1.25rem, env(safe-area-inset-top));
+  padding-right: max(1rem, env(safe-area-inset-right));
+  padding-bottom: max(2rem, env(safe-area-inset-bottom));
+  padding-left: max(1rem, env(safe-area-inset-left));
+}
+
+.health-slider-shell {
+  --health-score-fill: var(--color-neutral-700);
+  --health-score-thumb: var(--color-neutral-700);
+  position: relative;
+  width: 100%;
+  height: 52px;
+}
+
+.health-slider-shell--touched {
+  --health-score-fill: var(--color-navy-700);
+  --health-score-thumb: var(--color-red-600);
+}
+
+.health-slider-visual {
+  position: absolute;
+  top: 20px;
+  right: 0;
+  left: 0;
+  height: 12px;
+  overflow: visible;
+  border-radius: var(--radius-full);
+  background: var(--color-neutral-100);
+  box-shadow: inset 0 0 0 1px var(--color-neutral-500);
+  pointer-events: none;
+}
+
+.health-slider-fill {
+  display: block;
+  width: var(--health-score-progress);
+  height: 100%;
+  border-radius: var(--radius-full);
+  background: var(--health-score-fill);
+}
+
+.health-slider-thumb {
+  position: absolute;
+  top: 50%;
+  left: var(--health-score-progress);
+  width: 36px;
+  height: 36px;
+  border: 4px solid var(--color-neutral-50);
+  border-radius: var(--radius-full);
+  background: var(--health-score-thumb);
+  box-shadow: var(--shadow-sm);
+  transform: translate(-50%, -50%);
+  transition: transform 120ms ease-out;
+}
+
+.health-question-slider {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 52px;
+  margin: 0;
+  cursor: pointer;
+  opacity: 0;
+  touch-action: pan-y;
+}
+
+.health-slider-shell:has(.health-question-slider:active) .health-slider-thumb {
+  transform: translate(-50%, -50%) scale(1.08);
+}
+
+.health-slider-shell:has(.health-question-slider:focus-visible) {
+  outline: 3px solid var(--color-navy-700);
+  outline-offset: 2px;
+  border-radius: var(--radius-md);
+}
+
 @keyframes fadeUp {
   0% { transform: translateY(12px); opacity: 0; }
   100% { transform: translateY(0); opacity: 1; }
@@ -117,4 +193,24 @@ body {
 
 .animate-shake {
   animation: shake 0.45s ease-in-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .health-slider-thumb,
+  .health-slider-fill,
+  .health-question-slider {
+    transition-duration: 0.01ms;
+  }
+
+  .health-area-progress-fill {
+    transition-duration: 0.01ms;
+  }
+}
+
+@media (min-width: 640px) {
+  .health-response-main {
+    padding-top: max(2rem, env(safe-area-inset-top));
+    padding-right: max(1.5rem, env(safe-area-inset-right));
+    padding-left: max(1.5rem, env(safe-area-inset-left));
+  }
 }

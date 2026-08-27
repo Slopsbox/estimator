@@ -1,5 +1,5 @@
-import { act, fireEvent, render, screen, within } from '@testing-library/react';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { fireEvent, render, screen, within } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { HealthCheckResponseFlow } from '../../../../domains/health-check/components';
 import {
   SQUAD_HEALTH_TEMPLATE_V1,
@@ -8,10 +8,6 @@ import {
 } from '../../../../domains/health-check/domain';
 
 describe('HealthCheckResponseFlow', () => {
-  beforeEach(() => {
-    vi.useFakeTimers();
-  });
-
   afterEach(() => {
     vi.restoreAllMocks();
     vi.useRealTimers();
@@ -19,7 +15,6 @@ describe('HealthCheckResponseFlow', () => {
 
   function renderFlow(overrides: Partial<React.ComponentProps<typeof HealthCheckResponseFlow>> = {}) {
     const props: React.ComponentProps<typeof HealthCheckResponseFlow> = {
-      autoAdvanceDefault: false,
       submitting: false,
       submitError: null,
       onSubmit: vi.fn(),
@@ -39,63 +34,73 @@ describe('HealthCheckResponseFlow', () => {
     }
   }
 
-  it('viser område, introduksjon, spørsmål og deltakerens egen progresjon', () => {
-    renderFlow();
+  it('viser åpen spørsmålskomposisjon, identitet og syv områdesegmenter uten spørsmålstall', () => {
+    renderFlow({ participantName: 'Kato' });
 
     expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(
       'Jeg gleder meg som regel til arbeidsdagen.',
     );
     expect(screen.getByText('Arbeidsglede og energi')).toBeVisible();
     expect(screen.getByText('Er det fortsatt gøy å gå på jobb?')).toBeVisible();
-    expect(screen.getByText('Spørsmål 1 av 31')).toBeVisible();
+    expect(screen.queryByText(/Spørsmål \d+ av \d+/)).not.toBeInTheDocument();
+    expect(screen.queryByRole('switch')).not.toBeInTheDocument();
+    expect(screen.queryByText(/Velg hvor enig/)).not.toBeInTheDocument();
+
+    const progress = screen.getByRole('progressbar', {
+      name: 'Fremdrift gjennom helsesjekken',
+    });
+    expect(progress).toHaveAttribute('aria-valuenow', '1');
+    expect(progress).toHaveAttribute('aria-valuemax', '31');
+    expect(progress).toHaveAttribute(
+      'aria-valuetext',
+      'Spørsmål 1 av 31, Arbeidsglede og energi',
+    );
+    expect(progress.querySelectorAll('[data-area-progress-segment]')).toHaveLength(7);
+    expect(progress.querySelector('[data-state="current"] > span')).toHaveStyle({
+      transform: 'scaleX(0.25)',
+    });
+    expect(screen.getByRole('group', { name: 'Svar som Kato' })).toBeVisible();
+    expect(screen.getByText('Kato')).toBeVisible();
   });
 
-  it('kan slå av auto-advance for resten av flyten og bruke eksplisitt Neste', () => {
-    renderFlow({ autoAdvanceDefault: true });
-    const toggle = screen.getByRole('switch', { name: 'Gå automatisk til neste spørsmål' });
-
-    expect(toggle).toBeChecked();
-    expect(toggle).toHaveAttribute('aria-checked', 'true');
-    fireEvent.click(toggle);
-    expect(toggle).toHaveAttribute('aria-checked', 'false');
-    fireEvent.input(screen.getByRole('slider'), { target: { value: '5' } });
-    act(() => vi.advanceTimersByTime(5000));
-    expect(screen.getByText('Spørsmål 1 av 31')).toBeVisible();
-    fireEvent.click(toggle);
-    expect(screen.queryByText(/Neste spørsmål om/)).not.toBeInTheDocument();
-    fireEvent.click(toggle);
+  it('går bare videre manuelt, annonserer overgangen og fokuserer nytt spørsmål', () => {
+    vi.useFakeTimers();
+    renderFlow();
+    fireEvent.input(screen.getByRole('slider'), { target: { value: '4' } });
+    vi.advanceTimersByTime(5000);
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(
+      'Jeg gleder meg som regel til arbeidsdagen.',
+    );
 
     fireEvent.click(screen.getByRole('button', { name: 'Neste' }));
-    expect(screen.getByText('Spørsmål 2 av 31')).toBeVisible();
-    expect(screen.getByRole('switch')).not.toBeChecked();
-  });
-
-  it('auto-flytter, annonserer bare overgangen og fokuserer nytt spørsmål', () => {
-    renderFlow({ autoAdvanceDefault: true });
-    const slider = screen.getByRole('slider');
-
-    fireEvent.pointerDown(slider);
-    fireEvent.pointerUp(slider);
-    expect(screen.queryByText('Går til neste spørsmål')).not.toBeInTheDocument();
-    act(() => vi.advanceTimersByTime(3000));
-
     const heading = screen.getByRole('heading', { level: 1 });
-    expect(screen.getByText('Spørsmål 2 av 31')).toBeVisible();
+    expect(heading).toHaveTextContent('Oppgavene mine gir meg mer energi enn de tapper meg for.');
     expect(screen.getByText('Går til neste spørsmål')).toBeInTheDocument();
     expect(heading).toHaveFocus();
+    expect(screen.getByRole('button', { name: 'Forrige' })).toBeVisible();
+    vi.useRealTimers();
   });
 
-  it('viser Forrige etter første spørsmål og Neste avbryter aktiv timer', () => {
-    renderFlow({ autoAdvanceDefault: true });
-    const slider = screen.getByRole('slider');
+  it('oppdaterer områdeprogresjonen når neste område nås', () => {
+    renderFlow();
 
-    fireEvent.pointerDown(slider);
-    fireEvent.pointerUp(slider);
-    fireEvent.click(screen.getByRole('button', { name: 'Neste' }));
-    act(() => vi.advanceTimersByTime(5000));
+    for (let index = 0; index < 4; index += 1) {
+      fireEvent.input(screen.getByRole('slider'), { target: { value: '4' } });
+      fireEvent.click(screen.getByRole('button', { name: 'Neste' }));
+    }
 
-    expect(screen.getByText('Spørsmål 2 av 31')).toBeVisible();
-    expect(screen.getByRole('button', { name: 'Forrige' })).toBeVisible();
+    const progress = screen.getByRole('progressbar', {
+      name: 'Fremdrift gjennom helsesjekken',
+    });
+    const segments = progress.querySelectorAll('[data-area-progress-segment]');
+    expect(progress).toHaveAttribute('aria-valuenow', '5');
+    expect(progress).toHaveAttribute(
+      'aria-valuetext',
+      'Spørsmål 5 av 31, Menneskene og tryggheten',
+    );
+    expect(segments[0]).toHaveAttribute('data-state', 'completed');
+    expect(segments[1]).toHaveAttribute('data-state', 'current');
+    expect(segments[2]).toHaveAttribute('data-state', 'future');
   });
 
   it('viser alle 31 svar gruppert i syv områder uten numeriske scoreverdier', () => {
@@ -120,7 +125,9 @@ describe('HealthCheckResponseFlow', () => {
         name: 'Endre Jeg gleder meg som regel til arbeidsdagen.',
       }),
     );
-    expect(screen.getByText('Spørsmål 1 av 31')).toBeVisible();
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(
+      'Jeg gleder meg som regel til arbeidsdagen.',
+    );
     fireEvent.input(screen.getByRole('slider'), { target: { value: '7' } });
     fireEvent.click(screen.getByRole('button', { name: 'Tilbake til gjennomgang' }));
 
@@ -155,7 +162,6 @@ describe('HealthCheckResponseFlow', () => {
 
     rerender(
       <HealthCheckResponseFlow
-        autoAdvanceDefault={false}
         submitting
         submitError="Kunne ikke sende svarene."
         onSubmit={vi.fn()}
@@ -194,7 +200,7 @@ describe('HealthCheckResponseFlow', () => {
     const participantName = '<img src=x onerror=alert(1)>';
     const { container } = renderFlow({ participantName });
 
-    expect(screen.getByText(`Svarer som: ${participantName}`)).toBeVisible();
+    expect(screen.getByText(participantName)).toBeVisible();
     expect(container.querySelector('img')).toBeNull();
   });
 

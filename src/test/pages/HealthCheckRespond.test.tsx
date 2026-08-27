@@ -54,9 +54,11 @@ describe('HealthCheckRespondPage', () => {
     mocks.submit.mockResolvedValue({ ok: true, value: { status: 'completed' } });
     render(<MemoryRouter><HealthCheckRespondPage /></MemoryRouter>);
 
-    expect(await screen.findByText('Spørsmål 1 av 31')).toBeVisible();
+    expect(await screen.findByRole('heading', {
+      name: 'Jeg gleder meg som regel til arbeidsdagen.',
+    })).toBeVisible();
     expect(screen.queryByRole('button', { name: 'Forlat' })).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole('switch', { name: 'Gå automatisk til neste spørsmål' }));
+    expect(screen.queryByRole('switch')).not.toBeInTheDocument();
     for (let index = 0; index < 31; index += 1) {
       fireEvent.input(screen.getByRole('slider'), { target: { value: '4' } });
       fireEvent.click(screen.getByRole('button', { name: index === 30 ? 'Se gjennom svar' : 'Neste' }));
@@ -77,11 +79,15 @@ describe('HealthCheckRespondPage', () => {
     render(<MemoryRouter><HealthCheckRespondPage /></MemoryRouter>);
 
     await act(async () => { await Promise.resolve(); });
-    expect(screen.getByText('Spørsmål 1 av 31')).toBeVisible();
+    expect(screen.getByRole('heading', {
+      name: 'Jeg gleder meg som regel til arbeidsdagen.',
+    })).toBeVisible();
     await act(async () => { await vi.advanceTimersByTimeAsync(2000); });
 
     expect(screen.getByRole('heading', { name: 'Helsesjekken er avsluttet' })).toBeVisible();
-    expect(screen.queryByText('Spørsmål 1 av 31')).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', {
+      name: 'Jeg gleder meg som regel til arbeidsdagen.',
+    })).not.toBeInTheDocument();
     expect(mocks.clearLocalSession).toHaveBeenCalledOnce();
   });
 });
