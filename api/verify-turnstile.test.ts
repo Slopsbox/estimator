@@ -1,7 +1,7 @@
 // @vitest-environment node
 
 import { describe, expect, it, vi } from 'vitest';
-import { createTurnstileVerificationHandler } from './_lib/turnstile-verification';
+import { createTurnstileVerificationHandler } from './_lib/turnstile-verification.js';
 
 const TOKEN = 'turnstile-token';
 const ACCESS_TOKEN = 'supabase-access-token';

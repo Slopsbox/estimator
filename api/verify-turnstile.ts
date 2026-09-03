@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { createClient } from '@supabase/supabase-js';
-import { createTurnstileVerificationHandler } from './_lib/turnstile-verification';
+import { createTurnstileVerificationHandler } from './_lib/turnstile-verification.js';
 
 // ============================================================
 // Enkel in-memory rate limiter per serverless function instance
