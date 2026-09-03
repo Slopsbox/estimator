@@ -124,18 +124,52 @@ describe('roomMembershipService', () => {
     })).resolves.toEqual({ ok: false, reason: 'malformed' });
   });
 
-  it.each(['active_session_exists', 'request_already_used'] as const)(
-    'returnerer health create-status %s uten å feilparse snapshot',
-    async (status) => {
-      rpc.mockResolvedValue({ data: { status }, error: null });
+  it('returnerer request_already_used uten å feilparse snapshot', async () => {
+    rpc.mockResolvedValue({ data: { status: 'request_already_used' }, error: null });
 
-      await expect(service.createHealth({
-        name: 'Ola', squadName: 'Plattform', measurementDate: '2026-08-26',
-        requestId: '30000000-0000-4000-8000-000000000003',
-        deliveryId: '40000000-0000-4000-8000-000000000004',
-      })).resolves.toEqual({ ok: false, reason: status });
-    },
-  );
+    await expect(service.createHealth({
+      name: 'Ola', squadName: 'Plattform', measurementDate: '2026-08-26',
+      requestId: '30000000-0000-4000-8000-000000000003',
+      deliveryId: '40000000-0000-4000-8000-000000000004',
+    })).resolves.toEqual({ ok: false, reason: 'request_already_used' });
+  });
+
+  it('restores the active health membership when creation reports an existing room', async () => {
+    rpc
+      .mockResolvedValueOnce({ data: { status: 'active_session_exists' }, error: null })
+      .mockResolvedValueOnce({
+        data: { status: 'ok', session: HEALTH_SESSION, participant: HEALTH_PARTICIPANT },
+        error: null,
+      });
+
+    const result = await service.createHealth({
+      name: 'Ola', squadName: 'Ny verdi ignoreres', measurementDate: '2026-08-26',
+      requestId: '30000000-0000-4000-8000-000000000003',
+      deliveryId: '40000000-0000-4000-8000-000000000004',
+    });
+
+    expect(rpc).toHaveBeenLastCalledWith('restore_active_health_check_for_facilitator', {});
+    expect(result).toMatchObject({ ok: true, snapshot: { session: { id: HEALTH_SESSION.id } } });
+  });
+
+  it('restores an active health room that is already collecting responses', async () => {
+    rpc
+      .mockResolvedValueOnce({ data: { status: 'active_session_exists' }, error: null })
+      .mockResolvedValueOnce({
+        data: {
+          status: 'ok',
+          session: { ...HEALTH_SESSION, phase: 'collecting' },
+          participant: HEALTH_PARTICIPANT,
+        },
+        error: null,
+      });
+
+    await expect(service.createHealth({
+      name: 'Ola', squadName: 'Plattform', measurementDate: '2026-08-26',
+      requestId: '30000000-0000-4000-8000-000000000003',
+      deliveryId: '40000000-0000-4000-8000-000000000004',
+    })).resolves.toMatchObject({ ok: true, snapshot: { activityType: 'health_check' } });
+  });
 
   it('trimmer og uppercaser join-argumenter', async () => {
     rpc.mockResolvedValue({ data: membership(), error: null });

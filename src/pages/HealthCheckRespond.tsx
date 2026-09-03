@@ -8,6 +8,7 @@ import { useSessionPresence } from '../hooks/useSessionPresence';
 import { useVisibilityRefetch } from '../hooks/useVisibilityRefetch';
 import { resolveRoomRoute } from '../lib/roomRoutes';
 import { sessionServices } from '../app/sessionServices';
+import { clearHealthCheckDraft } from '../domains/health-check/storage/healthCheckStorage';
 
 export function HealthCheckRespondPage() {
   const navigate = useNavigate();
@@ -19,6 +20,9 @@ export function HealthCheckRespondPage() {
   const [sessionEnded, setSessionEnded] = useState(false);
   const submitInFlightRef = useRef(false);
   const sessionId = session?.id ?? null;
+  const draftKey = sessionId && localParticipant
+    ? `${sessionId}:${localParticipant.participantId}`
+    : undefined;
   useSessionPresence(sessionId, localParticipant?.participantId ?? null);
 
   const loadState = useCallback(async () => {
@@ -26,6 +30,7 @@ export function HealthCheckRespondPage() {
     const result = await sessionServices.health.getState(sessionId);
     if (!result.ok) {
       if (result.reason === 'forbidden') {
+        if (draftKey) clearHealthCheckDraft(draftKey);
         clearLocalSession();
         setSessionEnded(true);
         setStateError(null);
@@ -36,11 +41,17 @@ export function HealthCheckRespondPage() {
     }
     setStateError(null);
     setHealthState(result.value);
-  }, [clearLocalSession, sessionId]);
+  }, [clearLocalSession, draftKey, sessionId]);
 
   useEffect(() => {
     if (sessionId && activityType === 'health_check') queueMicrotask(() => void loadState());
   }, [activityType, loadState, sessionId]);
+
+  useEffect(() => {
+    if (draftKey && healthState?.respondentState === 'completed') {
+      clearHealthCheckDraft(draftKey);
+    }
+  }, [draftKey, healthState?.respondentState]);
 
   useEffect(() => {
     if (!sessionId || sessionEnded) return;
@@ -87,6 +98,7 @@ export function HealthCheckRespondPage() {
       setSubmitError('Svarene kunne ikke sendes. Prøv igjen.');
       return;
     }
+    if (draftKey) clearHealthCheckDraft(draftKey);
     await loadState();
   };
 
@@ -141,7 +153,9 @@ export function HealthCheckRespondPage() {
   return (
     <div className="min-h-screen" style={{ background: 'var(--color-neutral-100)' }}>
       <HealthCheckResponseFlow
+        key={draftKey}
         participantName={localParticipant.name}
+        draftKey={draftKey}
         submitting={submitting}
         submitError={submitError}
         onSubmit={handleSubmit}

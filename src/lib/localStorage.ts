@@ -5,6 +5,38 @@ export const LAST_USED_NAME_STORAGE_KEY = 'estimat_last_used_name';
 export const CREATE_REQUEST_ID_STORAGE_KEY = 'estimat_create_request_id';
 const POINTER_TTL_MS = 24 * 60 * 60 * 1000;
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const memoryStorage = new Map<string, string>();
+const memoryFallbackKeys = new Set<string>();
+
+function getItem(key: string): string | null {
+  if (memoryFallbackKeys.has(key)) return memoryStorage.get(key) ?? null;
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return memoryStorage.get(key) ?? null;
+  }
+}
+
+function setItem(key: string, value: string): void {
+  try {
+    localStorage.setItem(key, value);
+    memoryStorage.delete(key);
+    memoryFallbackKeys.delete(key);
+  } catch {
+    memoryStorage.set(key, value);
+    memoryFallbackKeys.add(key);
+  }
+}
+
+function removeItem(key: string): void {
+  memoryStorage.delete(key);
+  memoryFallbackKeys.delete(key);
+  try {
+    localStorage.removeItem(key);
+  } catch {
+    // Memory has already been cleared.
+  }
+}
 
 function isParticipantRole(value: unknown): value is ParticipantRole {
   return value === 'facilitator' || value === 'participant';
@@ -33,7 +65,7 @@ function isPointerShape(value: unknown): value is StoredPointerCandidate {
 }
 
 export function readSessionPointer(): SessionPointer | null {
-  const serialized = localStorage.getItem(LOCAL_PARTICIPANT_STORAGE_KEY);
+  const serialized = getItem(LOCAL_PARTICIPANT_STORAGE_KEY);
   if (!serialized) return null;
 
   try {
@@ -50,7 +82,7 @@ export function readSessionPointer(): SessionPointer | null {
         : new Date().toISOString();
       const updatedAtMs = Date.parse(updatedAt);
       if (!Number.isFinite(updatedAtMs) || Date.now() - updatedAtMs > POINTER_TTL_MS) {
-        localStorage.removeItem(LOCAL_PARTICIPANT_STORAGE_KEY);
+        removeItem(LOCAL_PARTICIPANT_STORAGE_KEY);
         return null;
       }
       const pointer: SessionPointer = {
@@ -71,19 +103,19 @@ export function readSessionPointer(): SessionPointer | null {
     // Ugyldig JSON behandles på samme måte som en ugyldig objektform.
   }
 
-  localStorage.removeItem(LOCAL_PARTICIPANT_STORAGE_KEY);
+  removeItem(LOCAL_PARTICIPANT_STORAGE_KEY);
   return null;
 }
 
 export function writeSessionPointer(pointer: SessionPointer): void {
-  localStorage.setItem(LOCAL_PARTICIPANT_STORAGE_KEY, JSON.stringify({
+  setItem(LOCAL_PARTICIPANT_STORAGE_KEY, JSON.stringify({
     ...pointer,
     updatedAt: new Date().toISOString(),
   }));
 }
 
 export function clearSessionPointer(): void {
-  localStorage.removeItem(LOCAL_PARTICIPANT_STORAGE_KEY);
+  removeItem(LOCAL_PARTICIPANT_STORAGE_KEY);
 }
 
 /** Midlertidige alias beholdes mens resten av frontend flyttes til pointer-navn. */
@@ -105,21 +137,21 @@ export function writeLocalParticipant(participant: LocalParticipant): void {
 export const clearLocalParticipant = clearSessionPointer;
 
 export function getOrCreateCreateRequestId(): string {
-  const existing = localStorage.getItem(CREATE_REQUEST_ID_STORAGE_KEY);
+  const existing = getItem(CREATE_REQUEST_ID_STORAGE_KEY);
   if (existing && UUID_PATTERN.test(existing)) return existing;
   const requestId = crypto.randomUUID();
-  localStorage.setItem(CREATE_REQUEST_ID_STORAGE_KEY, requestId);
+  setItem(CREATE_REQUEST_ID_STORAGE_KEY, requestId);
   return requestId;
 }
 
 export function clearCreateRequestId(): void {
-  localStorage.removeItem(CREATE_REQUEST_ID_STORAGE_KEY);
+  removeItem(CREATE_REQUEST_ID_STORAGE_KEY);
 }
 
 export function readLastUsedName(): string {
-  return localStorage.getItem(LAST_USED_NAME_STORAGE_KEY) ?? '';
+  return getItem(LAST_USED_NAME_STORAGE_KEY) ?? '';
 }
 
 export function writeLastUsedName(name: string): void {
-  localStorage.setItem(LAST_USED_NAME_STORAGE_KEY, name);
+  setItem(LAST_USED_NAME_STORAGE_KEY, name);
 }

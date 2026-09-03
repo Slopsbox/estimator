@@ -4,7 +4,7 @@
 begin;
 
 create extension if not exists pgtap with schema extensions;
-select extensions.plan(72);
+select extensions.plan(76);
 
 insert into auth.users (id, aud, role, email, created_at, updated_at)
 values
@@ -15,12 +15,35 @@ values
   ('10000000-0000-0000-0000-000000000005', 'authenticated', 'authenticated', 'health-facilitator@test.invalid', now(), now()),
   ('10000000-0000-0000-0000-000000000006', 'authenticated', 'authenticated', 'health-member@test.invalid', now(), now());
 
+insert into private.turnstile_attestations (user_id, verified_until)
+select id, clock_timestamp() + interval '15 minutes' from auth.users
+where id between '10000000-0000-0000-0000-000000000001'::uuid
+             and '10000000-0000-0000-0000-000000000006'::uuid;
+
 create temporary table session_test_context (
   key text primary key,
   value text not null
 );
 
 grant all on session_test_context to authenticated;
+
+select extensions.ok(
+  has_function_privilege('service_role', 'public.attest_turnstile_for_service(uuid)', 'EXECUTE')
+  and not has_function_privilege('authenticated', 'public.attest_turnstile_for_service(uuid)', 'EXECUTE')
+  and not has_function_privilege('anon', 'public.attest_turnstile_for_service(uuid)', 'EXECUTE'),
+  'only service_role can record Turnstile attestations'
+);
+
+delete from private.turnstile_attestations
+ where user_id = '10000000-0000-0000-0000-000000000004';
+set local role authenticated;
+select set_config('request.jwt.claim.sub', '10000000-0000-0000-0000-000000000004', true);
+select extensions.throws_ok(
+  $$select public.join_session('NONE', 'Unverified')$$,
+  '42501', 'turnstile_required',
+  'joining without a recent Turnstile attestation fails closed'
+);
+reset role;
 
 select extensions.is(
   (select count(*)::text from public.sessions where status = 'active' and facilitator_user_id is null),
@@ -514,6 +537,33 @@ insert into public.health_check_sessions (
   '50000000-0000-0000-0000-000000000004',
   'squad-health-v1', 'Health fixture', current_date,
   statement_timestamp() + interval '23 hours 55 minutes'
+);
+
+set local role authenticated;
+select set_config('request.jwt.claim.sub', '10000000-0000-0000-0000-000000000005', true);
+select set_config('request.jwt.claim.role', 'authenticated', true);
+insert into session_test_context (key, value)
+select 'parallel_estimation_result', public.create_session(
+  '50000000-0000-0000-0000-000000000005', 'Health Fac'
+)::text;
+reset role;
+
+select extensions.ok(
+  (select value::jsonb->>'status' = 'ok'
+     and value::jsonb->'session'->>'activity_type' = 'estimation'
+     from session_test_context where key = 'parallel_estimation_result')
+  and (select count(*) from public.sessions
+        where facilitator_user_id = '10000000-0000-0000-0000-000000000005'
+          and status = 'active') = 2,
+  'facilitator can create an estimation while a health check is active'
+);
+
+select extensions.throws_ok(
+  $$select public.create_session(
+    '50000000-0000-0000-0000-000000000002', 'Health Fac'
+  )$$,
+  '22023', 'wrong_activity_type',
+  'estimation creation rejects a request ID already used by a health check'
 );
 
 set local role authenticated;

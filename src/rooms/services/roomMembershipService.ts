@@ -141,7 +141,7 @@ function parseHealthMembership(value: unknown): RoomMembershipSnapshot | null {
     || typeof healthSession.status !== 'string'
     || typeof healthSession.join_code !== 'string'
     || typeof healthSession.created_at !== 'string'
-    || healthSession.phase !== 'lobby'
+    || !['lobby', 'collecting', 'download_pending'].includes(String(healthSession.phase))
     || healthSession.template_version !== 'squad-health-v1'
     || typeof healthSession.squad_name !== 'string'
     || typeof healthSession.measurement_date !== 'string'
@@ -231,7 +231,13 @@ export function createRoomMembershipService({
       });
       if ('reason' in result) return { ok: false, reason: result.reason };
       if (isRecord(result.data)
-        && (result.data.status === 'active_session_exists' || result.data.status === 'request_already_used')) {
+        && result.data.status === 'active_session_exists') {
+        const restored = await membershipRpc('restore_active_health_check_for_facilitator', {});
+        if ('reason' in restored) return { ok: false, reason: restored.reason };
+        const snapshot = parseHealthMembership(restored.data);
+        return snapshot ? { ok: true, snapshot } : { ok: false, reason: 'malformed' };
+      }
+      if (isRecord(result.data) && result.data.status === 'request_already_used') {
         return { ok: false, reason: result.data.status };
       }
       const snapshot = parseHealthMembership(result.data);

@@ -55,7 +55,7 @@ describe('useRealtimeRoundParticipants', () => {
     expect(db.channel).toHaveBeenCalledWith('session:session-1:round:1:0', { config: { private: true } });
   });
 
-  it('replayer roster-events som skjer mens initial fetch er in-flight', async () => {
+  it('reconciler roster-events som skjer mens initial fetch er in-flight', async () => {
     let resolveFetch!: (value: { data: RoundParticipant[]; error: null }) => void;
     db.then.mockImplementationOnce((resolve: typeof resolveFetch) => {
       resolveFetch = resolve;
@@ -70,9 +70,10 @@ describe('useRealtimeRoundParticipants', () => {
       channel.trigger('UPDATE', row({ reestimate_used: true }));
       channel.trigger('DELETE', inserted);
     });
+    db.result = { data: [row({ reestimate_used: true })], error: null };
     await act(async () => resolveFetch({ data: [row()], error: null }));
 
-    expect(result.current.roundParticipants).toEqual([row({ reestimate_used: true })]);
+    await waitFor(() => expect(result.current.roundParticipants).toEqual([row({ reestimate_used: true })]));
   });
 
   it('håndterer gyldige INSERT, UPDATE og DELETE og avviser feil scope', async () => {

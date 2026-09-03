@@ -1,15 +1,4 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "rewrites": [
-    { "source": "/estimation/join", "destination": "/index.html" },
-    { "source": "/estimation/vote", "destination": "/index.html" },
-    { "source": "/estimation/dashboard", "destination": "/index.html" },
-    { "source": "/facilitator", "destination": "/index.html" },
-    { "source": "/health-check/dashboard", "destination": "/index.html" },
-    { "source": "/health-check/join", "destination": "/index.html" },
-    { "source": "/health-check/respond", "destination": "/index.html" },
-    { "source": "/join", "destination": "/index.html" },
-    { "source": "/vote", "destination": "/index.html" },
-    { "source": "/dashboard", "destination": "/index.html" }
-  ]
+  "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }]
 }

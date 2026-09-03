@@ -1,4 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
+import { createClient } from '@supabase/supabase-js';
+import { createTurnstileVerificationHandler } from './_lib/turnstile-verification';
 
 // ============================================================
 // Enkel in-memory rate limiter per serverless function instance
@@ -10,6 +12,11 @@ const WINDOW_MS = 60_000; // 1 minutt
 
 function isRateLimited(ip: string): boolean {
   const now = Date.now();
+  if (attempts.size > 1000) {
+    for (const [key, value] of attempts) {
+      if (value.resetAt <= now) attempts.delete(key);
+    }
+  }
   const entry = attempts.get(ip);
 
   if (!entry || now > entry.resetAt) {
@@ -19,6 +26,43 @@ function isRateLimited(ip: string): boolean {
 
   entry.count++;
   return entry.count > MAX_ATTEMPTS;
+}
+
+function requiredEnvironment(name: string): string {
+  const value = process.env[name];
+  if (!value) throw new Error(`Missing ${name}`);
+  return value;
+}
+
+function createDependencies() {
+  const url = requiredEnvironment('SUPABASE_URL');
+  const anonKey = requiredEnvironment('SUPABASE_ANON_KEY');
+  const serviceRoleKey = requiredEnvironment('SUPABASE_SERVICE_ROLE_KEY');
+  const secret = requiredEnvironment('TURNSTILE_SECRET_KEY');
+  const options = { auth: { persistSession: false, autoRefreshToken: false } } as const;
+  const authClient = createClient(url, anonKey, options);
+  const serviceClient = createClient(url, serviceRoleKey, options);
+
+  return {
+    async authenticate(token: string) {
+      const { data, error } = await authClient.auth.getUser(token);
+      return error ? null : data.user?.id ?? null;
+    },
+    async verifyChallenge(token: string) {
+      const response = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ secret, response: token }),
+      });
+      if (!response.ok) return false;
+      const result = await response.json() as { success?: boolean };
+      return result.success === true;
+    },
+    async attest(userId: string) {
+      const { data, error } = await serviceClient.rpc('attest_turnstile_for_service', { p_user_id: userId });
+      return !error && data === true;
+    },
+  };
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -41,44 +85,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     });
   }
 
-  const { token } = req.body ?? {};
-  if (!token) {
-    return res.status(400).json({ success: false, error: 'Missing token' });
-  }
-
-  const secret = process.env.TURNSTILE_SECRET_KEY;
-  if (!secret) {
+  let result;
+  try {
+    const handler = createTurnstileVerificationHandler(createDependencies());
+    const authorization = Array.isArray(req.headers.authorization)
+      ? null
+      : req.headers.authorization ?? null;
+    result = await handler({ authorization, token: req.body?.token });
+  } catch {
     return res.status(500).json({ success: false, error: 'Server misconfigured' });
   }
-
-  let cfResponse: Response;
-  try {
-    cfResponse = await fetch(
-      'https://challenges.cloudflare.com/turnstile/v0/siteverify',
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ secret, response: token }),
-      }
-    );
-  } catch (err) {
-    console.error('[turnstile] Network error contacting Cloudflare:', err);
-    return res.status(502).json({ success: false, error: 'Could not reach Cloudflare' });
-  }
-
-  const result = await cfResponse.json() as {
-    success: boolean;
-    'error-codes'?: string[];
-    hostname?: string;
-    challenge_ts?: string;
-  };
-
-  if (result.success) {
-    return res.status(200).json({ success: true });
-  }
-
-  // Log feilkodene fra Cloudflare for debugging i Vercel-loggene
-  console.error('[turnstile] Verification failed. Error codes:', result['error-codes']);
-
-  return res.status(403).json({ success: false, error: 'Verification failed', codes: result['error-codes'] });
+  return res.status(result.status).json(result.body);
 }

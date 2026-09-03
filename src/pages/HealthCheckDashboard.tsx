@@ -16,6 +16,11 @@ import { useSessionPresence } from '../hooks/useSessionPresence';
 import { useVisibilityRefetch } from '../hooks/useVisibilityRefetch';
 import { resolveRoomRoute } from '../lib/roomRoutes';
 import { sessionServices } from '../app/sessionServices';
+import {
+  clearHealthCheckResultRoom,
+  readHealthCheckResultRoom,
+  writeHealthCheckResultRoom,
+} from '../domains/health-check/storage/healthCheckStorage';
 
 const dateFormatter = new Intl.DateTimeFormat('nb-NO', {
   day: '2-digit', month: '2-digit', year: 'numeric', timeZone: 'UTC',
@@ -30,6 +35,8 @@ export function HealthCheckDashboardPage() {
   const [healthState, setHealthState] = useState<HealthCheckState | null>(null);
   const [progressRows, setProgressRows] = useState<readonly HealthCheckProgressRow[]>([]);
   const [result, setResult] = useState<HealthCheckPrototypeResult | null>(null);
+  const [recoveryRoomId] = useState(readHealthCheckResultRoom);
+  const [recoveryLoading, setRecoveryLoading] = useState(Boolean(recoveryRoomId));
   const [actionLoading, setActionLoading] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [codeCopied, setCodeCopied] = useState(false);
@@ -69,9 +76,21 @@ export function HealthCheckDashboardPage() {
   }, [activityType, loadState, sessionId]);
 
   useEffect(() => {
+    if (!recoveryRoomId) return;
+    queueMicrotask(async () => {
+      try {
+        const recovered = await sessionServices.health.finalizePrototype(recoveryRoomId);
+        if (recovered.ok) setResult(recovered.value);
+      } finally {
+        setRecoveryLoading(false);
+      }
+    });
+  }, [recoveryRoomId]);
+
+  useEffect(() => {
     if (!session || !activityType || !localParticipant) return;
-    if (activityType !== 'health_check') {
-      navigate(resolveRoomRoute(activityType, localParticipant.role === 'facilitator' ? 'facilitator' : 'participant'), { replace: true });
+    if (activityType !== 'health_check' && localParticipant.role === 'participant') {
+      navigate(resolveRoomRoute(activityType, 'participant'), { replace: true });
     } else if (localParticipant.role === 'participant') {
       navigate(resolveRoomRoute('health_check', 'participant'), { replace: true });
     }
@@ -140,6 +159,7 @@ export function HealthCheckDashboardPage() {
     if (!sessionId || terminalRequestStartedRef.current) return false;
     terminalRequestStartedRef.current = true;
     setFinalizeLocked(true);
+    writeHealthCheckResultRoom(sessionId);
     const finalizeResult = await sessionServices.health.finalizePrototype(sessionId);
     if (!finalizeResult.ok) {
       terminalRequestStartedRef.current = false;
@@ -171,13 +191,33 @@ export function HealthCheckDashboardPage() {
           >
             Last ned resultat som CSV
           </button>
+          <button
+            type="button"
+            onClick={() => {
+              clearHealthCheckResultRoom();
+              setResult(null);
+              navigate('/facilitator');
+            }}
+            className="min-h-11 w-full rounded-md px-4 font-bold focus-visible:ring-2 focus-visible:ring-[var(--color-navy-700)] focus-visible:ring-offset-2"
+            style={{ color: 'var(--color-navy-700)' }}
+          >
+            Ferdig
+          </button>
           {actionError ? <p role="alert" className="text-sm" style={{ color: 'var(--color-danger)' }}>{actionError}</p> : null}
           <p className="text-center text-sm" style={{ color: 'var(--color-neutral-500)' }}>
-            Resultatet beholdes bare i denne fanen. Last ned CSV før du går videre.
+            Resultatet kan gjenopprettes på denne enheten i opptil 24 timer. Last ned CSV for varig lagring.
           </p>
         </main>
       </NavyPageLayout>
     );
+  }
+
+  if (recoveryLoading) {
+    return <div className="min-h-screen flex items-center justify-center">Gjenoppretter resultat…</div>;
+  }
+
+  if (session && activityType !== 'health_check' && localParticipant?.role === 'facilitator') {
+    return <HealthCheckCreationForm onCreate={createHealthCheck} error={sessionError} onBack={() => navigate('/facilitator')} />;
   }
 
   if (!session && localParticipant && (restoreStatus === 'initializing' || restoreStatus === 'reconnecting')) {

@@ -3,7 +3,7 @@
 begin;
 
 create extension if not exists pgtap with schema extensions;
-select extensions.plan(163);
+select extensions.plan(164);
 
 insert into auth.users (id, aud, role, created_at, updated_at)
 values
@@ -22,8 +22,22 @@ values
   ('61000000-0000-0000-0000-000000000013', 'authenticated', 'authenticated', now(), now()),
   ('61000000-0000-0000-0000-000000000014', 'authenticated', 'authenticated', now(), now());
 
+insert into private.turnstile_attestations (user_id, verified_until)
+select id, clock_timestamp() + interval '15 minutes' from auth.users
+where id between '61000000-0000-0000-0000-000000000001'::uuid
+             and '61000000-0000-0000-0000-000000000014'::uuid;
+
 create temporary table health_test_context (key text primary key, value text not null);
 grant all on health_test_context to service_role, authenticated;
+
+select extensions.ok(
+  exists (
+    select 1 from cron.job
+     where jobname = 'cleanup-expired-health-check-prototype-results'
+       and schedule = '17 * * * *'
+  ),
+  'prototype result retention cleanup is scheduled hourly'
+);
 
 create temporary table health_report_snapshot (
   line_number bigint generated always as identity,
@@ -350,7 +364,7 @@ select extensions.ok(
   (select regexp_replace(lower(prosrc), '\s+', ' ', 'g')
             like '%select s.* into v_session from public.sessions s where s.join_code = v_code and s.status = ''active'' and s.activity_type in (''estimation'', ''health_check'') for update; if not found then%if v_session.activity_type = ''health_check'' then select * into v_health from public.health_check_sessions where room_id = v_session.id; v_health_found := found; v_checked_at := clock_timestamp(); if not v_health_found or v_health.phase <> ''lobby'' or v_health.expires_at <= v_checked_at then%if v_session.facilitator_user_id = v_user_id%'
      from pg_proc
-    where oid = 'public.join_session(text,text)'::regprocedure),
+    where oid = 'private.join_session(text,text)'::regprocedure),
   'common join locks the active allowed room before fresh health validity and role checks'
 );
 
@@ -1464,19 +1478,20 @@ select extensions.ok(
     where room_id = (select value::uuid from health_test_context where key = 'prototype_room')) = 0
   and (select count(*) from public.health_check_report_jobs
     where source_room_id = (select value::uuid from health_test_context where key = 'prototype_room')
-       or aad_room_id = (select value::uuid from health_test_context where key = 'prototype_room')) = 0,
-  'prototype terminal success deletes the complete room graph and creates no report job'
+       or aad_room_id = (select value::uuid from health_test_context where key = 'prototype_room')) = 0
+  and (select count(*) from public.health_check_prototype_results
+    where room_id = (select value::uuid from health_test_context where key = 'prototype_room')) = 1,
+  'prototype terminal success deletes the room graph and retains one recoverable result'
 );
 set local role authenticated;
 select set_config('request.jwt.claim.role', 'authenticated', true);
 select set_config('request.jwt.claim.sub', '61000000-0000-0000-0000-000000000011', true);
-select extensions.throws_ok(
-  format(
-    'select public.finalize_health_check_prototype(%L::uuid)',
-    (select value from health_test_context where key = 'prototype_room')
+select extensions.is(
+  public.finalize_health_check_prototype(
+    (select value::uuid from health_test_context where key = 'prototype_room')
   ),
-  '42501', 'facilitator_required',
-  'prototype terminal finalize retry returns the generic unavailable error'
+  (select value::jsonb from health_test_context where key = 'prototype_result'),
+  'prototype terminal finalize retry returns the persisted result'
 );
 reset role;
 

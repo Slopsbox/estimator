@@ -81,6 +81,7 @@ export function App() {
               <Route path="/join" element={<Navigate to={resolveRoomRoute('estimation', 'join')} replace />} />
               <Route path="/vote" element={<Navigate to={resolveRoomRoute('estimation', 'participant')} replace />} />
               <Route path="/dashboard" element={<Navigate to={resolveRoomRoute('estimation', 'facilitator')} replace />} />
+              <Route path="*" element={<Navigate to="/" replace />} />
             </Route>
           </Routes>
         </Suspense>

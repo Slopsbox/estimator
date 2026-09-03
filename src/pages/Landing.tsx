@@ -1,8 +1,12 @@
-import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useEffect, useState } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { TurnstileGate } from '../components/TurnstileGate';
 import { AppLogo } from '../components/AppLogo';
 import { resolveRoomRoute } from '../lib/roomRoutes';
+import { getAccessToken } from '../lib/supabase';
+import { markTurnstileVerified } from '../lib/turnstileAttestation';
+
+const VERIFICATION_TTL_MS = 15 * 60 * 1000;
 
 /**
  * Landingsside – Gjensidige Builders designsystem.
@@ -13,28 +17,49 @@ import { resolveRoomRoute } from '../lib/roomRoutes';
 export function LandingPage() {
   const [verified, setVerified] = useState(false);
   const [verifyError, setVerifyError] = useState(false);
+  const [turnstileAttempt, setTurnstileAttempt] = useState(0);
   const navigate = useNavigate();
+  const location = useLocation();
+  const returnTo = typeof location.state === 'object' && location.state !== null
+    && 'returnTo' in location.state && typeof location.state.returnTo === 'string'
+    && location.state.returnTo.startsWith('/')
+    ? location.state.returnTo
+    : null;
+
+  useEffect(() => {
+    if (!verified) return;
+    const timer = window.setTimeout(() => setVerified(false), VERIFICATION_TTL_MS);
+    return () => window.clearTimeout(timer);
+  }, [verified]);
 
   const handleVerified = async (token: string) => {
     setVerifyError(false);
     try {
+      const accessToken = await getAccessToken();
       const res = await fetch('/api/verify-turnstile', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${accessToken}`,
+        },
         body: JSON.stringify({ token }),
       });
       const data = await res.json() as { success: boolean };
       if (data.success) {
+        markTurnstileVerified();
         setVerified(true);
+        if (returnTo) navigate(returnTo, { replace: true });
       } else {
         // Server avviste tokenet – vis feil og la brukeren prøve igjen
         setVerifyError(true);
         setVerified(false);
+        setTurnstileAttempt((attempt) => attempt + 1);
       }
     } catch {
       // Nettverksfeil: IKKE tillat videre – vis feilmelding
       setVerifyError(true);
       setVerified(false);
+      setTurnstileAttempt((attempt) => attempt + 1);
     }
   };
 
@@ -108,7 +133,7 @@ export function LandingPage() {
           >
             Bekreft at du er et menneske
           </p>
-          <TurnstileGate onSuccess={handleVerified} theme="light" />
+          <TurnstileGate key={turnstileAttempt} onSuccess={handleVerified} theme="light" />
           {verifyError && (
             <p
               className="text-center text-xs"

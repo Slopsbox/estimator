@@ -17,6 +17,7 @@ export interface HealthCheckResponseFlowProps {
   readonly submitting: boolean;
   readonly submitError: string | null | undefined;
   readonly onSubmit: (responses: HealthCheckResponseMap) => Promise<void> | void;
+  readonly draftKey?: string;
   readonly onLeave?: () => void;
   readonly confirmDiscard?: () => boolean;
   /** Parent routes use this signal to block in-app navigation with an unsent draft. */
@@ -29,11 +30,12 @@ export function HealthCheckResponseFlow({
   submitting,
   submitError,
   onSubmit,
+  draftKey,
   onLeave,
   confirmDiscard = () => window.confirm('Du har usendte svar. Vil du forlate helsesjekken?'),
   onUnsavedChangesChange,
 }: HealthCheckResponseFlowProps) {
-  const [state, dispatch] = useHealthCheckDraft();
+  const [state, dispatch] = useHealthCheckDraft(draftKey);
   const [announcementSequence, setAnnouncementSequence] = useState(0);
   const headingRef = useRef<HTMLHeadingElement>(null);
   const unsavedChangesCallbackRef = useRef(onUnsavedChangesChange);

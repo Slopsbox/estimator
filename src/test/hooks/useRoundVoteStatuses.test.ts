@@ -33,26 +33,43 @@ describe('useRoundVoteStatuses', () => {
     expect(result.current.statuses).toEqual([{ participant_id: 'new-round', has_voted: true }]);
   });
 
-  it('lar bare siste request i samme scope oppdatere state og nullstiller error ved suksess', async () => {
+  it('dedupliserer samtidige kall og nullstiller error ved neste suksess', async () => {
     rpcMock.mockResolvedValueOnce({ data: null, error: { code: 'network' } });
     const { result } = renderHook(() => useRoundVoteStatuses('session-1', 1, true));
     await waitFor(() => expect(result.current.error).not.toBeNull());
 
-    let resolveOlder!: (value: { data: Array<{ participant_id: string; has_voted: boolean }>; error: null }) => void;
+    let resolveCurrent!: (value: { data: Array<{ participant_id: string; has_voted: boolean }>; error: null }) => void;
     rpcMock
-      .mockReturnValueOnce(new Promise((resolve) => { resolveOlder = resolve; }))
-      .mockResolvedValueOnce({ data: [{ participant_id: 'latest', has_voted: true }], error: null });
-    let olderRequest!: Promise<void>;
-    let latestRequest!: Promise<void>;
+      .mockReturnValueOnce(new Promise((resolve) => { resolveCurrent = resolve; }));
+    let firstRequest!: Promise<void>;
+    let duplicateRequest!: Promise<void>;
     act(() => {
-      olderRequest = result.current.refetch();
-      latestRequest = result.current.refetch();
+      firstRequest = result.current.refetch();
+      duplicateRequest = result.current.refetch();
     });
-    await act(async () => { await latestRequest; });
-    await act(async () => resolveOlder({ data: [{ participant_id: 'older', has_voted: true }], error: null }));
-    await olderRequest;
+    expect(rpcMock).toHaveBeenCalledTimes(2);
+    await act(async () => resolveCurrent({ data: [{ participant_id: 'latest', has_voted: true }], error: null }));
+    await Promise.all([firstRequest, duplicateRequest]);
 
     expect(result.current.statuses).toEqual([{ participant_id: 'latest', has_voted: true }]);
     expect(result.current.error).toBeNull();
+  });
+
+  it('starter ikke en ny poll mens forrige request fortsatt pågår', async () => {
+    vi.useFakeTimers();
+    try {
+      let resolveRequest!: (value: { data: Array<{ participant_id: string; has_voted: boolean }>; error: null }) => void;
+      rpcMock.mockReturnValue(new Promise((resolve) => { resolveRequest = resolve; }));
+      const { result } = renderHook(() => useRoundVoteStatuses('session-1', 1, true));
+      await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+
+      await act(async () => { await vi.advanceTimersByTimeAsync(6000); });
+      expect(rpcMock).toHaveBeenCalledTimes(1);
+
+      await act(async () => resolveRequest({ data: [{ participant_id: 'p1', has_voted: true }], error: null }));
+      expect(result.current.loading).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

@@ -39,12 +39,17 @@ export function SessionProvider({ children }: PropsWithChildren) {
   const [restoreTrigger, setRestoreTrigger] = useState(0);
   const generationRef = useRef(0);
   const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const restoreRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const restoreInFlightRef = useRef<Promise<void> | null>(null);
   const restoreRequestedRef = useRef(false);
 
   const clearAppSession = useCallback((status: RestoreStatus = 'ready') => {
     generationRef.current += 1;
     restoreRequestedRef.current = false;
+    if (restoreRetryTimerRef.current) {
+      clearTimeout(restoreRetryTimerRef.current);
+      restoreRetryTimerRef.current = null;
+    }
     storage.clearSessionPointer();
     setPointer(null);
     setSession(null);
@@ -89,11 +94,23 @@ export function SessionProvider({ children }: PropsWithChildren) {
         setError(null);
         setRestoreStatus('ready');
         setConnectionState('connected');
+        if (restoreRetryTimerRef.current) {
+          clearTimeout(restoreRetryTimerRef.current);
+          restoreRetryTimerRef.current = null;
+        }
       } catch {
         if (generation !== generationRef.current) return;
         setError(GENERIC_RESTORE_ERROR);
         setRestoreStatus('reconnecting');
         setConnectionState('disconnected');
+        if (!restoreRetryTimerRef.current) {
+          restoreRetryTimerRef.current = setTimeout(() => {
+            restoreRetryTimerRef.current = null;
+            if (generation === generationRef.current) {
+              setRestoreTrigger((current) => current + 1);
+            }
+          }, 2000);
+        }
       }
     })().finally(() => {
       if (restoreInFlightRef.current === attempt) restoreInFlightRef.current = null;
@@ -108,6 +125,10 @@ export function SessionProvider({ children }: PropsWithChildren) {
     restoreInFlightRef.current = attempt;
     return attempt;
   }, [clearAppSession]);
+
+  useEffect(() => () => {
+    if (restoreRetryTimerRef.current) clearTimeout(restoreRetryTimerRef.current);
+  }, []);
 
   useEffect(() => {
     if (!pointer?.sessionId) return;
@@ -131,7 +152,6 @@ export function SessionProvider({ children }: PropsWithChildren) {
     if (!sessionId) return;
     const generation = generationRef.current;
     let active = true;
-    let firstSubscription = true;
     let channel: RealtimeChannel;
     const connect = () => {
       if (!active || generation !== generationRef.current) return;
@@ -148,11 +168,7 @@ export function SessionProvider({ children }: PropsWithChildren) {
           if (!active || retired || channel !== currentChannel || generation !== generationRef.current) return;
           if (status === 'SUBSCRIBED') {
             setConnectionState('connected');
-            if (firstSubscription) {
-              firstSubscription = false;
-            } else {
-              void restore();
-            }
+            void restore();
             return;
           }
           if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
@@ -277,16 +293,31 @@ export function SessionProvider({ children }: PropsWithChildren) {
     if (!session) return { ok: false, message: 'Ingen aktiv sesjon.' };
     setError(null);
     const generation = generationRef.current;
+    const previousSession = session;
     try {
       const result = await estimation[operation](session);
-      if (generation !== generationRef.current || !result.ok) throw new Error('mutation_failed');
-      setSession(result.session);
+      if (generation !== generationRef.current) throw new Error('mutation_failed');
+      if (result.ok) setSession(result.session);
+
+      const restored = await roomMembership.restore(previousSession.id);
+      if (generation !== generationRef.current) throw new Error('mutation_failed');
+      if (restored.ok) applyMembership(restored.snapshot);
+
+      const reconciledSession = restored.ok ? restored.snapshot.session : result.ok ? result.session : null;
+      const operationApplied = (operation === 'end' && !restored.ok && restored.reason === 'session_completed')
+        || (reconciledSession !== null && (
+        (operation === 'start' && !previousSession.started && reconciledSession.started)
+        || (operation === 'reveal' && !previousSession.votes_revealed && reconciledSession.votes_revealed)
+        || (operation === 'next' && reconciledSession.current_round > previousSession.current_round)
+        || (operation === 'end' && previousSession.status !== 'completed' && reconciledSession.status === 'completed')
+      ));
+      if (!result.ok && !operationApplied) throw new Error('mutation_failed');
       return { ok: true };
     } catch {
       if (generation === generationRef.current) setError(message);
       return { ok: false, message };
     }
-  }, [session]);
+  }, [applyMembership, session]);
 
   const startSession = useCallback(() => sessionMutation('start', 'Kunne ikke starte sesjonen. Prøv igjen.'), [sessionMutation]);
   const revealVotes = useCallback(() => sessionMutation('reveal', 'Kunne ikke avsløre stemmer. Prøv igjen.'), [sessionMutation]);

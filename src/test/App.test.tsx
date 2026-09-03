@@ -2,12 +2,26 @@ import { render, screen, waitFor } from '@testing-library/react';
 import type { PropsWithChildren } from 'react';
 import { beforeEach, vi, describe, expect, it } from 'vitest';
 
-const providerSpy = vi.fn();
+const { providerSpy, sessionState } = vi.hoisted(() => ({
+  providerSpy: vi.fn(),
+  sessionState: {
+    session: null as Record<string, unknown> | null,
+    activityType: null as 'estimation' | 'health_check' | null,
+    localParticipant: null as Record<string, unknown> | null,
+    restoreStatus: 'ready',
+  },
+}));
 vi.mock('../hooks/SessionProvider', () => ({
   SessionProvider: ({ children }: PropsWithChildren) => {
     providerSpy();
     return children;
   },
+}));
+vi.mock('../hooks/useSession', () => ({
+  useSession: () => sessionState,
+}));
+vi.mock('../lib/turnstileAttestation', () => ({
+  hasRecentTurnstileVerification: () => true,
 }));
 vi.mock('../pages/Landing', () => ({ LandingPage: () => <div>Landing route</div> }));
 vi.mock('../pages/DeltagerJoin', () => ({ DeltagerJoinPage: () => <div>Join route</div> }));
@@ -22,6 +36,10 @@ import { App } from '../App';
 describe('App', () => {
   beforeEach(() => {
     providerSpy.mockClear();
+    sessionState.session = null;
+    sessionState.activityType = null;
+    sessionState.localParticipant = null;
+    sessionState.restoreStatus = 'ready';
   });
 
   it('wrapper produksjonsrutene i SessionProvider', async () => {
@@ -71,5 +89,25 @@ describe('App', () => {
     expect(appSource).not.toContain('/health-check-preview');
     expect(appSource).toContain("resolveRoomRoute('health_check', 'facilitator')");
     expect(appSource).toContain("resolveRoomRoute('health_check', 'participant')");
+  });
+
+  it('sender ukjente URL-er tilbake til forsiden', async () => {
+    window.history.pushState({}, '', '/ukjent-side');
+    render(<App />);
+
+    expect(await screen.findByText('Landing route')).toBeInTheDocument();
+    expect(window.location.pathname).toBe('/');
+  });
+
+  it('gjenopptar aktiv deltakersesjon når PWA-en starter på forsiden', async () => {
+    sessionState.session = { id: 'session-1' };
+    sessionState.activityType = 'estimation';
+    sessionState.localParticipant = { role: 'participant' };
+    window.history.pushState({}, '', '/');
+
+    render(<App />);
+
+    expect(await screen.findByText('Vote route')).toBeInTheDocument();
+    expect(window.location.pathname).toBe('/estimation/vote');
   });
 });

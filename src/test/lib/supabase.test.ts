@@ -17,7 +17,7 @@ const { createClientMock, getSessionMock, signInAnonymouslyMock, setAuthMock } =
 
 vi.mock('@supabase/supabase-js', () => ({ createClient: createClientMock }));
 
-import { ensureAnonymousIdentity } from '../../lib/supabase';
+import { ensureAnonymousIdentity, getAccessToken } from '../../lib/supabase';
 
 const user = { id: 'user-1' };
 
@@ -77,5 +77,13 @@ describe('ensureAnonymousIdentity', () => {
     setAuthMock.mockRejectedValue(new Error('token detail'));
 
     await expect(ensureAnonymousIdentity()).rejects.toThrow('Kunne ikke opprette sikker identitet. Prøv igjen.');
+  });
+
+  it('returns the current access token after ensuring identity', async () => {
+    getSessionMock
+      .mockResolvedValueOnce({ data: { session: { user, access_token: 'access-token' } }, error: null })
+      .mockResolvedValueOnce({ data: { session: { user, access_token: 'access-token' } }, error: null });
+
+    await expect(getAccessToken()).resolves.toBe('access-token');
   });
 });

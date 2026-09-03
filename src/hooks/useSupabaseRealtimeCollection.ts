@@ -36,29 +36,57 @@ export function useSupabaseRealtimeCollection<T>({
   const [retryCount, setRetryCount] = useState(0);
   const [connectionState, setConnectionState] = useState<RealtimeCollectionConnectionState>('idle');
   const retryTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const fetchRetryTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const generationRef = useRef(0);
-  const refetchInFlightRef = useRef<Promise<void> | null>(null);
+  const refetchInFlightRef = useRef<{ scope: string; promise: Promise<void> } | null>(null);
+  const refetchRequestedRef = useRef(false);
+  const eventRevisionRef = useRef(0);
   const scopeRef = useRef<string | null>(null);
 
-  const refetch = useCallback(() => {
+  const refetch = useCallback(function refetchCollection(): Promise<void> | undefined {
     if (!sessionId) return;
-    if (refetchInFlightRef.current) return refetchInFlightRef.current;
+    const requestScope = `${sessionId}:${channelName}`;
+    if (refetchInFlightRef.current?.scope === requestScope) {
+      refetchRequestedRef.current = true;
+      return refetchInFlightRef.current.promise;
+    }
+    refetchRequestedRef.current = false;
     const generation = generationRef.current;
+    const eventRevision = eventRevisionRef.current;
     const attempt = (async () => {
       const result = await fetchCollection();
       if (generation !== generationRef.current) return;
       if (result.error) {
         setError('Kunne ikke oppdatere data. Prøv igjen.');
+        if (!fetchRetryTimerRef.current) {
+          fetchRetryTimerRef.current = setTimeout(() => {
+            fetchRetryTimerRef.current = undefined;
+            void refetchCollection();
+          }, 2000);
+        }
+        return;
+      }
+      if (eventRevision !== eventRevisionRef.current) {
+        refetchRequestedRef.current = true;
         return;
       }
       if (result.data) setItems(result.data);
       setError(null);
+      setLoading(false);
+      if (fetchRetryTimerRef.current) {
+        clearTimeout(fetchRetryTimerRef.current);
+        fetchRetryTimerRef.current = undefined;
+      }
     })().finally(() => {
-      if (refetchInFlightRef.current === attempt) refetchInFlightRef.current = null;
+      if (refetchInFlightRef.current?.promise === attempt) refetchInFlightRef.current = null;
+      if (refetchRequestedRef.current && generation === generationRef.current) {
+        refetchRequestedRef.current = false;
+        queueMicrotask(() => { void refetchCollection(); });
+      }
     });
-    refetchInFlightRef.current = attempt;
+    refetchInFlightRef.current = { scope: requestScope, promise: attempt };
     return attempt;
-  }, [sessionId, fetchCollection]);
+  }, [channelName, sessionId, fetchCollection]);
 
   useEffect(() => {
     if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
@@ -66,7 +94,6 @@ export function useSupabaseRealtimeCollection<T>({
     generationRef.current = generation;
 
     if (!sessionId) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
       setItems([]);
       setLoading(false);
       setConnectionState('idle');
@@ -75,14 +102,12 @@ export function useSupabaseRealtimeCollection<T>({
     }
 
     let active = true;
-    let initialFetchPending = true;
-    const pendingUpdaters: Array<(items: T[]) => T[]> = [];
     const isCurrent = () => active && generationRef.current === generation;
     const setItemsForCurrentGeneration: React.Dispatch<React.SetStateAction<T[]>> = (action) => {
       const updater = typeof action === 'function'
         ? action as (items: T[]) => T[]
         : () => action;
-      if (initialFetchPending) pendingUpdaters.push(updater);
+      eventRevisionRef.current += 1;
       setItems((current) => {
         if (!isCurrent()) return current;
         return updater(current);
@@ -95,19 +120,6 @@ export function useSupabaseRealtimeCollection<T>({
     if (scopeRef.current !== scope) setItems([]);
     scopeRef.current = scope;
 
-    const fetchInitialData = async () => {
-      const result = await fetchCollection();
-      if (!isCurrent()) return;
-      if (result.error) {
-        setError('Kunne ikke hente data. Prøv igjen.');
-      } else if (result.data) {
-        setItems(pendingUpdaters.reduce((current, update) => update(current), result.data));
-      }
-      initialFetchPending = false;
-      pendingUpdaters.length = 0;
-      setLoading(false);
-    };
-
     const channel = configureSubscription(
       supabase.channel(
         channelTopic ? `${channelTopic}:${retryCount}` : `${channelName}:${retryCount}`,
@@ -119,6 +131,7 @@ export function useSupabaseRealtimeCollection<T>({
       .subscribe((status) => {
         if (status === 'SUBSCRIBED' && isCurrent()) {
           setConnectionState('connected');
+          void refetch();
         }
         if ((status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') && isCurrent()) {
           setConnectionState('disconnected');
@@ -130,7 +143,7 @@ export function useSupabaseRealtimeCollection<T>({
           }, 2000);
         }
       });
-    void fetchInitialData();
+    void refetch();
 
     return () => {
       active = false;
@@ -139,9 +152,13 @@ export function useSupabaseRealtimeCollection<T>({
         clearTimeout(retryTimerRef.current);
         retryTimerRef.current = undefined;
       }
+      if (fetchRetryTimerRef.current) {
+        clearTimeout(fetchRetryTimerRef.current);
+        fetchRetryTimerRef.current = undefined;
+      }
       void supabase.removeChannel(channel);
     };
-  }, [sessionId, channelName, channelTopic, fetchCollection, configureSubscription, retryCount]);
+  }, [sessionId, channelName, channelTopic, fetchCollection, configureSubscription, retryCount, refetch]);
 
   useVisibilityRefetch(refetch);
 

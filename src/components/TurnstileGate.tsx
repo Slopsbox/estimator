@@ -10,10 +10,14 @@ const SITE_KEY = import.meta.env.VITE_TURNSTILE_SITE_KEY as string | undefined;
 /**
  * Cloudflare Turnstile-widget.
  * Kaller onSuccess med token når bruker er verifisert.
- * Faller tilbake til testmodus-nøkkel om env-variabel mangler.
+ * Produksjon feiler lukket dersom nøkkelen mangler.
  */
 export function TurnstileGate({ onSuccess, theme = 'light' }: TurnstileGateProps) {
-  const siteKey = SITE_KEY ?? '1x00000000000000000000AA';
+  const siteKey = SITE_KEY || (import.meta.env.DEV ? '1x00000000000000000000AA' : null);
+
+  if (!siteKey) {
+    return <p role="alert" className="text-center text-sm">Verifisering er ikke konfigurert.</p>;
+  }
 
   return (
     <div className="flex justify-center">

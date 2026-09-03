@@ -186,6 +186,7 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      attest_turnstile_for_service: { Args: { p_user_id: string }; Returns: boolean }
       abort_health_check: { Args: { p_room_id: string }; Returns: Json }
       cast_vote: {
         Args: { p_round: number; p_session_id: string; p_size: string; p_value: string }
@@ -220,6 +221,7 @@ export type Database = {
         Args: { p_member_id: string; p_room_id: string }
         Returns: Json
       }
+      restore_active_health_check_for_facilitator: { Args: Record<PropertyKey, never>; Returns: Json }
       restore_session: { Args: { p_session_id: string }; Returns: Json }
       retract_vote: { Args: { p_round: number; p_session_id: string }; Returns: Json }
       reveal_votes: { Args: { p_session_id: string }; Returns: Json }

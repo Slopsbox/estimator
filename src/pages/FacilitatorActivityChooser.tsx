@@ -1,23 +1,12 @@
-import { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AppLogo } from '../components/AppLogo';
 import { NavyPageLayout } from '../components/NavyPageLayout';
 import { resolveRoomRoute } from '../lib/roomRoutes';
-import { useSession } from '../hooks/useSession';
 
 const cardClassName = 'w-full rounded-xl border bg-white p-5 text-left transition hover:-translate-y-0.5 hover:shadow-md focus-visible:ring-2 focus-visible:ring-[var(--color-navy-700)] focus-visible:ring-offset-2';
 
 export function FacilitatorActivityChooserPage() {
   const navigate = useNavigate();
-  const { activityType, localParticipant, session } = useSession();
-
-  useEffect(() => {
-    if (!session || !activityType || !localParticipant) return;
-    navigate(resolveRoomRoute(
-      activityType,
-      localParticipant.role === 'facilitator' ? 'facilitator' : 'participant',
-    ), { replace: true });
-  }, [activityType, localParticipant, navigate, session]);
 
   return (
     <NavyPageLayout

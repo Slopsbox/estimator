@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, within } from '@testing-library/react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { HealthCheckResponseFlow } from '../../../../domains/health-check/components';
 import {
   SQUAD_HEALTH_TEMPLATE_V1,
@@ -8,6 +8,8 @@ import {
 } from '../../../../domains/health-check/domain';
 
 describe('HealthCheckResponseFlow', () => {
+  beforeEach(() => sessionStorage.clear());
+
   afterEach(() => {
     vi.restoreAllMocks();
     vi.useRealTimers();
@@ -175,24 +177,33 @@ describe('HealthCheckResponseFlow', () => {
     expect(screen.queryByRole('button', { name: 'Forlat' })).not.toBeInTheDocument();
   });
 
-  it('bruker aldri Storage eller console', () => {
-    const storageSpies = [
-      vi.spyOn(Storage.prototype, 'getItem'),
-      vi.spyOn(Storage.prototype, 'setItem'),
-      vi.spyOn(Storage.prototype, 'removeItem'),
-      vi.spyOn(Storage.prototype, 'clear'),
-    ];
+  it('gjenoppretter svar og posisjon etter reload for samme deltaker og rom', () => {
+    const { unmount } = renderFlow({ draftKey: 'room-1:participant-1' });
+
+    fireEvent.input(screen.getByRole('slider'), { target: { value: '5' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Neste' }));
+    unmount();
+
+    renderFlow({ draftKey: 'room-1:participant-1' });
+
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(
+      'Oppgavene mine gir meg mer energi enn de tapper meg for.',
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Forrige' }));
+    expect(screen.getByRole('slider')).toHaveValue('5');
+  });
+
+  it('bruker ikke console når et utkast lagres', () => {
     const consoleSpies = [
       vi.spyOn(console, 'log').mockImplementation(() => undefined),
       vi.spyOn(console, 'warn').mockImplementation(() => undefined),
       vi.spyOn(console, 'error').mockImplementation(() => undefined),
     ];
-    renderFlow();
+    renderFlow({ draftKey: 'room-1:participant-1' });
 
     fireEvent.input(screen.getByRole('slider'), { target: { value: '4' } });
     fireEvent.click(screen.getByRole('button', { name: 'Neste' }));
 
-    storageSpies.forEach((spy) => expect(spy).not.toHaveBeenCalled());
     consoleSpies.forEach((spy) => expect(spy).not.toHaveBeenCalled());
   });
 

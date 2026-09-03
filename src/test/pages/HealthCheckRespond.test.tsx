@@ -69,6 +69,7 @@ describe('HealthCheckRespondPage', () => {
     const responses = mocks.submit.mock.calls[0][1];
     expect(Object.keys(responses)).toHaveLength(31);
     expect(await screen.findByRole('heading', { name: 'Svarene er registrert' })).toBeVisible();
+    expect(sessionStorage.getItem('estimat_health_check_draft:10000000-0000-4000-8000-000000000001:20000000-0000-4000-8000-000000000002')).toBeNull();
   });
 
   it('stops the response flow when the facilitator aborts the server session', async () => {

@@ -100,6 +100,7 @@ function resultFixture() {
 describe('HealthCheckDashboardPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    localStorage.clear();
     mocks.session = null;
     mocks.localParticipant = null;
     mocks.activityType = null;
@@ -177,5 +178,32 @@ describe('HealthCheckDashboardPage', () => {
     expect(screen.getByRole('button', { name: 'Fullfør helsesjekk' })).toBeEnabled();
 
     expect(mocks.finalizePrototype).toHaveBeenCalledTimes(1);
+  });
+
+  it('restores a finalized report after refresh without an active room session', async () => {
+    localStorage.setItem(
+      'estimat_health_check_result_room',
+      JSON.stringify({ roomId: SESSION.id, updatedAt: new Date().toISOString() }),
+    );
+    mocks.finalizePrototype.mockResolvedValue({ ok: true, value: resultFixture() });
+
+    render(<MemoryRouter><HealthCheckDashboardPage /></MemoryRouter>);
+
+    expect(await screen.findByRole('heading', { name: 'Resultat for Plattform' })).toBeVisible();
+    expect(mocks.finalizePrototype).toHaveBeenCalledWith(SESSION.id);
+  });
+
+  it('clears result recovery when the facilitator is finished', async () => {
+    const user = userEvent.setup();
+    localStorage.setItem(
+      'estimat_health_check_result_room',
+      JSON.stringify({ roomId: SESSION.id, updatedAt: new Date().toISOString() }),
+    );
+    mocks.finalizePrototype.mockResolvedValue({ ok: true, value: resultFixture() });
+    render(<MemoryRouter><HealthCheckDashboardPage /></MemoryRouter>);
+
+    await user.click(await screen.findByRole('button', { name: 'Ferdig' }));
+
+    expect(localStorage.getItem('estimat_health_check_result_room')).toBeNull();
   });
 });

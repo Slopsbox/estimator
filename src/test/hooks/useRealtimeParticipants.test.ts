@@ -163,6 +163,49 @@ describe('useRealtimeParticipants', () => {
     });
   });
 
+  it('reconciler snapshot når subscriptionen blir klar', async () => {
+    const initial = makeParticipant({ id: 'participant-001' });
+    const joinedDuringGap = makeParticipant({ id: 'participant-002' });
+    let call = 0;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    chainable.then.mockImplementation((cb: (r: any) => void) => {
+      call += 1;
+      cb({ data: call === 1 ? [initial] : [initial, joinedDuringGap], error: null });
+      return Promise.resolve();
+    });
+    const { result } = renderHook(() => useRealtimeParticipants(SESSION_ID));
+    await waitFor(() => expect(result.current.participants).toHaveLength(1));
+
+    act(() => channelMock._triggerSubscribed());
+
+    await waitFor(() => expect(result.current.participants).toHaveLength(2));
+  });
+
+  it('retryer automatisk etter transient initial fetch-feil', async () => {
+    vi.useFakeTimers();
+    try {
+      let call = 0;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      chainable.then.mockImplementation((cb: (r: any) => void) => {
+        call += 1;
+        cb(call === 1
+          ? { data: null, error: { code: 'network' } }
+          : { data: [makeParticipant()], error: null });
+        return Promise.resolve();
+      });
+      const { result } = renderHook(() => useRealtimeParticipants(SESSION_ID));
+      await act(async () => { await Promise.resolve(); });
+      expect(result.current.error).not.toBeNull();
+
+      await act(async () => { await vi.advanceTimersByTimeAsync(2000); });
+
+      expect(result.current.error).toBeNull();
+      expect(result.current.participants).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('replayer INSERT, UPDATE og DELETE som skjer mens initial fetch er in-flight', async () => {
     let resolveFetch!: (result: { data: Participant[]; error: null }) => void;
     chainable.then.mockImplementation((resolve: typeof resolveFetch) => {
@@ -333,10 +376,16 @@ describe('useRealtimeParticipants', () => {
     });
 
     let resolveRefetch!: (result: { data: Participant[]; error: null }) => void;
-    chainable.then.mockImplementation((resolve: (result: { data: Participant[]; error: null }) => void) => {
-      resolveRefetch = resolve;
-      return Promise.resolve();
-    });
+    const newParticipant = makeParticipant({ id: 'participant-from-new-session', session_id: 'session-new' });
+    chainable.then
+      .mockImplementationOnce((resolve: (result: { data: Participant[]; error: null }) => void) => {
+        resolveRefetch = resolve;
+        return Promise.resolve();
+      })
+      .mockImplementation((resolve: (result: { data: Participant[]; error: null }) => void) => {
+        resolve({ data: [newParticipant], error: null });
+        return Promise.resolve();
+      });
 
     act(() => {
       window.dispatchEvent(new Event('online'));
@@ -352,7 +401,7 @@ describe('useRealtimeParticipants', () => {
       resolveRefetch({ data: [makeParticipant({ id: 'participant-from-old-refetch' })], error: null });
     });
 
-    expect(result.current.participants).toEqual([]);
+    await waitFor(() => expect(result.current.participants).toEqual([newParticipant]));
   });
 
   it('cleanup: fjerner channel ved unmount', async () => {

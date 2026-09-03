@@ -44,3 +44,12 @@ export function ensureAnonymousIdentity(): Promise<User> {
 
   return identityPromise;
 }
+
+export async function getAccessToken(): Promise<string> {
+  await ensureAnonymousIdentity();
+  const { data, error } = await supabase.auth.getSession();
+  if (error || !data.session?.access_token) {
+    throw new Error('Kunne ikke opprette sikker identitet. Prøv igjen.');
+  }
+  return data.session.access_token;
+}

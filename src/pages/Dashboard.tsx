@@ -15,7 +15,7 @@ import { useWakeLock } from '../hooks/useWakeLock';
 /** Fasilitator-dashboard (revisjon 3) – ett sammenhengende view, ingen tabs. */
 export function DashboardPage() {
   const navigate = useNavigate();
-  const { session, localParticipant, loading, error, restoreStatus, createSession, startSession, nextRound, endSession, revealVotes, logout } =
+  const { session, activityType, localParticipant, loading, error, restoreStatus, createSession, startSession, nextRound, endSession, revealVotes, logout } =
     useSession();
 
   const [nameInput, setNameInput] = useState('');
@@ -24,28 +24,29 @@ export function DashboardPage() {
   const [actionLoading, setActionLoading] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [codeCopied, setCodeCopied] = useState(false);
+  const estimationSession = activityType === 'estimation' ? session : null;
 
   // Ref for å rydde setTimeout og unngå state-oppdatering etter unmount
   const copyTimeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
-  const participantData = useRealtimeParticipants(session?.id ?? null, session?.started ?? false);
-  const roundData = useRealtimeRoundParticipants(session?.id ?? null, session?.current_round ?? 1);
+  const participantData = useRealtimeParticipants(estimationSession?.id ?? null, estimationSession?.started ?? false);
+  const roundData = useRealtimeRoundParticipants(estimationSession?.id ?? null, estimationSession?.current_round ?? 1);
   const { participants } = participantData;
   const { roundParticipants } = roundData;
   const { presentParticipantIds, connectionState: presenceConnectionState, presenceReady } = useSessionPresence(
-    session?.id ?? null,
+    estimationSession?.id ?? null,
     localParticipant?.participantId ?? null,
   );
   const voteData = useRealtimeVotes(
-    session?.votes_revealed ? session.id : null,
-    session?.current_round ?? 1,
-    session?.votes_revealed ?? false,
+    estimationSession?.votes_revealed ? estimationSession.id : null,
+    estimationSession?.current_round ?? 1,
+    estimationSession?.votes_revealed ?? false,
   );
   const { votes } = voteData;
   const statusData = useRoundVoteStatuses(
-    session?.id ?? null,
-    session?.current_round ?? 1,
-    Boolean(session?.started && !session.votes_revealed),
+    estimationSession?.id ?? null,
+    estimationSession?.current_round ?? 1,
+    Boolean(estimationSession?.started && !estimationSession.votes_revealed),
   );
 
   const isFacilitator = localParticipant?.role === 'facilitator';
@@ -59,11 +60,11 @@ export function DashboardPage() {
   ], []);
 
   useEffect(() => {
-    if (session?.status === 'completed' && isFacilitator) {
+    if (estimationSession?.status === 'completed' && isFacilitator) {
       logout();
       navigate('/');
     }
-  }, [session?.status, isFacilitator, logout, navigate]);
+  }, [estimationSession?.status, isFacilitator, logout, navigate]);
 
   // Cleanup copyTimeout ved unmount
   useEffect(() => {
@@ -145,7 +146,7 @@ export function DashboardPage() {
     return <div className="min-h-screen flex items-center justify-center">{restoreStatus === 'initializing' ? 'Gjenoppretter sesjon…' : 'Kobler til sesjonen på nytt…'}</div>;
   }
 
-  if (!isFacilitator || !session) {
+  if (!isFacilitator || !session || activityType !== 'estimation') {
     return (
       <NavyPageLayout
         roleLabel="Fasilitator"
@@ -285,8 +286,6 @@ export function DashboardPage() {
     handleNextRound={handleNextRound}
     handleStartSession={handleStartSession}
     handleCopyCode={handleCopyCode}
-    logout={logout}
-    navigate={navigate}
   />;
 }
 
@@ -316,8 +315,6 @@ interface ActiveDashboardViewProps {
   handleNextRound: () => void;
   handleStartSession: () => void;
   handleCopyCode: () => void;
-  logout: () => void;
-  navigate: (path: string) => void;
 }
 
 /**
@@ -350,8 +347,6 @@ function ActiveDashboardView({
   handleNextRound,
   handleStartSession,
   handleCopyCode,
-  logout,
-  navigate,
 }: ActiveDashboardViewProps) {
   useWakeLock(); // Holder skjermen våken mens fasilitator er i aktiv sesjon
 
@@ -367,10 +362,10 @@ function ActiveDashboardView({
       >
         <button
           type="button"
-          onClick={() => { logout(); navigate('/'); }}
+          onClick={handleEndSession}
           className="flex items-center justify-center w-9 h-9 rounded-xl transition-colors"
           style={{ background: 'rgba(255,255,255,.10)', color: 'white' }}
-          aria-label="Tilbake"
+          aria-label="Avslutt sesjon og gå tilbake"
         >
           <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true">
             <path d="M11 4L6 9l5 5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />

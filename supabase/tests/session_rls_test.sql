@@ -13,6 +13,11 @@ values
   ('30000000-0000-0000-0000-000000000003', 'authenticated', 'authenticated', 'participant-b-rls@test.invalid', now(), now()),
   ('30000000-0000-0000-0000-000000000004', 'authenticated', 'authenticated', 'outsider-rls@test.invalid', now(), now());
 
+insert into private.turnstile_attestations (user_id, verified_until)
+select id, clock_timestamp() + interval '15 minutes' from auth.users
+where id between '30000000-0000-0000-0000-000000000001'::uuid
+             and '30000000-0000-0000-0000-000000000004'::uuid;
+
 create temporary table session_rls_context (key text primary key, value text not null);
 grant select on session_rls_context to authenticated;
 

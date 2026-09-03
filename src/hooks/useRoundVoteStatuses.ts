@@ -23,6 +23,7 @@ export function useRoundVoteStatuses(sessionId: string | null, round: number, en
   const [loading, setLoading] = useState(enabled);
   const [error, setError] = useState<string | null>(null);
   const requestSequenceRef = useRef(0);
+  const inFlightRef = useRef<{ scope: string; promise: Promise<void> } | null>(null);
   const scope = sessionId && enabled ? `${sessionId}:${round}` : null;
   const scopeRef = useRef(scope);
 
@@ -33,18 +34,25 @@ export function useRoundVoteStatuses(sessionId: string | null, round: number, en
   const refetch = useCallback(async () => {
     if (!sessionId || !enabled) return;
     const requestScope = `${sessionId}:${round}`;
+    if (inFlightRef.current?.scope === requestScope) return inFlightRef.current.promise;
     const requestSequence = ++requestSequenceRef.current;
-    const result = await supabase.rpc('get_round_vote_statuses', { p_session_id: sessionId, p_round: round });
-    if (scopeRef.current !== requestScope || requestSequence !== requestSequenceRef.current) return;
-    const parsed = result.error ? null : parseStatuses(result.data);
-    if (!parsed) {
-      setError('Kunne ikke hente stemmestatus. Prøv igjen.');
+    const promise = (async () => {
+      const result = await supabase.rpc('get_round_vote_statuses', { p_session_id: sessionId, p_round: round });
+      if (scopeRef.current !== requestScope || requestSequence !== requestSequenceRef.current) return;
+      const parsed = result.error ? null : parseStatuses(result.data);
+      if (!parsed) {
+        setError('Kunne ikke hente stemmestatus. Prøv igjen.');
+        setLoading(false);
+        return;
+      }
+      setStatuses(parsed);
+      setError(null);
       setLoading(false);
-      return;
-    }
-    setStatuses(parsed);
-    setError(null);
-    setLoading(false);
+    })().finally(() => {
+      if (inFlightRef.current?.promise === promise) inFlightRef.current = null;
+    });
+    inFlightRef.current = { scope: requestScope, promise };
+    return promise;
   }, [enabled, round, sessionId]);
 
   useEffect(() => {

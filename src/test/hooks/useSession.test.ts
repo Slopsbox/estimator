@@ -125,7 +125,10 @@ describe('SessionProvider', () => {
       if (options?.clearCreateRequestId) storageMocks.clearCreateRequestId();
       if (options?.rememberName) storageMocks.writeLastUsedName(value.participant.name);
     });
-    roomMocks.restore.mockResolvedValue({ ok: false, reason: 'rpc' });
+    roomMocks.restore.mockImplementation(async () => ({
+      ok: true,
+      snapshot: snapshot(storageMocks.readSessionPointer()?.activityType ?? 'estimation'),
+    }));
     channelMock.on.mockReturnThis();
     channelMock.subscribe.mockImplementation((callback: (status: string) => void) => {
       channelMock.trigger = (status: string) => callback(status);
@@ -172,6 +175,8 @@ describe('SessionProvider', () => {
 
   it('beholder cached identity og viser norsk feil ved transient restore-feil', async () => {
     storePointer();
+    channelMock.subscribe.mockImplementation(() => channelMock);
+    roomMocks.restore.mockResolvedValue({ ok: false, reason: 'rpc' });
     const { result } = renderHook(() => useSession(), { wrapper });
 
     await waitFor(() => expect(result.current.restoreStatus).toBe('reconnecting'));
@@ -179,6 +184,29 @@ describe('SessionProvider', () => {
     expect(result.current.localParticipant).toEqual(LOCAL_PARTICIPANT);
     expect(result.current.error).toBe('Kunne ikke koble til sesjonen. Vi prøver igjen.');
     expect(localStorage.getItem(LOCAL_PARTICIPANT_STORAGE_KEY)).not.toBeNull();
+  });
+
+  it('retryer transient restore automatisk uten nettverks- eller visibility-event', async () => {
+    vi.useFakeTimers();
+    try {
+      storePointer();
+      channelMock.subscribe.mockImplementation(() => channelMock);
+      roomMocks.restore
+        .mockResolvedValueOnce({ ok: false, reason: 'rpc' })
+        .mockResolvedValueOnce({ ok: true, snapshot: snapshot() });
+      const { result } = renderHook(() => useSession(), { wrapper });
+      await act(async () => { await Promise.resolve(); });
+      expect(result.current.restoreStatus).toBe('reconnecting');
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2000);
+      });
+
+      expect(roomMocks.restore).toHaveBeenCalledTimes(2);
+      expect(result.current.restoreStatus).toBe('ready');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it.each(['membership_missing', 'session_completed'] as const)('rydder lokal state ved %s', async (reason) => {
@@ -194,6 +222,7 @@ describe('SessionProvider', () => {
 
   it('retryer restore ved online-event', async () => {
     storePointer();
+    channelMock.subscribe.mockImplementation(() => channelMock);
     roomMocks.restore
       .mockResolvedValueOnce({ ok: false, reason: 'rpc' })
       .mockResolvedValueOnce({ ok: true, snapshot: snapshot() });
@@ -203,7 +232,7 @@ describe('SessionProvider', () => {
     act(() => window.dispatchEvent(new Event('online')));
 
     await waitFor(() => expect(result.current.restoreStatus).toBe('ready'));
-    expect(roomMocks.restore).toHaveBeenCalledTimes(2);
+    expect(roomMocks.restore.mock.calls.length).toBeGreaterThanOrEqual(2);
   });
 
   it('coalescer session-event under pågående restore til ett nytt kall', async () => {
@@ -365,6 +394,10 @@ describe('SessionProvider', () => {
     const { result } = renderHook(() => useSession(), { wrapper });
     await waitFor(() => expect(result.current.restoreStatus).toBe('ready'));
     const updated = { ...SESSION, current_round: 2 };
+    roomMocks.restore.mockResolvedValue({
+      ok: true,
+      snapshot: { ...snapshot(), session: updated },
+    });
     estimationMocks[serviceMethod].mockResolvedValueOnce({ ok: true, session: updated });
 
     await act(async () => { await result.current[method](); });
@@ -373,6 +406,27 @@ describe('SessionProvider', () => {
     estimationMocks[serviceMethod].mockResolvedValueOnce({ ok: false, reason: 'malformed' });
     await act(async () => { await result.current[method](); });
     expect(result.current.error).toBe(message);
+  });
+
+  it('reconciler servertilstand når next-round-responsen går tapt etter commit', async () => {
+    storePointer();
+    channelMock.subscribe.mockImplementation(() => channelMock);
+    roomMocks.restore
+      .mockResolvedValueOnce({ ok: true, snapshot: snapshot() })
+      .mockResolvedValueOnce({
+        ok: true,
+        snapshot: { ...snapshot(), session: { ...SESSION, current_round: 2, votes_revealed: false } },
+      });
+    const { result } = renderHook(() => useSession(), { wrapper });
+    await waitFor(() => expect(result.current.restoreStatus).toBe('ready'));
+    estimationMocks.next.mockResolvedValueOnce({ ok: false, reason: 'rpc' });
+
+    let mutationResult;
+    await act(async () => { mutationResult = await result.current.nextRound(); });
+
+    expect(roomMocks.restore).toHaveBeenCalledTimes(2);
+    expect(result.current.session?.current_round).toBe(2);
+    expect(mutationResult).toEqual({ ok: true });
   });
 
   it('claim, cast og retract anvender validerte service-resultater', async () => {
@@ -399,11 +453,12 @@ describe('SessionProvider', () => {
     roomMocks.restore.mockResolvedValueOnce({ ok: true, snapshot: snapshot() });
     const { result } = renderHook(() => useSession(), { wrapper });
     await waitFor(() => expect(result.current.restoreStatus).toBe('ready'));
+    const restoreCallsBeforeCast = roomMocks.restore.mock.calls.length;
     estimationMocks.cast.mockResolvedValueOnce({ ok: false, reason: 'identity' });
 
     await act(async () => { await result.current.castVote({ size: 'm', value: 'gold' }); });
 
-    expect(roomMocks.restore).toHaveBeenCalledTimes(1);
+    expect(roomMocks.restore).toHaveBeenCalledTimes(restoreCallsBeforeCast);
   });
 
   it.each(['claim', 'cast', 'retract'] as const)('ignorerer stale %s-resultat etter logout', async (operation) => {
@@ -453,6 +508,22 @@ describe('SessionProvider', () => {
 
   it('refetcher ved reconnectet realtime-kanal', async () => {
     storePointer();
+    roomMocks.restore.mockResolvedValue({ ok: true, snapshot: snapshot() });
+    renderHook(() => useSession(), { wrapper });
+    await waitFor(() => expect(roomMocks.restore.mock.calls.length).toBeGreaterThanOrEqual(2));
+    const callsBeforeReconnect = roomMocks.restore.mock.calls.length;
+
+    act(() => channelMock.trigger('SUBSCRIBED'));
+
+    await waitFor(() => expect(roomMocks.restore.mock.calls.length).toBeGreaterThan(callsBeforeReconnect));
+  });
+
+  it('reconciler også når den første realtime-subscriptionen blir klar', async () => {
+    storePointer();
+    channelMock.subscribe.mockImplementation((callback: (status: string) => void) => {
+      channelMock.trigger = (status: string) => callback(status);
+      return channelMock;
+    });
     roomMocks.restore.mockResolvedValue({ ok: true, snapshot: snapshot() });
     renderHook(() => useSession(), { wrapper });
     await waitFor(() => expect(roomMocks.restore).toHaveBeenCalledTimes(1));

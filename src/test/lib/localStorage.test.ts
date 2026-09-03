@@ -158,4 +158,33 @@ describe('session storage', () => {
     expect(getOrCreateCreateRequestId()).toBe('11111111-1111-4111-8111-111111111111');
     expect(localStorage.getItem(CREATE_REQUEST_ID_STORAGE_KEY)).toBe('11111111-1111-4111-8111-111111111111');
   });
+
+  it('faller tilbake til minne når browser storage er blokkert', () => {
+    vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => { throw new DOMException('blocked'); });
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new DOMException('blocked'); });
+    vi.spyOn(Storage.prototype, 'removeItem').mockImplementation(() => { throw new DOMException('blocked'); });
+    vi.spyOn(crypto, 'randomUUID').mockReturnValue('33333333-3333-4333-8333-333333333333');
+
+    writeSessionPointer({
+      version: 2,
+      activityType: 'estimation',
+      participantId: 'participant-memory',
+      sessionId: 'session-memory',
+      name: 'Minne',
+      role: 'participant',
+    });
+
+    expect(readSessionPointer()).toMatchObject({ sessionId: 'session-memory' });
+    expect(getOrCreateCreateRequestId()).toBe('33333333-3333-4333-8333-333333333333');
+    expect(getOrCreateCreateRequestId()).toBe('33333333-3333-4333-8333-333333333333');
+  });
+
+  it('leser minnefallback når bare storage-skriving treffer kvoten', () => {
+    clearCreateRequestId();
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new DOMException('quota'); });
+    vi.spyOn(crypto, 'randomUUID').mockReturnValue('44444444-4444-4444-8444-444444444444');
+
+    expect(getOrCreateCreateRequestId()).toBe('44444444-4444-4444-8444-444444444444');
+    expect(getOrCreateCreateRequestId()).toBe('44444444-4444-4444-8444-444444444444');
+  });
 });

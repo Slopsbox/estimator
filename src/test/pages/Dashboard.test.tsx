@@ -22,6 +22,7 @@ let mockLocalParticipant: LocalParticipant | null = null;
 let mockLoading = false;
 let mockError: string | null = null;
 let mockRestoreStatus = 'ready';
+let mockActivityType: 'estimation' | 'health_check' = 'estimation';
 
 const mockCreateSession = vi.fn();
 const mockStartSession = vi.fn<() => Promise<{ ok: true } | { ok: false; message: string }>>();
@@ -33,6 +34,7 @@ const mockLogout = vi.fn();
 vi.mock('../../hooks/useSession', () => ({
   useSession: () => ({
     session: mockSession,
+    activityType: mockActivityType,
     localParticipant: mockLocalParticipant,
     loading: mockLoading,
     error: mockError,
@@ -162,6 +164,7 @@ beforeEach(() => {
   mockLoading = false;
   mockError = null;
   mockRestoreStatus = 'ready';
+  mockActivityType = 'estimation';
   mockParticipants = [];
   mockRoundParticipants = [];
   mockPresentParticipantIds = new Set();
@@ -191,6 +194,17 @@ beforeEach(() => {
 // 1. Opprett-sesjon-form
 // ═════════════════════════════════════════════════════════════════════════════
 describe('DashboardPage – opprett sesjon (ingen sesjon/fasilitator)', () => {
+  it('viser estimeringsoppretting uten å koble health-rommet til estimeringsvisningen', () => {
+    mockActivityType = 'health_check';
+    mockSession = { ...BASE_SESSION, activity_type: 'health_check' };
+    mockLocalParticipant = FACILITATOR_PARTICIPANT;
+
+    renderDashboard();
+
+    expect(screen.getByRole('heading', { name: /opprett sesjon/i })).toBeVisible();
+    expect(screen.queryByText('ABCD')).not.toBeInTheDocument();
+  });
+
   it('viser reconnect-status i stedet for create-form når cached identity finnes', () => {
     mockSession = null;
     mockLocalParticipant = FACILITATOR_PARTICIPANT;
@@ -360,7 +374,7 @@ describe('DashboardPage – etter start (session.started === true)', () => {
     rerender(<MemoryRouter><DashboardPage /></MemoryRouter>);
     expect(screen.getByRole('alert')).toHaveTextContent(/kunne ikke hente data/i);
     expect(screen.getByRole('button', { name: /vis resultater/i })).toBeDisabled();
-    expect(screen.getByRole('button', { name: /avslutt/i })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Avslutt' })).toBeEnabled();
   });
 
   it('10. etter reveal: viser stemmer med størrelse og medalje', () => {
@@ -431,7 +445,7 @@ describe('DashboardPage – avslutt', () => {
 
     renderDashboard();
 
-    await user.click(screen.getByRole('button', { name: /avslutt/i }));
+    await user.click(screen.getByRole('button', { name: 'Avslutt' }));
 
     await waitFor(() => {
       expect(mockEndSession).toHaveBeenCalledTimes(1);
@@ -440,13 +454,26 @@ describe('DashboardPage – avslutt', () => {
     confirmSpy.mockRestore();
   });
 
+  it('tilbakeknappen avslutter sesjonen før den navigerer bort', async () => {
+    const user = userEvent.setup();
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    mockEndSession.mockResolvedValue({ ok: true });
+    renderDashboard();
+
+    await user.click(screen.getByRole('button', { name: 'Avslutt sesjon og gå tilbake' }));
+
+    await waitFor(() => expect(mockEndSession).toHaveBeenCalledOnce());
+    expect(mockLogout).toHaveBeenCalledOnce();
+    expect(mockNavigate).toHaveBeenCalledWith('/');
+  });
+
   it('logger ikke ut eller navigerer når avslutting av sesjon feiler', async () => {
     const user = userEvent.setup();
     mockEndSession.mockResolvedValue({ ok: false, message: 'Kunne ikke avslutte sesjonen. Prøv igjen.' });
     const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
 
     renderDashboard();
-    await user.click(screen.getByRole('button', { name: /avslutt/i }));
+    await user.click(screen.getByRole('button', { name: 'Avslutt' }));
 
     await waitFor(() => expect(mockEndSession).toHaveBeenCalledTimes(1));
     expect(mockLogout).not.toHaveBeenCalled();
@@ -462,7 +489,7 @@ describe('DashboardPage – avslutt', () => {
 
     renderDashboard();
 
-    await user.click(screen.getByRole('button', { name: /avslutt/i }));
+    await user.click(screen.getByRole('button', { name: 'Avslutt' }));
 
     expect(mockEndSession).not.toHaveBeenCalled();
 
