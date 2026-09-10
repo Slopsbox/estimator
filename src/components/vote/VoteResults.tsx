@@ -2,6 +2,7 @@ import { PriorityMatrix } from '../PriorityMatrix';
 import { SpreadOMeter } from '../SpreadOMeter';
 import { NavyPageLayout } from '../NavyPageLayout';
 import { SIZE_ORDER, VALUE_MEDAL, VALUES } from '../../lib/constants';
+import { requiresReestimation } from '../../lib/spreadOMeter';
 import type { LocalParticipant, Size, Value, Vote } from '../../lib/types';
 
 interface VoteResultsProps {
@@ -47,9 +48,13 @@ export function VoteResults({
     (a, b) => SIZE_ORDER[a.size as Size] - SIZE_ORDER[b.size as Size],
   );
 
-  // Konsensus-deteksjon
+  const needsReestimation = requiresReestimation(uniqueVotes);
+
+  // Konsensus gjelder størrelsen, men undertrykkes ved stor verdiuenighet.
   const uniqueSizes = new Set(uniqueVotes.map((v) => v.size));
-  const hasConsensus = uniqueVotes.length > 0 && uniqueSizes.size === 1;
+  const hasConsensus = uniqueVotes.length > 0
+    && uniqueSizes.size === 1
+    && !needsReestimation;
   const consensusSize = hasConsensus ? [...uniqueSizes][0] : null;
 
   const roundBadge = currentRound !== undefined ? (
@@ -103,7 +108,7 @@ export function VoteResults({
         )}
 
         {/* Konsensus-streak badge */}
-        {consensusStreak >= 2 && (
+        {!needsReestimation && consensusStreak >= 2 && (
           <div
             className="flex items-center justify-center gap-2 px-4 py-2 animate-slideIn"
             style={{
@@ -118,6 +123,11 @@ export function VoteResults({
               {consensusStreak} runder med konsensus!
             </span>
           </div>
+        )}
+
+        {/* Teamets risikovurdering */}
+        {uniqueVotes.length > 0 && (
+          <SpreadOMeter votes={uniqueVotes} />
         )}
 
         {/* Stemmekort */}
@@ -160,13 +170,8 @@ export function VoteResults({
           })}
         </div>
 
-        {/* SpreadOMeter */}
-        {uniqueVotes.length > 0 && (
-          <SpreadOMeter votes={uniqueVotes} />
-        )}
-
         {/* Prioriteringsanbefaling */}
-        {uniqueVotes.length > 0 && (
+        {uniqueVotes.length > 0 && !needsReestimation && (
           <PriorityMatrix votes={uniqueVotes} />
         )}
 

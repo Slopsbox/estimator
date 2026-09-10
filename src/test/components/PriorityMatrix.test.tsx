@@ -22,7 +22,7 @@ describe('calculateMatrix', () => {
 
   it('"Gjør nå" – grenseverdi: score xs=1, s=2, snitt=1.5 (lav), gold=3 (høy)', () => {
     const result = calculateMatrix([vote('xs', 'gold'), vote('s', 'gold')]);
-    // avgEffort = (1+2)/2 = 1.5 ≤ 2.5, avgValue = 3 > 2 → do-now
+    // avgEffort = (1+2)/2 = 1.5 ≤ 2.5, avgValue = 3 ≥ 2.5 → do-now
     expect(result?.quadrant).toBe('do-now');
   });
 
@@ -33,7 +33,7 @@ describe('calculateMatrix', () => {
 
   it('"Planlegg" – grenseverdi: m=3 (høy innsats), gold=3 (høy verdi)', () => {
     const result = calculateMatrix([vote('m', 'gold')]);
-    // avgEffort = 3 > 2.5, avgValue = 3 > 2 → plan
+    // avgEffort = 3 > 2.5, avgValue = 3 ≥ 2.5 → plan
     expect(result?.quadrant).toBe('plan');
   });
 
@@ -42,10 +42,21 @@ describe('calculateMatrix', () => {
     expect(result?.quadrant).toBe('quick-win');
   });
 
-  it('"Gjør raskt" – silver + s (avgValue=2 ≤ 2, avgEffort=2 ≤ 2.5)', () => {
+  it('"Gjør raskt" – silver + s (middels verdi og lav innsats)', () => {
     const result = calculateMatrix([vote('s', 'silver')]);
-    // silver=2, threshold=2, 2 > 2 = false → lav verdi; effort=2 ≤ 2.5 → quick-win
+    // Sølv er middels verdi, men lav innsats gjør dette fortsatt til en quick win.
     expect(result?.quadrant).toBe('quick-win');
+  });
+
+  it('behandler et Sølv-lignende verdisnitt som middels verdi', () => {
+    const result = calculateMatrix([
+      vote('m', 'silver'),
+      vote('m', 'silver'),
+      vote('m', 'gold'),
+    ]);
+    expect(result?.avgValue).toBeCloseTo(2.33, 2);
+    expect(result?.valueLabel).toBe('🥈 Sølv');
+    expect(result?.quadrant).toBe('discuss');
   });
 
   it('"Unngå" – lav verdi + høy innsats (bronze + xl)', () => {
@@ -53,13 +64,21 @@ describe('calculateMatrix', () => {
     expect(result?.quadrant).toBe('avoid');
   });
 
+  it.each<Size>(['m', 'l', 'xl'])(
+    '"Diskuter" – middels verdi og %s innsats',
+    (size) => {
+      const result = calculateMatrix([vote(size, 'silver')]);
+      expect(result?.quadrant).toBe('discuss');
+    },
+  );
+
   it('beregner gjennomsnitt korrekt for flere stemmer', () => {
     // xs(1) + xl(5) = snitt 3; gold(3) + bronze(1) = snitt 2
     const result = calculateMatrix([vote('xs', 'gold'), vote('xl', 'bronze')]);
     expect(result?.avgEffort).toBe(3);
     expect(result?.avgValue).toBe(2);
-    // avgValue=2, 2 > 2 = false → lav verdi; avgEffort=3 > 2.5 → høy innsats → avoid
-    expect(result?.quadrant).toBe('avoid');
+    // Snittet er M + Sølv og skal derfor diskuteres, ikke unngås.
+    expect(result?.quadrant).toBe('discuss');
   });
 
   it('størrelseslabel beregnes korrekt', () => {
@@ -88,7 +107,7 @@ describe('calculateMatrix', () => {
     // s=2, m=3 → snitt 2.5 → ≤ 2.5 → lav innsats
     const result = calculateMatrix([vote('s', 'gold'), vote('m', 'gold')]);
     expect(result?.avgEffort).toBe(2.5);
-    expect(result?.quadrant).toBe('do-now'); // gold(3) > 2 → høy verdi; 2.5 ≤ 2.5 → lav innsats
+    expect(result?.quadrant).toBe('do-now'); // gold(3) ≥ 2.5 → høy verdi; 2.5 ≤ 2.5 → lav innsats
   });
 });
 
@@ -107,7 +126,7 @@ describe('PriorityMatrix', () => {
   });
 
   it('viser "Planlegg" for høy verdi + høy innsats', () => {
-    render(<PriorityMatrix votes={[vote('xl', 'gold')]} />);
+    render(<PriorityMatrix votes={[vote('l', 'gold')]} />);
     expect(screen.getByText('📋 Planlegg')).toBeInTheDocument();
     expect(screen.getByText('Høy verdi, høy innsats')).toBeInTheDocument();
   });
@@ -118,10 +137,38 @@ describe('PriorityMatrix', () => {
     expect(screen.getByText('Lav verdi, lav innsats')).toBeInTheDocument();
   });
 
+  it('omtaler Sølv som middels verdi ved lav innsats', () => {
+    render(<PriorityMatrix votes={[vote('s', 'silver')]} />);
+    expect(screen.getByText('Middels verdi, lav innsats')).toBeInTheDocument();
+  });
+
   it('viser "Unngå" for lav verdi + høy innsats', () => {
-    render(<PriorityMatrix votes={[vote('xl', 'bronze')]} />);
+    render(<PriorityMatrix votes={[vote('l', 'bronze')]} />);
     expect(screen.getByText('❌ Unngå')).toBeInTheDocument();
     expect(screen.getByText('Lav verdi, høy innsats')).toBeInTheDocument();
+  });
+
+  it('viser "Verdt en prat" for M + Sølv', () => {
+    render(<PriorityMatrix votes={[vote('m', 'silver')]} />);
+    expect(screen.getByText('💬 Verdt en prat')).toBeInTheDocument();
+    expect(
+      screen.getByText('Middels verdi og potensielt stor innsats. Bør diskuteres.'),
+    ).toBeInTheDocument();
+  });
+
+  it('anbefaler oppdeling for XL + Sølv', () => {
+    render(<PriorityMatrix votes={[vote('xl', 'silver')]} />);
+    expect(
+      screen.getByText('Svært stor innsats med middels verdi. Diskuter og vurder å dele opp.'),
+    ).toBeInTheDocument();
+  });
+
+  it.each([
+    ['gold', 'Høy verdi og svært stor innsats. Planlegg og vurder å dele opp.'],
+    ['bronze', 'Lav verdi og svært stor innsats. Unngå eller vurder å dele opp.'],
+  ] as const)('anbefaler oppdeling for XL + %s', (value, description) => {
+    render(<PriorityMatrix votes={[vote('xl', value)]} />);
+    expect(screen.getByText(description)).toBeInTheDocument();
   });
 
   it('viser gjennomsnitt-badge med størrelse og verdi', () => {

@@ -4,7 +4,7 @@
 begin;
 
 create extension if not exists pgtap with schema extensions;
-select extensions.plan(76);
+select extensions.plan(77);
 
 insert into auth.users (id, aud, role, email, created_at, updated_at)
 values
@@ -832,6 +832,37 @@ select extensions.is(
   ),
   '0',
   'next_round excludes inactive memberships'
+);
+
+reset role;
+insert into public.sessions (
+  id, status, current_round, join_code, votes_revealed, started,
+  consensus_streak, facilitator_user_id, create_request_id, activity_type
+) values (
+  '60000000-0000-0000-0000-000000000001', 'active', 1, 'RISK', false, true,
+  3, '10000000-0000-0000-0000-000000000001',
+  '60000000-0000-0000-0000-000000000002', 'estimation'
+);
+insert into public.participants (id, session_id, name, role, user_id)
+values
+  ('60000000-0000-0000-0000-000000000003', '60000000-0000-0000-0000-000000000001', 'Risk Fac', 'facilitator', '10000000-0000-0000-0000-000000000001'),
+  ('60000000-0000-0000-0000-000000000004', '60000000-0000-0000-0000-000000000001', 'Risk A', 'participant', '10000000-0000-0000-0000-000000000002'),
+  ('60000000-0000-0000-0000-000000000005', '60000000-0000-0000-0000-000000000001', 'Risk B', 'participant', '10000000-0000-0000-0000-000000000003');
+insert into public.round_participants (session_id, round, participant_id)
+values
+  ('60000000-0000-0000-0000-000000000001', 1, '60000000-0000-0000-0000-000000000004'),
+  ('60000000-0000-0000-0000-000000000001', 1, '60000000-0000-0000-0000-000000000005');
+insert into public.votes (session_id, participant_id, round, size, value)
+values
+  ('60000000-0000-0000-0000-000000000001', '60000000-0000-0000-0000-000000000004', 1, 'm', 'bronze'),
+  ('60000000-0000-0000-0000-000000000001', '60000000-0000-0000-0000-000000000005', 1, 'm', 'gold');
+
+set local role authenticated;
+select set_config('request.jwt.claim.sub', '10000000-0000-0000-0000-000000000001', true);
+select extensions.ok(
+  not (public.reveal_votes('60000000-0000-0000-0000-000000000001')->>'consensus')::boolean
+  and (select consensus_streak from public.sessions where id = '60000000-0000-0000-0000-000000000001') = 0,
+  'bronze-to-gold value spread resets consensus despite equal sizes'
 );
 
 select * from extensions.finish();

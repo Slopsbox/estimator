@@ -276,10 +276,17 @@ describe('VoteResults', () => {
     expect(screen.queryByText(/Runde/)).not.toBeInTheDocument();
   });
 
-  it('viser konsensus-banner ved konsensus', () => {
+  it('viser størrelseskonsensus ved liten verdiforskjell', () => {
     const votes = [makeVote('p-1', 'm', 'gold'), makeVote('p-2', 'm', 'silver')];
     render(<VoteResults {...defaultProps} votes={votes} />);
     expect(screen.getByText(/Konsensus — alle stemte M!/i)).toBeInTheDocument();
+  });
+
+  it('viser ikke konsensus ved stor uenighet om verdi', () => {
+    const votes = [makeVote('p-1', 'm', 'gold'), makeVote('p-2', 'm', 'bronze')];
+    render(<VoteResults {...defaultProps} votes={votes} />);
+    expect(screen.queryByText(/Konsensus/)).not.toBeInTheDocument();
+    expect(screen.getByText('Ulik risikovurdering!')).toBeInTheDocument();
   });
 
   it('viser IKKE konsensus-banner uten konsensus', () => {
@@ -330,10 +337,11 @@ describe('VoteResults', () => {
     expect(screen.queryByText('Din stemme')).not.toBeInTheDocument();
   });
 
-  it('viser SpreadOMeter ved range > 0 (minst 2 ulike størrelser)', () => {
+  it('viser risikovurdering ved ulike stemmer og skjuler usikker prioritering', () => {
     const votes = [makeVote('p-1', 'xs', 'gold'), makeVote('p-2', 'xl', 'silver')];
     render(<VoteResults {...defaultProps} votes={votes} />);
-    expect(screen.getByRole('region', { name: /havtilstand/i })).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: /teamets risikovurdering/i })).toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: /prioriteringsanbefaling/i })).not.toBeInTheDocument();
   });
 
   it('viser PriorityMatrix når stemmer finnes', () => {
@@ -356,7 +364,10 @@ describe('VoteResults', () => {
       />,
     );
     // Henter alle stemmekort-tekster i rekkefølge
-    const items = screen.getAllByText(/^(XS|S|M|L|XL)$/).map((el) => el.textContent);
+    const items = screen
+      .getAllByText(/^(XS|S|M|L|XL)$/)
+      .filter((element) => element.classList.contains('tracking-wide'))
+      .map((element) => element.textContent);
     expect(items).toEqual(['XS', 'M', 'XL']);
   });
 });

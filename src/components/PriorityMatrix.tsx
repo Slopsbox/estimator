@@ -36,6 +36,13 @@ const QUADRANT_CONFIG: Record<Quadrant, QuadrantConfig> = {
     textColor: '#3D3B38',
     badgeBackground: '#C8D8EE',
   },
+  discuss: {
+    label: '💬 Verdt en prat',
+    description: 'Middels verdi og potensielt stor innsats. Bør diskuteres.',
+    background: '#FFF4E0',
+    textColor: '#3D3B38',
+    badgeBackground: '#FFE4A8',
+  },
   avoid: {
     label: '❌ Unngå',
     description: 'Lav verdi, høy innsats',
@@ -44,6 +51,28 @@ const QUADRANT_CONFIG: Record<Quadrant, QuadrantConfig> = {
     badgeBackground: '#FFC2CB',
   },
 };
+
+function getDescription(result: MatrixResult, config: QuadrantConfig): string {
+  if (result.sizeLabel === 'XL') {
+    if (result.quadrant === 'plan') {
+      return 'Høy verdi og svært stor innsats. Planlegg og vurder å dele opp.';
+    }
+    if (result.quadrant === 'avoid') {
+      return 'Lav verdi og svært stor innsats. Unngå eller vurder å dele opp.';
+    }
+  }
+  if (result.quadrant === 'quick-win' && result.avgValue >= 1.5) {
+    return 'Middels verdi, lav innsats';
+  }
+  if (result.quadrant !== 'discuss') return config.description;
+  if (result.sizeLabel === 'XL') {
+    return 'Svært stor innsats med middels verdi. Diskuter og vurder å dele opp.';
+  }
+  if (result.sizeLabel === 'L') {
+    return 'Stor innsats med middels verdi. Avklar om gevinsten forsvarer arbeidet.';
+  }
+  return config.description;
+}
 
 // ── Komponent ──────────────────────────────────────────────
 
@@ -69,6 +98,7 @@ export function PriorityMatrix({ votes }: PriorityMatrixProps) {
   if (!result) return null;
 
   const config = QUADRANT_CONFIG[result.quadrant];
+  const description = getDescription(result, config);
 
   return (
     <div
@@ -90,7 +120,7 @@ export function PriorityMatrix({ votes }: PriorityMatrixProps) {
         className="text-sm text-center"
         style={{ color: config.textColor, opacity: 0.8 }}
       >
-        {config.description}
+        {description}
       </p>
 
       {/* Gjennomsnitt-badge */}

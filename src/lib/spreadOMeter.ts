@@ -1,23 +1,49 @@
 import { SIZE_ORDER } from './constants';
-import type { Size } from './types';
+import type { Size, Value } from './types';
 
-// ── Tilstands-definisjoner ──────────────────────────────────
+const VALUE_ORDER: Record<Value, number> = {
+  bronze: 0,
+  silver: 1,
+  gold: 2,
+};
 
-export type SeaState = 'calm' | 'ripples' | 'choppy' | 'storm' | 'hurricane';
-
-// ── Eksporterte hjelpefunksjoner (for testing) ──────────────
-
-/** Beregn range (max - min) i SIZE_ORDER-enheter fra en stemmeliste. */
-export function calculateRange(votes: Array<{ size: string }>): number {
-  if (votes.length === 0) return 0;
-  const indices = votes.map((v) => SIZE_ORDER[v.size as Size] ?? 0);
-  return Math.max(...indices) - Math.min(...indices);
+export interface DisagreementResult {
+  sizeRange: number;
+  valueRange: number;
+  requiresReestimation: boolean;
 }
 
-/** Bestem havtilstand basert på range. */
-export function rangeToSeaState(range: number): SeaState {
-  if (range === 0) return 'calm';
-  if (range === 1) return 'ripples';
-  if (range <= 3) return range === 2 ? 'choppy' : 'storm';
-  return 'hurricane';
+function calculateScoreRange(scores: number[]): number {
+  if (scores.length === 0) return 0;
+  return Math.max(...scores) - Math.min(...scores);
+}
+
+/** Beregn avstanden mellom laveste og høyeste størrelse. */
+export function calculateRange(votes: Array<{ size: string }>): number {
+  return calculateScoreRange(votes.map((vote) => SIZE_ORDER[vote.size as Size] ?? 0));
+}
+
+/** Beregn avstanden mellom laveste og høyeste verdivurdering. */
+export function calculateValueRange(votes: Array<{ value: string }>): number {
+  return calculateScoreRange(votes.map((vote) => VALUE_ORDER[vote.value as Value] ?? 0));
+}
+
+/** Et sprik på to trinn på én av skalaene krever diskusjon og ny estimering. */
+export function calculateDisagreement(
+  votes: Array<{ size: string; value: string }>,
+): DisagreementResult {
+  const sizeRange = calculateRange(votes);
+  const valueRange = calculateValueRange(votes);
+
+  return {
+    sizeRange,
+    valueRange,
+    requiresReestimation: sizeRange >= 2 || valueRange >= 2,
+  };
+}
+
+export function requiresReestimation(
+  votes: Array<{ size: string; value: string }>,
+): boolean {
+  return calculateDisagreement(votes).requiresReestimation;
 }

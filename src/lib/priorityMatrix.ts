@@ -18,11 +18,12 @@ const VALUE_SCORE: Record<Value, number> = {
 
 // Grenser som definerer kvadrant
 const EFFORT_THRESHOLD = 2.5; // ≤ 2.5 = lav innsats (xs/s)
-const VALUE_THRESHOLD = 2;    // > 2 = høy verdi (gold)
+const VALUE_THRESHOLD = 2.5;  // ≥ 2.5 = høy verdi (avrundes til gull)
+const MEDIUM_VALUE_THRESHOLD = 1.5; // ≥ 1.5 = minst middels verdi
 
 // ── Kvadrant-definisjoner ──────────────────────────────────
 
-export type Quadrant = 'do-now' | 'plan' | 'quick-win' | 'avoid';
+export type Quadrant = 'do-now' | 'plan' | 'quick-win' | 'discuss' | 'avoid';
 
 export interface MatrixResult {
   quadrant: Quadrant;
@@ -58,12 +59,13 @@ function scoreToValueLabel(score: number): string {
 
 /** Bestem kvadrant basert på gjennomsnitt. */
 function determineQuadrant(avgEffort: number, avgValue: number): Quadrant {
-  const isHighValue = avgValue > VALUE_THRESHOLD;
+  const isHighValue = avgValue >= VALUE_THRESHOLD;
   const isLowEffort = avgEffort <= EFFORT_THRESHOLD;
 
   if (isHighValue && isLowEffort) return 'do-now';
   if (isHighValue && !isLowEffort) return 'plan';
   if (!isHighValue && isLowEffort) return 'quick-win';
+  if (avgValue >= MEDIUM_VALUE_THRESHOLD) return 'discuss';
   return 'avoid';
 }
 

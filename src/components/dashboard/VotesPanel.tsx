@@ -2,6 +2,7 @@ import { useMemo } from 'react';
 import { PriorityMatrix } from '../PriorityMatrix';
 import { SpreadOMeter } from '../SpreadOMeter';
 import { VALUE_MEDAL } from '../../lib/constants';
+import { requiresReestimation } from '../../lib/spreadOMeter';
 import type { Participant, Value, Vote } from '../../lib/types';
 import { avatarColor, initials } from '../../lib/utils';
 
@@ -43,6 +44,7 @@ export function VotesPanel({
 }: VotesPanelProps) {
   // Bygg oppslag: participantId → vote (memoisert)
   const voteMap = useMemo(() => new Map(votes.map((v) => [v.participant_id, v])), [votes]);
+  const needsReestimation = revealed && requiresReestimation(votes);
 
 
   return (
@@ -111,10 +113,15 @@ export function VotesPanel({
                 strokeLinejoin="round"
               />
             </svg>
-            Ny runde
+            {needsReestimation ? 'Diskuter og estimer på nytt' : 'Ny runde'}
           </button>
         )}
       </div>
+
+      {/* Teamets risikovurdering – vises etter avsløring */}
+      {revealed && votes.length > 0 && (
+        <SpreadOMeter votes={votes} />
+      )}
 
       {/* Stemmeliste */}
       {participants.length === 0 ? (
@@ -210,13 +217,8 @@ export function VotesPanel({
         </ul>
       )}
 
-      {/* SpreadOMeter – vises etter avsløring */}
-      {revealed && votes.length > 0 && (
-        <SpreadOMeter votes={votes} />
-      )}
-
       {/* Konsensus-streak badge – vises etter avsløring, streak >= 2 */}
-      {revealed && consensusStreak >= 2 && (
+      {revealed && !needsReestimation && consensusStreak >= 2 && (
         <div
           className="flex items-center justify-center gap-2 px-4 py-2 animate-slideIn"
           style={{
@@ -234,7 +236,7 @@ export function VotesPanel({
       )}
 
       {/* Prioriteringsanbefaling – vises etter avsløring */}
-      {revealed && votes.length > 0 && (
+      {revealed && votes.length > 0 && !needsReestimation && (
         <PriorityMatrix votes={votes} />
       )}
     </div>

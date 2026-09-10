@@ -173,8 +173,7 @@ describe('VotesPanel', () => {
     expect(screen.getByRole('button', { name: /ny runde/i })).toBeDisabled();
   });
 
-  it('viser SpreadOMeter etter avsløring når stemmer finnes', () => {
-    // Trenger minst 2 stemmer med ulik størrelse (range > 0) — ved konsensus (range 0) skjules SpreadOMeter
+  it('viser risikovurdering etter avsløring når stemmene er ulike', () => {
     const p = [makeParticipant('1', 'Ola'), makeParticipant('2', 'Kari')];
     const v = [makeVote('1', 'xs', 'gold'), makeVote('2', 'xl', 'silver')];
     render(
@@ -187,7 +186,9 @@ describe('VotesPanel', () => {
         revealed={true}
       />,
     );
-    expect(screen.getByRole('region', { name: /havtilstand/i })).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: /teamets risikovurdering/i })).toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: /prioriteringsanbefaling/i })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /diskuter og estimer på nytt/i })).toBeInTheDocument();
   });
 
   it('viser IKKE SpreadOMeter før avsløring', () => {
@@ -203,7 +204,26 @@ describe('VotesPanel', () => {
         revealed={false}
       />,
     );
-    expect(screen.queryByRole('region', { name: /havtilstand/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: /teamets risikovurdering/i })).not.toBeInTheDocument();
+  });
+
+  it('beholder prioriteringsanbefalingen ved liten forskjell', () => {
+    const p = [makeParticipant('1', 'Ola'), makeParticipant('2', 'Kari')];
+    const v = [makeVote('1', 'm', 'silver'), makeVote('2', 'l', 'silver')];
+    render(
+      <VotesPanel
+        {...defaultProps}
+        participants={p}
+        votes={v}
+        votedCount={2}
+        totalCount={2}
+        revealed={true}
+      />,
+    );
+
+    expect(screen.getByText('Nesten samme risikovurdering')).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: /prioriteringsanbefaling/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /ny runde/i })).toBeInTheDocument();
   });
 
   it('viser streak-badge når consensusStreak >= 2 og revealed er true', () => {
