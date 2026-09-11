@@ -39,6 +39,7 @@ export function SessionProvider({ children }: PropsWithChildren) {
   const [restoreTrigger, setRestoreTrigger] = useState(0);
   const generationRef = useRef(0);
   const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const snapshotSequenceRef = useRef(0);
   const restoreRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const restoreInFlightRef = useRef<Promise<void> | null>(null);
   const restoreRequestedRef = useRef(false);
@@ -74,11 +75,12 @@ export function SessionProvider({ children }: PropsWithChildren) {
       return restoreInFlightRef.current;
     }
     const generation = generationRef.current;
+    const snapshotSequence = ++snapshotSequenceRef.current;
     const attempt = (async () => {
       setConnectionState('connecting');
       try {
         const result = await roomMembership.restore(activePointer.sessionId);
-        if (generation !== generationRef.current) return;
+        if (generation !== generationRef.current || snapshotSequence !== snapshotSequenceRef.current) return;
         if (!result.ok && (result.reason === 'membership_missing' || result.reason === 'session_completed')) {
           clearAppSession('invalid');
           return;
@@ -99,7 +101,7 @@ export function SessionProvider({ children }: PropsWithChildren) {
           restoreRetryTimerRef.current = null;
         }
       } catch {
-        if (generation !== generationRef.current) return;
+        if (generation !== generationRef.current || snapshotSequence !== snapshotSequenceRef.current) return;
         setError(GENERIC_RESTORE_ERROR);
         setRestoreStatus('reconnecting');
         setConnectionState('disconnected');
@@ -210,7 +212,11 @@ export function SessionProvider({ children }: PropsWithChildren) {
     setLoading(true);
     setError(null);
     try {
-      const result = await roomMembership.create(name, storage.getOrCreateCreateRequestId());
+      const requestId = storage.getOrCreateCreateRequestId();
+      let result = await roomMembership.create(name, requestId);
+      if (!result.ok && result.reason === 'rpc') {
+        result = await roomMembership.create(name, requestId);
+      }
       if (generation !== generationRef.current) return null;
       if (!result.ok) throw new Error('create_failed');
       roomMembership.persist(result.snapshot, { clearCreateRequestId: true });
@@ -294,14 +300,23 @@ export function SessionProvider({ children }: PropsWithChildren) {
     setError(null);
     const generation = generationRef.current;
     const previousSession = session;
+    const mutationSequence = ++snapshotSequenceRef.current;
     try {
       const result = await estimation[operation](session);
       if (generation !== generationRef.current) throw new Error('mutation_failed');
-      if (result.ok) setSession(result.session);
+      if (result.ok && mutationSequence === snapshotSequenceRef.current) {
+        setSession(result.session);
+      }
 
-      const restored = await roomMembership.restore(previousSession.id);
+      const reconciliationSequence = ++snapshotSequenceRef.current;
+      let restored = await roomMembership.restore(previousSession.id);
+      if (!result.ok && !restored.ok && restored.reason === 'rpc') {
+        restored = await roomMembership.restore(previousSession.id);
+      }
       if (generation !== generationRef.current) throw new Error('mutation_failed');
-      if (restored.ok) applyMembership(restored.snapshot);
+      if (restored.ok && reconciliationSequence === snapshotSequenceRef.current) {
+        applyMembership(restored.snapshot);
+      }
 
       const reconciledSession = restored.ok ? restored.snapshot.session : result.ok ? result.session : null;
       const operationApplied = (operation === 'end' && !restored.ok && restored.reason === 'session_completed')
@@ -312,6 +327,7 @@ export function SessionProvider({ children }: PropsWithChildren) {
         || (operation === 'end' && previousSession.status !== 'completed' && reconciledSession.status === 'completed')
       ));
       if (!result.ok && !operationApplied) throw new Error('mutation_failed');
+      setError(null);
       return { ok: true };
     } catch {
       if (generation === generationRef.current) setError(message);

@@ -5,6 +5,7 @@ import { VoteForm } from '../components/vote/VoteForm';
 import { VoteResults } from '../components/vote/VoteResults';
 import { VoteWaiting } from '../components/vote/VoteWaiting';
 import { useConfetti } from '../hooks/useConfetti';
+import { requiresReestimation } from '../lib/estimationDecision';
 import { useRealtimeVotes } from '../hooks/useRealtimeVotes';
 import { useSession } from '../hooks/useSession';
 import { useSessionPresence } from '../hooks/useSessionPresence';
@@ -48,7 +49,7 @@ export function VotePage() {
   const claimKeyRef = useRef<string | null>(null);
   const confettiTriggeredRef = useRef(false);
 
-  const { votes, ownVote: realtimeOwnVote, revealed } = useRealtimeVotes(
+  const { votes, ownVote: realtimeOwnVote, revealed, resultsReady } = useRealtimeVotes(
     session?.id ?? null,
     session?.current_round ?? 1,
     session?.votes_revealed ?? false,
@@ -58,12 +59,13 @@ export function VotePage() {
   const effectiveOwnVote = ownVote ?? (suppressRealtimeVote ? null : realtimeOwnVote);
 
   useEffect(() => {
-    if (revealed && effectiveOwnVote && !confettiTriggeredRef.current) {
+    if (resultsReady && votes.length > 0 && effectiveOwnVote
+      && !requiresReestimation(votes) && !confettiTriggeredRef.current) {
       confettiTriggeredRef.current = true;
       triggerConfetti();
     }
     if (!revealed) confettiTriggeredRef.current = false;
-  }, [revealed, effectiveOwnVote, triggerConfetti]);
+  }, [revealed, resultsReady, votes, effectiveOwnVote, triggerConfetti]);
 
   useEffect(() => {
     if (!session || !session.started || session.votes_revealed || roundParticipant) return;
@@ -137,15 +139,16 @@ export function VotePage() {
 
   if (session && !session.started) return <VoteWaiting session={session} name={name} onLeave={() => { void handleLeave(); }} />;
 
+  if (revealed && !resultsReady) {
+    return <div className="min-h-screen flex items-center justify-center">Henter resultater…</div>;
+  }
+
   if (revealed) {
     return (
       <VoteResults
         name={name}
         votes={votes}
-        selectedSize={effectiveOwnVote && isSize(effectiveOwnVote.size) ? effectiveOwnVote.size : null}
-        selectedValue={effectiveOwnVote && isValue(effectiveOwnVote.value) ? effectiveOwnVote.value : null}
-        localParticipant={localParticipant}
-        consensusStreak={session?.consensus_streak ?? 0}
+        ownVote={effectiveOwnVote}
         currentRound={session?.current_round}
         onLeave={() => { void handleLeave(); }}
       />

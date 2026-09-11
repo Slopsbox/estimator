@@ -107,6 +107,7 @@ export function VoteAwaitReveal({
               type="button"
               onClick={onAmalie}
               aria-label="Amalieknappen – endre stemmen din (1 gang per runde)"
+              className="min-h-11 focus-visible:ring-2 focus-visible:ring-[var(--color-navy-700)] focus-visible:ring-offset-2"
               style={{
                 display: 'inline-flex',
                 alignItems: 'center',

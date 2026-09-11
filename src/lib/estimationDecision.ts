@@ -7,7 +7,7 @@ const VALUE_ORDER: Record<Value, number> = {
   gold: 2,
 };
 
-export interface DisagreementResult {
+export interface EstimationDecision {
   sizeRange: number;
   valueRange: number;
   requiresReestimation: boolean;
@@ -31,7 +31,7 @@ export function calculateValueRange(votes: Array<{ value: string }>): number {
 /** Et sprik på to trinn på én av skalaene krever diskusjon og ny estimering. */
 export function calculateDisagreement(
   votes: Array<{ size: string; value: string }>,
-): DisagreementResult {
+): EstimationDecision {
   const sizeRange = calculateRange(votes);
   const valueRange = calculateValueRange(votes);
 

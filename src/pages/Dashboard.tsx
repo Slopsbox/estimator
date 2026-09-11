@@ -24,6 +24,7 @@ export function DashboardPage() {
   const [actionLoading, setActionLoading] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [codeCopied, setCodeCopied] = useState(false);
+  const [copyError, setCopyError] = useState<string | null>(null);
   const estimationSession = activityType === 'estimation' ? session : null;
 
   // Ref for å rydde setTimeout og unngå state-oppdatering etter unmount
@@ -129,15 +130,13 @@ export function DashboardPage() {
     if (!session?.join_code) return;
     try {
       await navigator.clipboard.writeText(session.join_code);
+      setCopyError(null);
       setCodeCopied(true);
       if (copyTimeoutRef.current) clearTimeout(copyTimeoutRef.current);
       copyTimeoutRef.current = setTimeout(() => setCodeCopied(false), 2000);
     } catch {
-      // Clipboard API ikke tilgjengelig – vis "Kopiert!"-indikator som fallback
-      // (koden er allerede synlig på skjermen)
-      setCodeCopied(true);
-      if (copyTimeoutRef.current) clearTimeout(copyTimeoutRef.current);
-      copyTimeoutRef.current = setTimeout(() => setCodeCopied(false), 2000);
+      setCodeCopied(false);
+      setCopyError('Kunne ikke kopiere. Marker koden manuelt.');
     }
   }, [session]);
 
@@ -185,7 +184,7 @@ export function DashboardPage() {
               placeholder="Fasilitators navn"
               maxLength={60}
               autoFocus
-              className="w-full focus:outline-none transition-colors"
+              className="w-full transition-colors focus-visible:ring-2 focus-visible:ring-[var(--color-navy-700)] focus-visible:ring-offset-2"
               style={{
                 height: 52,
                 borderRadius: 12,
@@ -213,7 +212,7 @@ export function DashboardPage() {
           <button
             type="submit"
             disabled={!nameInput.trim() || creating || loading}
-            className="w-full font-semibold text-white focus:outline-none transition-opacity"
+            className="w-full font-semibold text-white transition-opacity focus-visible:ring-2 focus-visible:ring-[var(--color-navy-700)] focus-visible:ring-offset-2"
             style={{
               height: 52,
               borderRadius: 12,
@@ -278,7 +277,7 @@ export function DashboardPage() {
     actionLoading={actionLoading || dataActionsDisabled}
     endSessionLoading={actionLoading}
     datasetLoading={datasetLoading}
-    error={actionError ?? datasetError ?? error}
+    error={actionError ?? copyError ?? datasetError ?? error}
     codeCopied={codeCopied}
     joinCodeDots={joinCodeDots}
     handleEndSession={handleEndSession}
@@ -360,18 +359,6 @@ function ActiveDashboardView({
         className="px-4 py-3 flex items-center gap-3"
         style={{ background: 'var(--color-navy-900)' }}
       >
-        <button
-          type="button"
-          onClick={handleEndSession}
-          className="flex items-center justify-center w-9 h-9 rounded-xl transition-colors"
-          style={{ background: 'rgba(255,255,255,.10)', color: 'white' }}
-          aria-label="Avslutt sesjon og gå tilbake"
-        >
-          <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true">
-            <path d="M11 4L6 9l5 5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
-        </button>
-
         <span
           className="text-base font-semibold text-white flex-1"
         >
@@ -394,7 +381,7 @@ function ActiveDashboardView({
           type="button"
           onClick={handleEndSession}
           disabled={endSessionLoading}
-          className="text-xs px-3 py-1.5 font-semibold text-white transition-all focus:outline-none"
+          className="min-h-11 px-3 text-xs font-semibold text-white transition-all focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--color-navy-900)]"
           style={{
             background: 'var(--color-red-600)',
             borderRadius: 'var(--radius-md)',
@@ -457,7 +444,7 @@ function ActiveDashboardView({
           <button
             type="button"
             onClick={handleCopyCode}
-            className="w-full text-center transition-all focus:outline-none"
+            className="w-full text-center transition-all focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--color-navy-900)]"
           >
             <span
               className="text-5xl font-extrabold tracking-[0.25em] text-white block"
@@ -467,6 +454,7 @@ function ActiveDashboardView({
             <span
               className="text-xs mt-1 block"
               style={{ color: codeCopied ? '#A0BADE' : '#7A93B8' }}
+              aria-live="polite"
             >
               {codeCopied ? '✓ Kopiert!' : 'Trykk for å kopiere'}
             </span>
@@ -491,7 +479,6 @@ function ActiveDashboardView({
                 votedCount={votedCount}
                 totalCount={totalCount}
                 actionLoading={actionLoading}
-                consensusStreak={session.consensus_streak}
                 presentParticipantIds={presentParticipantIds}
                 reestimatingParticipantIds={reestimatingParticipantIds}
                 votedParticipantIds={votedParticipantIds}

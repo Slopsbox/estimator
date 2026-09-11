@@ -6,8 +6,10 @@ import { VotePage } from '../../pages/Vote';
 import { LAST_USED_NAME_STORAGE_KEY } from '../../lib/localStorage';
 
 // ── Mock: useConfetti ──────────────────────────────────────────────────────────
+const { mockTriggerConfetti } = vi.hoisted(() => ({ mockTriggerConfetti: vi.fn() }));
+
 vi.mock('../../hooks/useConfetti', () => ({
-  useConfetti: () => ({ triggerConfetti: vi.fn() }),
+  useConfetti: () => ({ triggerConfetti: mockTriggerConfetti }),
 }));
 
 vi.mock('../../lib/supabase', () => ({
@@ -33,6 +35,8 @@ let mockLocalParticipant: Record<string, unknown> | null = null;
 let mockOwnVote: Record<string, unknown> | null = null;
 let mockRoundParticipant: Record<string, unknown> | null = null;
 let mockRealtimeOwnVote: Record<string, unknown> | null = null;
+let mockVotes: Record<string, unknown>[] = [];
+let mockResultsReady = true;
 const mockLogout = vi.fn();
 const mockNavigate = vi.fn();
 const mockCastVote = vi.fn();
@@ -45,7 +49,13 @@ vi.mock('../../hooks/useSessionPresence', () => ({
 }));
 
 vi.mock('../../hooks/useRealtimeVotes', () => ({
-  useRealtimeVotes: () => ({ votes: mockRealtimeOwnVote ? [mockRealtimeOwnVote] : [], ownVote: mockRealtimeOwnVote, revealed: Boolean(mockSession?.votes_revealed), refetch: vi.fn() }),
+  useRealtimeVotes: () => ({
+    votes: mockVotes.length > 0 ? mockVotes : mockRealtimeOwnVote ? [mockRealtimeOwnVote] : [],
+    ownVote: mockRealtimeOwnVote,
+    revealed: Boolean(mockSession?.votes_revealed),
+    resultsReady: mockResultsReady,
+    refetch: vi.fn(),
+  }),
 }));
 
 vi.mock('../../hooks/useSession', () => ({
@@ -98,6 +108,9 @@ describe('VotePage – redirect-logikk', () => {
     mockOwnVote = null;
     mockRoundParticipant = null;
     mockRealtimeOwnVote = null;
+    mockVotes = [];
+    mockResultsReady = true;
+    mockTriggerConfetti.mockReset();
     mockLogout.mockReset();
     mockNavigate.mockReset();
     mockClaimRound.mockReset();
@@ -173,6 +186,9 @@ describe('VotePage – venteskjerm (session.started === false)', () => {
     mockOwnVote = null;
     mockRoundParticipant = null;
     mockRealtimeOwnVote = null;
+    mockVotes = [];
+    mockResultsReady = true;
+    mockTriggerConfetti.mockReset();
   });
 
   it('viser venteskjerm når session.started er false', () => {
@@ -231,6 +247,9 @@ describe('VotePage – stemmeform (session.started === true)', () => {
     mockOwnVote = null;
     mockRoundParticipant = null;
     mockRealtimeOwnVote = null;
+    mockVotes = [];
+    mockResultsReady = true;
+    mockTriggerConfetti.mockReset();
     localStorage.setItem(LAST_USED_NAME_STORAGE_KEY, 'Ola');
     mockSession = {
       id: 'ses-1',
@@ -267,6 +286,46 @@ describe('VotePage – stemmeform (session.started === true)', () => {
     renderVote();
     expect(screen.getByRole('heading', { name: /resultater/i })).toBeInTheDocument();
     expect(screen.queryByText('Din stemme')).not.toBeInTheDocument();
+  });
+
+  it('venter på fullført reveal-refetch før resultat og konfetti vises', () => {
+    mockSession = { ...mockSession, votes_revealed: true };
+    mockOwnVote = { id: 'v-1', session_id: 'ses-1', participant_id: 'p-1', round: 1, size: 'm', value: 'silver', created_at: '' };
+    mockVotes = [mockOwnVote];
+    mockResultsReady = false;
+
+    renderVote();
+
+    expect(screen.getByText('Henter resultater…')).toBeInTheDocument();
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+    expect(mockTriggerConfetti).not.toHaveBeenCalled();
+  });
+
+  it('viser konfetti bare når resultatet er innenfor', async () => {
+    mockSession = { ...mockSession, votes_revealed: true };
+    mockOwnVote = { id: 'v-1', session_id: 'ses-1', participant_id: 'p-1', round: 1, size: 'm', value: 'silver', created_at: '' };
+    mockVotes = [
+      mockOwnVote,
+      { id: 'v-2', session_id: 'ses-1', participant_id: 'p-2', round: 1, size: 'l', value: 'silver', created_at: '' },
+    ];
+
+    renderVote();
+
+    await waitFor(() => expect(mockTriggerConfetti).toHaveBeenCalledOnce());
+  });
+
+  it('viser ikke konfetti når resultatet må re-estimeres', async () => {
+    mockSession = { ...mockSession, votes_revealed: true };
+    mockOwnVote = { id: 'v-1', session_id: 'ses-1', participant_id: 'p-1', round: 1, size: 's', value: 'silver', created_at: '' };
+    mockVotes = [
+      mockOwnVote,
+      { id: 'v-2', session_id: 'ses-1', participant_id: 'p-2', round: 1, size: 'l', value: 'silver', created_at: '' },
+    ];
+
+    renderVote();
+    await act(async () => { await Promise.resolve(); });
+
+    expect(mockTriggerConfetti).not.toHaveBeenCalled();
   });
 
   it('går rett til venteskjerm når restore har en eksisterende stemme', () => {
@@ -353,6 +412,10 @@ describe('VotePage – Amalieknappen', () => {
     mockInitialized = true;
     mockNavigate.mockReset();
     mockOwnVote = null;
+    mockVotes = [];
+    mockResultsReady = true;
+    mockRealtimeOwnVote = null;
+    mockTriggerConfetti.mockReset();
     mockCastVote.mockReset();
     mockCastVote.mockImplementation(async ({ size, value }) => {
       mockOwnVote = { id: 'vote-1', session_id: 'ses-1', participant_id: 'p-1', round: 1, size, value, created_at: '' };

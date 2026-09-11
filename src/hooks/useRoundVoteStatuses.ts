@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { supabase } from '../lib/supabase';
+import { rpcWithAuthRecovery } from '../lib/supabase';
 
 export interface RoundVoteStatus {
   participant_id: string;
@@ -37,7 +37,7 @@ export function useRoundVoteStatuses(sessionId: string | null, round: number, en
     if (inFlightRef.current?.scope === requestScope) return inFlightRef.current.promise;
     const requestSequence = ++requestSequenceRef.current;
     const promise = (async () => {
-      const result = await supabase.rpc('get_round_vote_statuses', { p_session_id: sessionId, p_round: round });
+      const result = await rpcWithAuthRecovery('get_round_vote_statuses', { p_session_id: sessionId, p_round: round });
       if (scopeRef.current !== requestScope || requestSequence !== requestSequenceRef.current) return;
       const parsed = result.error ? null : parseStatuses(result.data);
       if (!parsed) {

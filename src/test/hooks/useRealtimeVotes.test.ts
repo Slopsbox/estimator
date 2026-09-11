@@ -171,6 +171,40 @@ describe('useRealtimeVotes', () => {
     await waitFor(() => expect(result.current.ownVote?.participant_id).toBe('participant-own'));
   });
 
+  it('markerer ikke reveal-resultatet som klart før den autoritative refetchen er ferdig', async () => {
+    chainable.then.mockImplementation((resolve: (result: { data: Vote[]; error: null }) => void) => {
+      resolve({ data: [makeVote()], error: null });
+      return Promise.resolve();
+    });
+
+    const { result } = renderHook(() => useRealtimeVotes(SESSION_ID, CURRENT_ROUND, true));
+
+    await waitFor(() => expect(result.current.resultsReady).toBe(true));
+    expect(result.current.votes).toHaveLength(1);
+  });
+
+  it('venter på køet reveal-refetch når en eldre fetch allerede pågår', async () => {
+    const resolvers: Array<(result: { data: Vote[]; error: null }) => void> = [];
+    chainable.then.mockImplementation((resolve: (result: { data: Vote[]; error: null }) => void) => {
+      resolvers.push(resolve);
+      return Promise.resolve();
+    });
+    const { result, rerender } = renderHook(
+      ({ revealed }) => useRealtimeVotes(SESSION_ID, CURRENT_ROUND, revealed),
+      { initialProps: { revealed: false } },
+    );
+    await waitFor(() => expect(resolvers).toHaveLength(1));
+
+    rerender({ revealed: true });
+    await act(async () => resolvers[0]({ data: [makeVote()], error: null }));
+    await waitFor(() => expect(resolvers).toHaveLength(2));
+    expect(result.current.resultsReady).toBe(false);
+
+    await act(async () => resolvers[1]({ data: [makeVote(), makeVote({ id: 'vote-2' })], error: null }));
+    await waitFor(() => expect(result.current.resultsReady).toBe(true));
+    expect(result.current.votes).toHaveLength(2);
+  });
+
   it('beholder votes ved CLOSED mens samme scope reconnecter', async () => {
     vi.useFakeTimers();
     try {

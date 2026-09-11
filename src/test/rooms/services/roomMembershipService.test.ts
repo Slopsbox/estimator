@@ -340,6 +340,13 @@ describe('roomMembershipService', () => {
     await expect(service.join('ABCD', 'Kari')).resolves.toEqual({ ok: false, reason: 'malformed' });
   });
 
+  it('klassifiserer vedvarende utløpt JWT som identitetsfeil', async () => {
+    rpc.mockResolvedValueOnce({ data: null, error: { code: 'PGRST303' } });
+
+    await expect(service.create('Ola', 'request-1'))
+      .resolves.toEqual({ ok: false, reason: 'identity' });
+  });
+
   it('leave validerer status og normaliserer feil', async () => {
     rpc.mockResolvedValueOnce({ data: { status: 'ok' }, error: null });
     await expect(service.leave(SESSION.id)).resolves.toEqual({ ok: true });

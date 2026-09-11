@@ -9,20 +9,20 @@ import {
   writeLastUsedName,
   writeSessionPointer,
 } from '../lib/localStorage';
-import { ensureAnonymousIdentity, supabase } from '../lib/supabase';
+import { ensureAnonymousIdentity, rpcWithAuthRecovery, supabase } from '../lib/supabase';
 import type { RpcClient } from '../platform/supabase/rpcClient';
 import { createRoomMembershipService } from '../rooms/services/roomMembershipService';
 
 const rpc: RpcClient = {
   rpc: async (name, args) => {
-    const result = await supabase.rpc(name, args);
+    const result = await rpcWithAuthRecovery(name, args);
     return { data: result.data, error: result.error };
   },
 };
 
 const healthRpc: HealthCheckRpcPort = {
   rpc: async (name, args) => {
-    const result = await supabase.rpc(name, args);
+    const result = await rpcWithAuthRecovery(name, args);
     return {
       data: result.data,
       error: result.error ? { code: result.error.code } : null,

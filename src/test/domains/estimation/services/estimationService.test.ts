@@ -156,4 +156,10 @@ describe('estimationService', () => {
     rpc.mockRejectedValueOnce(new Error('network detail'));
     await expect(service.start(SESSION)).resolves.toEqual({ ok: false, reason: 'rpc' });
   });
+
+  it('klassifiserer vedvarende utløpt JWT som identitetsfeil', async () => {
+    rpc.mockResolvedValueOnce({ data: null, error: { code: 'PGRST303' } });
+
+    await expect(service.next(SESSION)).resolves.toEqual({ ok: false, reason: 'identity' });
+  });
 });

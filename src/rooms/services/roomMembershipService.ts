@@ -8,7 +8,7 @@ import type {
   Vote,
 } from '../../lib/types';
 import type { Database } from '../../lib/database.types';
-import type { RpcClient } from '../../platform/supabase/rpcClient';
+import { isExpiredJwtError, type RpcClient } from '../../platform/supabase/rpcClient';
 import {
   hasOwn,
   isRecord,
@@ -204,7 +204,9 @@ export function createRoomMembershipService({
     if (await identityFailure()) return { reason: 'identity' };
     try {
       const result = await rpc.rpc(name, args);
-      return result.error ? { reason: 'rpc' } : { data: result.data };
+      return result.error
+        ? { reason: isExpiredJwtError(result.error) ? 'identity' : 'rpc' }
+        : { data: result.data };
     } catch {
       return { reason: 'rpc' };
     }

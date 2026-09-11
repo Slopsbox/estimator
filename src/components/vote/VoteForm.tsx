@@ -134,7 +134,7 @@ function SizeButton({ sizeKey, label, isSelected, submitting, onSelect, onInfo }
       disabled={submitting}
       aria-pressed={isSelected}
       aria-label={`Størrelse ${label}`}
-      className="flex-1 py-3 font-bold text-sm focus:outline-none"
+      className="flex-1 py-3 font-bold text-sm focus-visible:ring-2 focus-visible:ring-[var(--color-navy-700)] focus-visible:ring-offset-2"
       style={{
         borderRadius: 8,
         border: `1.5px solid ${isSelected ? 'transparent' : '#E2E0DC'}`,
@@ -198,7 +198,7 @@ function ValueButton({
       disabled={submitting}
       aria-pressed={isSelected}
       aria-label={`Verdi ${label}`}
-      className="flex-1 flex flex-col items-center py-4 focus:outline-none"
+      className="flex-1 flex flex-col items-center py-4 focus-visible:ring-2 focus-visible:ring-[var(--color-navy-700)] focus-visible:ring-offset-2"
       style={{
         minHeight: 100,
         borderRadius: 12,
@@ -374,7 +374,7 @@ export function VoteForm({
             type="button"
             onClick={onVote}
             disabled={!canVote || submitting}
-            className="w-full font-bold text-white text-base transition-all focus:outline-none"
+            className="w-full font-bold text-white text-base transition-all focus-visible:ring-2 focus-visible:ring-[var(--color-navy-700)] focus-visible:ring-offset-2"
             style={{
               height: 52,
               borderRadius: 12,

@@ -13,14 +13,15 @@ describe('BottomSheet', () => {
     expect(screen.getByText('Sheet-innhold')).toBeInTheDocument();
   });
 
-  it('rendrer children også når isOpen=false (men er usynlig)', () => {
+  it('rendrer ikke dialog eller skjulte kontroller når isOpen=false', () => {
     render(
       <BottomSheet isOpen={false} onClose={vi.fn()}>
         <p>Skjult innhold</p>
       </BottomSheet>,
     );
-    // DOM-noden er der, men translateY(100%) gjør den usynlig
-    expect(screen.getByText('Skjult innhold')).toBeInTheDocument();
+    expect(screen.queryByText('Skjult innhold')).not.toBeInTheDocument();
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Lukk' })).not.toBeInTheDocument();
   });
 
   it('har role="dialog" og aria-modal="true"', () => {
@@ -32,6 +33,7 @@ describe('BottomSheet', () => {
     const dialog = screen.getByRole('dialog');
     expect(dialog).toBeInTheDocument();
     expect(dialog).toHaveAttribute('aria-modal', 'true');
+    expect(dialog).toHaveAccessibleName('Informasjon om estimat');
   });
 
   it('kaller onClose ved klikk på "Lukk"-knappen', async () => {
@@ -94,20 +96,33 @@ describe('BottomSheet', () => {
     expect(screen.getByRole('button', { name: 'Lukk' })).toBeInTheDocument();
   });
 
-  it('setter translateY(0) ved isOpen=true og translateY(100%) ved false', () => {
+  it('returnerer fokus til elementet som åpnet arket', async () => {
+    const trigger = document.createElement('button');
+    document.body.appendChild(trigger);
+    trigger.focus();
     const { rerender } = render(
       <BottomSheet isOpen={true} onClose={vi.fn()}>
         <p>Test</p>
       </BottomSheet>,
     );
-    const dialog = screen.getByRole('dialog');
-    expect(dialog).toHaveStyle({ transform: 'translateY(0)' });
+    expect(screen.getByRole('button', { name: 'Lukk' })).toHaveFocus();
 
     rerender(
       <BottomSheet isOpen={false} onClose={vi.fn()}>
         <p>Test</p>
       </BottomSheet>,
     );
-    expect(dialog).toHaveStyle({ transform: 'translateY(100%)' });
+    expect(trigger).toHaveFocus();
+    trigger.remove();
+  });
+
+  it('setter translateY(0) ved isOpen=true', () => {
+    render(
+      <BottomSheet isOpen={true} onClose={vi.fn()}>
+        <p>Test</p>
+      </BottomSheet>,
+    );
+    const dialog = screen.getByRole('dialog');
+    expect(dialog).toHaveStyle({ transform: 'translateY(0)' });
   });
 });

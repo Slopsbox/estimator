@@ -1,8 +1,8 @@
 import { useMemo } from 'react';
+import { EstimationResultStatus } from '../EstimationResultStatus';
 import { PriorityMatrix } from '../PriorityMatrix';
-import { SpreadOMeter } from '../SpreadOMeter';
 import { VALUE_MEDAL } from '../../lib/constants';
-import { requiresReestimation } from '../../lib/spreadOMeter';
+import { requiresReestimation } from '../../lib/estimationDecision';
 import type { Participant, Value, Vote } from '../../lib/types';
 import { avatarColor, initials } from '../../lib/utils';
 
@@ -13,19 +13,11 @@ export interface VotesPanelProps {
   votedCount: number;
   totalCount: number;
   actionLoading: boolean;
-  consensusStreak: number;
   presentParticipantIds?: ReadonlySet<string>;
   reestimatingParticipantIds?: ReadonlySet<string>;
   votedParticipantIds?: ReadonlySet<string>;
   onReveal: () => void;
   onNextRound: () => void;
-}
-
-/** Returner riktig antall flamme-emojier for streaken. */
-function streakFlames(streak: number): string {
-  if (streak >= 6) return '🔥🔥🔥';
-  if (streak >= 4) return '🔥🔥';
-  return '🔥';
 }
 
 export function VotesPanel({
@@ -35,7 +27,6 @@ export function VotesPanel({
   votedCount,
   totalCount,
   actionLoading,
-  consensusStreak,
   presentParticipantIds,
   reestimatingParticipantIds,
   votedParticipantIds,
@@ -68,7 +59,7 @@ export function VotesPanel({
             type="button"
             onClick={onReveal}
             disabled={actionLoading || votedCount === 0}
-            className="w-full py-3 font-semibold text-white text-sm transition-all focus:outline-none"
+            className="w-full py-3 font-semibold text-white text-sm transition-all focus-visible:ring-2 focus-visible:ring-[var(--color-navy-700)] focus-visible:ring-offset-2"
             style={{
               borderRadius: 'var(--radius-md)',
               background:
@@ -86,7 +77,7 @@ export function VotesPanel({
             type="button"
             onClick={onNextRound}
             disabled={actionLoading}
-            className="w-full py-3 font-semibold text-sm transition-all focus:outline-none flex items-center justify-center gap-2"
+            className="w-full py-3 font-semibold text-sm transition-all focus-visible:ring-2 focus-visible:ring-[var(--color-navy-700)] focus-visible:ring-offset-2 flex items-center justify-center gap-2"
             style={{
               borderRadius: 'var(--radius-md)',
               background: 'transparent',
@@ -113,14 +104,14 @@ export function VotesPanel({
                 strokeLinejoin="round"
               />
             </svg>
-            {needsReestimation ? 'Diskuter og estimer på nytt' : 'Ny runde'}
+            {needsReestimation ? 'Estimer på nytt' : 'Ny runde'}
           </button>
         )}
       </div>
 
-      {/* Teamets risikovurdering – vises etter avsløring */}
+      {/* Én konklusjon før stemmelisten. */}
       {revealed && votes.length > 0 && (
-        <SpreadOMeter votes={votes} />
+        <EstimationResultStatus votes={votes} />
       )}
 
       {/* Stemmeliste */}
@@ -215,24 +206,6 @@ export function VotesPanel({
             );
           })}
         </ul>
-      )}
-
-      {/* Konsensus-streak badge – vises etter avsløring, streak >= 2 */}
-      {revealed && !needsReestimation && consensusStreak >= 2 && (
-        <div
-          className="flex items-center justify-center gap-2 px-4 py-2 animate-slideIn"
-          style={{
-            background: 'linear-gradient(135deg, #CC8000 0%, #C8002D 100%)',
-            borderRadius: 'var(--radius-full)',
-          }}
-          role="status"
-          aria-label={`Konsensus-streak: ${consensusStreak} runder`}
-        >
-          <span className="text-lg">{streakFlames(consensusStreak)}</span>
-          <span className="text-sm font-bold text-white">
-            {consensusStreak} runder med konsensus!
-          </span>
-        </div>
       )}
 
       {/* Prioriteringsanbefaling – vises etter avsløring */}

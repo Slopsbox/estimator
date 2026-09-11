@@ -50,39 +50,37 @@ export function useSupabaseRealtimeCollection<T>({
       refetchRequestedRef.current = true;
       return refetchInFlightRef.current.promise;
     }
-    refetchRequestedRef.current = false;
     const generation = generationRef.current;
-    const eventRevision = eventRevisionRef.current;
     const attempt = (async () => {
-      const result = await fetchCollection();
-      if (generation !== generationRef.current) return;
-      if (result.error) {
-        setError('Kunne ikke oppdatere data. Prøv igjen.');
-        if (!fetchRetryTimerRef.current) {
-          fetchRetryTimerRef.current = setTimeout(() => {
-            fetchRetryTimerRef.current = undefined;
-            void refetchCollection();
-          }, 2000);
+      do {
+        refetchRequestedRef.current = false;
+        const eventRevision = eventRevisionRef.current;
+        const result = await fetchCollection();
+        if (generation !== generationRef.current) return;
+        if (result.error) {
+          setError('Kunne ikke oppdatere data. Prøv igjen.');
+          if (!fetchRetryTimerRef.current) {
+            fetchRetryTimerRef.current = setTimeout(() => {
+              fetchRetryTimerRef.current = undefined;
+              void refetchCollection();
+            }, 2000);
+          }
+          return;
         }
-        return;
-      }
-      if (eventRevision !== eventRevisionRef.current) {
-        refetchRequestedRef.current = true;
-        return;
-      }
-      if (result.data) setItems(result.data);
-      setError(null);
-      setLoading(false);
-      if (fetchRetryTimerRef.current) {
-        clearTimeout(fetchRetryTimerRef.current);
-        fetchRetryTimerRef.current = undefined;
-      }
+        if (eventRevision !== eventRevisionRef.current) {
+          refetchRequestedRef.current = true;
+          continue;
+        }
+        if (result.data) setItems(result.data);
+        setError(null);
+        setLoading(false);
+        if (fetchRetryTimerRef.current) {
+          clearTimeout(fetchRetryTimerRef.current);
+          fetchRetryTimerRef.current = undefined;
+        }
+      } while (refetchRequestedRef.current && generation === generationRef.current);
     })().finally(() => {
       if (refetchInFlightRef.current?.promise === attempt) refetchInFlightRef.current = null;
-      if (refetchRequestedRef.current && generation === generationRef.current) {
-        refetchRequestedRef.current = false;
-        queueMicrotask(() => { void refetchCollection(); });
-      }
     });
     refetchInFlightRef.current = { scope: requestScope, promise: attempt };
     return attempt;

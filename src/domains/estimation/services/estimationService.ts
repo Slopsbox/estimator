@@ -1,6 +1,6 @@
 import type { LocalParticipant, Session, VoteSubmission } from '../../../lib/types';
 import { isRecord, parseRoundParticipant, parseSession, parseVote } from '../../../platform/supabase/rpcRowParsers';
-import type { RpcClient } from '../../../platform/supabase/rpcClient';
+import { isExpiredJwtError, type RpcClient } from '../../../platform/supabase/rpcClient';
 
 export type EstimationRpcClient = RpcClient;
 
@@ -25,7 +25,9 @@ export function createEstimationService({
     }
     try {
       const result = await rpc.rpc(name, args);
-      return result.error ? { reason: 'rpc' } : { data: result.data };
+      return result.error
+        ? { reason: isExpiredJwtError(result.error) ? 'identity' : 'rpc' }
+        : { data: result.data };
     } catch {
       return { reason: 'rpc' };
     }

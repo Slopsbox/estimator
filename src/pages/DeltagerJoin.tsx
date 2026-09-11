@@ -115,7 +115,7 @@ export function DeltagerJoinPage() {
             placeholder="Skriv inn ditt navn"
             maxLength={60}
             autoFocus
-            className="w-full focus:outline-none transition-colors"
+            className="w-full transition-colors focus-visible:ring-2 focus-visible:ring-[var(--color-navy-700)] focus-visible:ring-offset-2"
             style={{
               height: 52,
               borderRadius: 12,
@@ -161,7 +161,7 @@ export function DeltagerJoinPage() {
             placeholder="– – – –"
             className={[
               'w-full text-center font-extrabold transition-colors',
-              'focus:outline-none',
+              'focus-visible:ring-2 focus-visible:ring-[var(--color-navy-700)] focus-visible:ring-offset-2',
               shaking ? 'animate-shake' : '',
             ].join(' ')}
             style={{
@@ -201,7 +201,7 @@ export function DeltagerJoinPage() {
         <button
           type="submit"
           disabled={!canSubmit || loading}
-          className="w-full font-semibold text-white focus:outline-none transition-opacity"
+          className="w-full font-semibold text-white transition-opacity focus-visible:ring-2 focus-visible:ring-[var(--color-navy-700)] focus-visible:ring-offset-2"
           style={{
             height: 52,
             borderRadius: 12,

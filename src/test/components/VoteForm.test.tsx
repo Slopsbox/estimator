@@ -125,7 +125,8 @@ describe('VoteForm', () => {
     const user = userEvent.setup();
     await user.click(screen.getByRole('button', { name: 'Lukk' }));
 
-    expect(dialog).toHaveStyle({ transform: 'translateY(100%)' });
+    expect(dialog).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Lukk' })).not.toBeInTheDocument();
   });
 
   it('viser feilmelding ved submitError', () => {

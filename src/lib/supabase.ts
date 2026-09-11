@@ -1,6 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import type { User } from '@supabase/supabase-js';
 import type { Database } from './database.types';
+import { isExpiredJwtError } from '../platform/supabase/rpcClient';
 
 const supabaseUrl =
   (import.meta.env.VITE_SUPABASE_URL as string | undefined) ?? 'http://localhost:54321';
@@ -52,4 +53,20 @@ export async function getAccessToken(): Promise<string> {
     throw new Error('Kunne ikke opprette sikker identitet. Prøv igjen.');
   }
   return data.session.access_token;
+}
+
+/** Forny en utløpt JWT og gjenta RPC-en én gang. Andre feil retries ikke. */
+export async function rpcWithAuthRecovery<
+  Name extends keyof Database['public']['Functions'],
+>(
+  name: Name,
+  args: Database['public']['Functions'][Name]['Args'],
+) {
+  const first = await supabase.rpc(name, args);
+  if (!isExpiredJwtError(first.error)) return first;
+
+  const refreshed = await supabase.auth.refreshSession();
+  if (refreshed.error || !refreshed.data.session) return first;
+
+  return supabase.rpc(name, args);
 }

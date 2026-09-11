@@ -454,17 +454,10 @@ describe('DashboardPage – avslutt', () => {
     confirmSpy.mockRestore();
   });
 
-  it('tilbakeknappen avslutter sesjonen før den navigerer bort', async () => {
-    const user = userEvent.setup();
-    vi.spyOn(window, 'confirm').mockReturnValue(true);
-    mockEndSession.mockResolvedValue({ ok: true });
+  it('viser bare én avsluttkontroll', () => {
     renderDashboard();
-
-    await user.click(screen.getByRole('button', { name: 'Avslutt sesjon og gå tilbake' }));
-
-    await waitFor(() => expect(mockEndSession).toHaveBeenCalledOnce());
-    expect(mockLogout).toHaveBeenCalledOnce();
-    expect(mockNavigate).toHaveBeenCalledWith('/');
+    expect(screen.getAllByRole('button', { name: 'Avslutt' })).toHaveLength(1);
+    expect(screen.queryByRole('button', { name: 'Avslutt sesjon og gå tilbake' })).not.toBeInTheDocument();
   });
 
   it('logger ikke ut eller navigerer når avslutting av sesjon feiler', async () => {

@@ -140,6 +140,37 @@ describe('HealthCheckDashboardPage', () => {
     expect(await screen.findByRole('heading', { name: 'Deltakerstatus' })).toBeVisible();
   });
 
+  it('shows copied feedback only after Clipboard API succeeds', async () => {
+    const user = userEvent.setup();
+    const writeText = vi.spyOn(navigator.clipboard, 'writeText').mockResolvedValue(undefined);
+    mocks.session = SESSION;
+    mocks.localParticipant = FACILITATOR;
+    mocks.activityType = 'health_check';
+    mocks.getState.mockResolvedValue({ ok: true, value: LOBBY_STATE });
+    render(<MemoryRouter><HealthCheckDashboardPage /></MemoryRouter>);
+
+    const copy = await screen.findByRole('button', { name: 'Kopier deltakerkode' });
+    await user.click(copy);
+
+    expect(writeText).toHaveBeenCalledWith('ABCD');
+    expect(screen.getByText('Kopiert!')).toBeVisible();
+  });
+
+  it('shows a copy error instead of false success when Clipboard API fails', async () => {
+    const user = userEvent.setup();
+    vi.spyOn(navigator.clipboard, 'writeText').mockRejectedValueOnce(new Error('denied'));
+    mocks.session = SESSION;
+    mocks.localParticipant = FACILITATOR;
+    mocks.activityType = 'health_check';
+    mocks.getState.mockResolvedValue({ ok: true, value: LOBBY_STATE });
+    render(<MemoryRouter><HealthCheckDashboardPage /></MemoryRouter>);
+
+    await user.click(await screen.findByRole('button', { name: 'Kopier deltakerkode' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Kunne ikke kopiere');
+    expect(screen.queryByText('Kopiert!')).not.toBeInTheDocument();
+  });
+
   it('polls real progress and performs terminal finalize only once', async () => {
     const user = userEvent.setup();
     mocks.session = SESSION;

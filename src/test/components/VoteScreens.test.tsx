@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { VoteWaiting } from '../../components/vote/VoteWaiting';
 import { VoteAwaitReveal } from '../../components/vote/VoteAwaitReveal';
 import { VoteResults } from '../../components/vote/VoteResults';
-import type { Session, Vote, LocalParticipant } from '../../lib/types';
+import type { Session, Vote } from '../../lib/types';
 
 // ── Hjelpere ────────────────────────────────────────────────
 
@@ -39,13 +39,6 @@ function makeVote(
     created_at: new Date().toISOString(),
   };
 }
-
-const localParticipant: LocalParticipant = {
-  participantId: 'p-1',
-  sessionId: 'ses-1',
-  name: 'Ola',
-  role: 'participant',
-};
 
 // ── VoteWaiting ─────────────────────────────────────────────
 
@@ -233,10 +226,7 @@ describe('VoteResults', () => {
   const defaultProps = {
     name: 'Ola',
     votes: [] as Vote[],
-    selectedSize: null,
-    selectedValue: null,
-    localParticipant: null,
-    consensusStreak: 0,
+    ownVote: null as Vote | null,
   };
 
   it('viser "Resultater!" header', () => {
@@ -244,21 +234,9 @@ describe('VoteResults', () => {
     expect(screen.getByText('Resultater!')).toBeInTheDocument();
   });
 
-  it('viser antall stemmer (flertall)', () => {
-    const votes = [makeVote('p-1'), makeVote('p-2')];
-    render(<VoteResults {...defaultProps} votes={votes} />);
-    expect(screen.getByText('2 stemmer avlagt')).toBeInTheDocument();
-  });
-
-  it('viser antall stemmer (entall)', () => {
-    const votes = [makeVote('p-1')];
-    render(<VoteResults {...defaultProps} votes={votes} />);
-    expect(screen.getByText('1 stemme avlagt')).toBeInTheDocument();
-  });
-
-  it('viser 0 stemmer avlagt ved tom liste', () => {
-    render(<VoteResults {...defaultProps} />);
-    expect(screen.getByText('0 stemmer avlagt')).toBeInTheDocument();
+  it('gjentar ikke antall stemmer i toppen', () => {
+    render(<VoteResults {...defaultProps} votes={[makeVote('p-1'), makeVote('p-2')]} />);
+    expect(screen.queryByText(/stemmer? avlagt/i)).not.toBeInTheDocument();
   });
 
   it('viser "Deltager" header-label', () => {
@@ -276,98 +254,105 @@ describe('VoteResults', () => {
     expect(screen.queryByText(/Runde/)).not.toBeInTheDocument();
   });
 
-  it('viser størrelseskonsensus ved liten verdiforskjell', () => {
+  it('viser én kompakt godkjent-status ved liten forskjell', () => {
     const votes = [makeVote('p-1', 'm', 'gold'), makeVote('p-2', 'm', 'silver')];
     render(<VoteResults {...defaultProps} votes={votes} />);
-    expect(screen.getByText(/Konsensus — alle stemte M!/i)).toBeInTheDocument();
+    expect(screen.getByRole('status')).toHaveTextContent('Dette er innenfor');
+    expect(screen.queryByText(/Konsensus/)).not.toBeInTheDocument();
   });
 
-  it('viser ikke konsensus ved stor uenighet om verdi', () => {
+  it('ber teamet ta en prat ved stor uenighet om verdi', () => {
     const votes = [makeVote('p-1', 'm', 'gold'), makeVote('p-2', 'm', 'bronze')];
     render(<VoteResults {...defaultProps} votes={votes} />);
-    expect(screen.queryByText(/Konsensus/)).not.toBeInTheDocument();
-    expect(screen.getByText('Ulik risikovurdering!')).toBeInTheDocument();
+    expect(screen.getByRole('status')).toHaveTextContent('Her må vi ta en prat og estimere på nytt');
   });
 
-  it('viser IKKE konsensus-banner uten konsensus', () => {
-    const votes = [makeVote('p-1', 'm', 'gold'), makeVote('p-2', 'l', 'silver')];
+  it('ber teamet ta en prat ved minst to størrelsestrinn', () => {
+    const votes = [makeVote('p-1', 's', 'silver'), makeVote('p-2', 'l', 'silver')];
     render(<VoteResults {...defaultProps} votes={votes} />);
-    expect(screen.queryByText(/Konsensus/)).not.toBeInTheDocument();
+    expect(screen.getByRole('status')).toHaveTextContent('Her må vi ta en prat og estimere på nytt');
   });
 
-  it('viser streak-badge ved consensusStreak >= 2', () => {
-    const votes = [makeVote('p-1', 'm', 'gold')];
-    render(<VoteResults {...defaultProps} votes={votes} consensusStreak={2} />);
-    expect(screen.getByText(/2 runder med konsensus!/)).toBeInTheDocument();
-  });
-
-  it('viser IKKE streak-badge ved consensusStreak < 2', () => {
-    const votes = [makeVote('p-1', 'm', 'gold')];
-    render(<VoteResults {...defaultProps} votes={votes} consensusStreak={1} />);
+  it('viser ikke konsensus-streak', () => {
+    render(<VoteResults {...defaultProps} votes={[makeVote('p-1', 'm', 'gold')]} />);
     expect(screen.queryByText(/runder med konsensus/)).not.toBeInTheDocument();
   });
 
-  it('markerer egen stemme med "Din"-badge', () => {
-    const votes = [makeVote('p-1', 'm', 'gold'), makeVote('p-2', 'l', 'silver')];
+  it('viser egen stemme én gang og filtrerer den fra andre stemmer', () => {
+    const ownVote = makeVote('p-1', 'm', 'gold');
+    const votes = [ownVote, makeVote('p-2', 'l', 'silver')];
     render(
       <VoteResults
         {...defaultProps}
         votes={votes}
-        localParticipant={localParticipant}
-      />,
-    );
-    expect(screen.getByText('Din')).toBeInTheDocument();
-  });
-
-  it('viser "Din stemme"-reminder ved valgt størrelse og verdi', () => {
-    render(
-      <VoteResults
-        {...defaultProps}
-        selectedSize="m"
-        selectedValue="gold"
-        votes={[makeVote('p-1', 'm', 'gold')]}
+        ownVote={ownVote}
       />,
     );
     expect(screen.getByText('Din stemme')).toBeInTheDocument();
-    expect(screen.getByText(/M · 🥇 Gull/)).toBeInTheDocument();
+    expect(screen.getByText('M · 🥇 Gull')).toBeInTheDocument();
+    expect(screen.getAllByText(/M · 🥇 Gull/)).toHaveLength(1);
+    expect(screen.getByRole('region', { name: 'Din stemme' })).toHaveStyle({
+      background: 'var(--color-red-600)',
+      color: 'rgb(255, 255, 255)',
+    });
+    expect(screen.getByRole('list', { name: /andre stemmer/i })).toHaveTextContent('L · 🥈 Sølv');
+    expect(screen.getByRole('list', { name: /andre stemmer/i })).not.toHaveTextContent('M · 🥇 Gull');
   });
 
-  it('viser IKKE "Din stemme"-reminder uten valg', () => {
+  it('bruker ownVote-ID til filtrering selv uten separat deltakeridentitet', () => {
+    const ownVote = makeVote('p-1', 'm', 'gold');
+    render(
+      <VoteResults
+        {...defaultProps}
+        ownVote={ownVote}
+        votes={[ownVote, makeVote('p-2', 'm', 'gold')]}
+      />,
+    );
+    expect(screen.getByText('Din stemme')).toBeInTheDocument();
+    expect(screen.getAllByText(/M · 🥇 Gull/)).toHaveLength(2);
+    expect(screen.getByRole('list', { name: /andre stemmer/i }).querySelectorAll('li')).toHaveLength(1);
+  });
+
+  it('viser IKKE "Din stemme" uten egen stemme', () => {
     render(<VoteResults {...defaultProps} />);
     expect(screen.queryByText('Din stemme')).not.toBeInTheDocument();
   });
 
-  it('viser risikovurdering ved ulike stemmer og skjuler usikker prioritering', () => {
+  it('viser ingen fordelingsmodul eller prioriteringsanbefaling', () => {
     const votes = [makeVote('p-1', 'xs', 'gold'), makeVote('p-2', 'xl', 'silver')];
     render(<VoteResults {...defaultProps} votes={votes} />);
-    expect(screen.getByRole('region', { name: /teamets risikovurdering/i })).toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: /teamets risikovurdering/i })).not.toBeInTheDocument();
     expect(screen.queryByRole('region', { name: /prioriteringsanbefaling/i })).not.toBeInTheDocument();
   });
 
-  it('viser PriorityMatrix når stemmer finnes', () => {
-    const votes = [makeVote('p-1', 'xs', 'gold')];
-    render(<VoteResults {...defaultProps} votes={votes} />);
-    expect(screen.getByRole('region', { name: /prioriteringsanbefaling/i })).toBeInTheDocument();
-  });
-
-  it('sorterer stemmer etter størrelse (xs, s, m, l, xl)', () => {
+  it('sorterer bare andre stemmer etter størrelse', () => {
+    const ownVote = makeVote('p-1', 'xs', 'gold');
     const votes = [
       makeVote('p-3', 'xl', 'bronze'),
-      makeVote('p-1', 'xs', 'gold'),
+      ownVote,
       makeVote('p-2', 'm', 'silver'),
     ];
     render(
       <VoteResults
         {...defaultProps}
         votes={votes}
-        localParticipant={localParticipant}
+        ownVote={ownVote}
       />,
     );
-    // Henter alle stemmekort-tekster i rekkefølge
-    const items = screen
-      .getAllByText(/^(XS|S|M|L|XL)$/)
-      .filter((element) => element.classList.contains('tracking-wide'))
-      .map((element) => element.textContent);
-    expect(items).toEqual(['XS', 'M', 'XL']);
+    const items = screen.getByRole('list', { name: /andre stemmer/i })
+      .querySelectorAll('li');
+    expect([...items].map((item) => item.textContent)).toEqual(['M · 🥈 Sølv', 'XL · 🥉 Bronse']);
+  });
+
+  it('viser tomtilstand når ingen andre har stemt', () => {
+    const ownVote = makeVote('p-1', 'm', 'gold');
+    render(
+      <VoteResults
+        {...defaultProps}
+        votes={[ownVote]}
+        ownVote={ownVote}
+      />,
+    );
+    expect(screen.getByText('Ingen andre stemmer.')).toBeInTheDocument();
   });
 });

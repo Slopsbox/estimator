@@ -65,7 +65,7 @@ export function PreStartPanel({ participants, presentParticipantIds = new Set(),
         type="button"
         onClick={onStart}
         disabled={actionLoading}
-        className="w-full py-4 font-bold text-white text-base transition-all focus:outline-none"
+        className="w-full py-4 font-bold text-white text-base transition-all focus-visible:ring-2 focus-visible:ring-[var(--color-navy-700)] focus-visible:ring-offset-2"
         style={{
           borderRadius: 'var(--radius-md)',
           background: actionLoading

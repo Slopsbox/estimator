@@ -24,6 +24,8 @@ export function useRealtimeVotes(
   participantId?: string,
 ) {
   const [revealed, setRevealed] = useState(initialRevealed);
+  const [readyRevealScope, setReadyRevealScope] = useState<string | null>(null);
+  const revealScope = sessionId && initialRevealed ? `${sessionId}:${currentRound}` : null;
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -64,12 +66,19 @@ export function useRealtimeVotes(
   });
 
   useEffect(() => {
-    if (initialRevealed) void refetch();
-  }, [initialRevealed, refetch]);
+    if (!revealScope) return;
+    let active = true;
+    void Promise.resolve(refetch()).finally(() => {
+      if (active) setReadyRevealScope(revealScope);
+    });
+    return () => { active = false; };
+  }, [refetch, revealScope]);
 
   const ownVote = participantId
     ? votes.find((vote) => vote.participant_id === participantId) ?? null
     : null;
 
-  return { votes, ownVote, loading, error, connectionState, refetch, revealed, setRevealed };
+  const resultsReady = revealed && readyRevealScope === revealScope && !loading && error === null;
+
+  return { votes, ownVote, loading, error, connectionState, refetch, revealed, resultsReady, setRevealed };
 }

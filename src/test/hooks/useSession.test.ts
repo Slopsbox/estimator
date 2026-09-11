@@ -282,6 +282,20 @@ describe('SessionProvider', () => {
     expect(result.current.session).toEqual(SESSION);
   });
 
+  it('retryer idempotent create automatisk når første respons går tapt', async () => {
+    roomMocks.create
+      .mockResolvedValueOnce({ ok: false, reason: 'rpc' })
+      .mockResolvedValueOnce({ ok: true, snapshot: snapshot() });
+    const { result } = renderHook(() => useSession(), { wrapper });
+
+    await act(async () => { await result.current.createSession('Ola'); });
+
+    expect(roomMocks.create).toHaveBeenNthCalledWith(1, 'Ola', 'request-1');
+    expect(roomMocks.create).toHaveBeenNthCalledWith(2, 'Ola', 'request-1');
+    expect(result.current.session).toEqual(SESSION);
+    expect(result.current.error).toBeNull();
+  });
+
   it('createHealthCheck genererer levering, committer health-pointer og rydder request-ID', async () => {
     const healthSnapshot = snapshot('health_check');
     roomMocks.createHealth.mockResolvedValueOnce({ ok: true, snapshot: healthSnapshot });
@@ -427,6 +441,96 @@ describe('SessionProvider', () => {
     expect(roomMocks.restore).toHaveBeenCalledTimes(2);
     expect(result.current.session?.current_round).toBe(2);
     expect(mutationResult).toEqual({ ok: true });
+  });
+
+  it('reconciler next round uten nytt brukerklikk når første restore også feiler', async () => {
+    storePointer();
+    channelMock.subscribe.mockImplementation(() => channelMock);
+    roomMocks.restore
+      .mockResolvedValueOnce({ ok: true, snapshot: snapshot() })
+      .mockResolvedValueOnce({ ok: false, reason: 'rpc' })
+      .mockResolvedValueOnce({
+        ok: true,
+        snapshot: { ...snapshot(), session: { ...SESSION, current_round: 2, votes_revealed: false } },
+      });
+    const { result } = renderHook(() => useSession(), { wrapper });
+    await waitFor(() => expect(result.current.restoreStatus).toBe('ready'));
+    estimationMocks.next.mockResolvedValueOnce({ ok: false, reason: 'rpc' });
+
+    let mutationResult;
+    await act(async () => { mutationResult = await result.current.nextRound(); });
+
+    expect(roomMocks.restore).toHaveBeenCalledTimes(3);
+    expect(result.current.session?.current_round).toBe(2);
+    expect(mutationResult).toEqual({ ok: true });
+    expect(result.current.error).toBeNull();
+  });
+
+  it('lar ikke en eldre bakgrunnsrestore overskrive en nyere runde', async () => {
+    storePointer();
+    channelMock.subscribe.mockImplementation(() => channelMock);
+    roomMocks.restore.mockResolvedValueOnce({ ok: true, snapshot: snapshot() });
+    const { result } = renderHook(() => useSession(), { wrapper });
+    await waitFor(() => expect(result.current.restoreStatus).toBe('ready'));
+
+    let resolveOldRestore!: (value: { ok: true; snapshot: ReturnType<typeof snapshot> }) => void;
+    roomMocks.restore
+      .mockReturnValueOnce(new Promise((resolve) => { resolveOldRestore = resolve; }))
+      .mockResolvedValueOnce({
+        ok: true,
+        snapshot: { ...snapshot(), session: { ...SESSION, current_round: 2, votes_revealed: false } },
+      });
+    const updateHandler = channelMock.on.mock.calls.find((call) => call[1].event === 'UPDATE')?.[2];
+    act(() => updateHandler?.());
+    await waitFor(() => expect(roomMocks.restore).toHaveBeenCalledTimes(2));
+
+    estimationMocks.next.mockResolvedValueOnce({
+      ok: true,
+      session: { ...SESSION, current_round: 2, votes_revealed: false },
+    });
+    await act(async () => { await result.current.nextRound(); });
+    await act(async () => resolveOldRestore({ ok: true, snapshot: snapshot() }));
+
+    expect(result.current.session?.current_round).toBe(2);
+  });
+
+  it('lar ikke en eldre mutasjonsrestore overskrive en nyere bakgrunnsrestore', async () => {
+    storePointer();
+    channelMock.subscribe.mockImplementation(() => channelMock);
+    roomMocks.restore.mockResolvedValueOnce({ ok: true, snapshot: snapshot() });
+    const { result } = renderHook(() => useSession(), { wrapper });
+    await waitFor(() => expect(result.current.restoreStatus).toBe('ready'));
+
+    let resolveMutationRestore!: (value: { ok: true; snapshot: ReturnType<typeof snapshot> }) => void;
+    roomMocks.restore
+      .mockReturnValueOnce(new Promise((resolve) => { resolveMutationRestore = resolve; }))
+      .mockResolvedValueOnce({
+        ok: true,
+        snapshot: { ...snapshot(), session: { ...SESSION, current_round: 3, votes_revealed: false } },
+      });
+    estimationMocks.next.mockResolvedValueOnce({
+      ok: true,
+      session: { ...SESSION, current_round: 2, votes_revealed: false },
+    });
+
+    let mutationPromise!: ReturnType<typeof result.current.nextRound>;
+    act(() => { mutationPromise = result.current.nextRound(); });
+    await waitFor(() => expect(roomMocks.restore).toHaveBeenCalledTimes(2));
+
+    const updateHandler = channelMock.on.mock.calls.find((call) => call[1].event === 'UPDATE')?.[2];
+    act(() => updateHandler?.());
+    await waitFor(() => expect(roomMocks.restore).toHaveBeenCalledTimes(3));
+    await waitFor(() => expect(result.current.session?.current_round).toBe(3));
+
+    await act(async () => {
+      resolveMutationRestore({
+        ok: true,
+        snapshot: { ...snapshot(), session: { ...SESSION, current_round: 2, votes_revealed: false } },
+      });
+      await mutationPromise;
+    });
+
+    expect(result.current.session?.current_round).toBe(3);
   });
 
   it('claim, cast og retract anvender validerte service-resultater', async () => {

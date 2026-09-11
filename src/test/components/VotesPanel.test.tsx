@@ -32,7 +32,6 @@ const defaultProps = {
   votedCount: 0,
   totalCount: 0,
   actionLoading: false,
-  consensusStreak: 0,
   onReveal: vi.fn(),
   onNextRound: vi.fn(),
 };
@@ -173,7 +172,7 @@ describe('VotesPanel', () => {
     expect(screen.getByRole('button', { name: /ny runde/i })).toBeDisabled();
   });
 
-  it('viser risikovurdering etter avsløring når stemmene er ulike', () => {
+  it('viser kompakt re-estimeringsstatus etter avsløring', () => {
     const p = [makeParticipant('1', 'Ola'), makeParticipant('2', 'Kari')];
     const v = [makeVote('1', 'xs', 'gold'), makeVote('2', 'xl', 'silver')];
     render(
@@ -186,12 +185,13 @@ describe('VotesPanel', () => {
         revealed={true}
       />,
     );
-    expect(screen.getByRole('region', { name: /teamets risikovurdering/i })).toBeInTheDocument();
+    expect(screen.getByRole('status')).toHaveTextContent('Her må vi ta en prat og estimere på nytt');
+    expect(screen.queryByRole('region', { name: /teamets risikovurdering/i })).not.toBeInTheDocument();
     expect(screen.queryByRole('region', { name: /prioriteringsanbefaling/i })).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /diskuter og estimer på nytt/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /estimer på nytt/i })).toBeInTheDocument();
   });
 
-  it('viser IKKE SpreadOMeter før avsløring', () => {
+  it('viser ikke resultatstatus før avsløring', () => {
     const p = [makeParticipant('1', 'Ola')];
     const v = [makeVote('1', 'xs', 'gold')];
     render(
@@ -221,12 +221,12 @@ describe('VotesPanel', () => {
       />,
     );
 
-    expect(screen.getByText('Nesten samme risikovurdering')).toBeInTheDocument();
+    expect(screen.getByRole('status')).toHaveTextContent('Dette er innenfor');
     expect(screen.getByRole('region', { name: /prioriteringsanbefaling/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /ny runde/i })).toBeInTheDocument();
   });
 
-  it('viser streak-badge når consensusStreak >= 2 og revealed er true', () => {
+  it('viser ikke streak-badge', () => {
     const p = [makeParticipant('1', 'Ola')];
     const v = [makeVote('1', 'm', 'gold')];
     render(
@@ -237,41 +237,6 @@ describe('VotesPanel', () => {
         votedCount={1}
         totalCount={1}
         revealed={true}
-        consensusStreak={3}
-      />,
-    );
-    expect(screen.getByText(/3 runder med konsensus!/)).toBeInTheDocument();
-  });
-
-  it('viser IKKE streak-badge når consensusStreak === 1', () => {
-    const p = [makeParticipant('1', 'Ola')];
-    const v = [makeVote('1', 'm', 'gold')];
-    render(
-      <VotesPanel
-        {...defaultProps}
-        participants={p}
-        votes={v}
-        votedCount={1}
-        totalCount={1}
-        revealed={true}
-        consensusStreak={1}
-      />,
-    );
-    expect(screen.queryByText(/runder med konsensus/)).not.toBeInTheDocument();
-  });
-
-  it('viser IKKE streak-badge når consensusStreak === 0', () => {
-    const p = [makeParticipant('1', 'Ola')];
-    const v = [makeVote('1', 'm', 'gold')];
-    render(
-      <VotesPanel
-        {...defaultProps}
-        participants={p}
-        votes={v}
-        votedCount={1}
-        totalCount={1}
-        revealed={true}
-        consensusStreak={0}
       />,
     );
     expect(screen.queryByText(/runder med konsensus/)).not.toBeInTheDocument();

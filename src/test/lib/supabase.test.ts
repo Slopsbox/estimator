@@ -1,15 +1,20 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { createClientMock, getSessionMock, signInAnonymouslyMock, setAuthMock } = vi.hoisted(() => {
+const { createClientMock, getSessionMock, refreshSessionMock, rpcMock, signInAnonymouslyMock, setAuthMock } = vi.hoisted(() => {
   const getSessionMock = vi.fn();
+  const refreshSessionMock = vi.fn();
+  const rpcMock = vi.fn();
   const signInAnonymouslyMock = vi.fn();
   const setAuthMock = vi.fn();
   return {
     createClientMock: vi.fn(() => ({
-      auth: { getSession: getSessionMock, signInAnonymously: signInAnonymouslyMock },
+      auth: { getSession: getSessionMock, refreshSession: refreshSessionMock, signInAnonymously: signInAnonymouslyMock },
       realtime: { setAuth: setAuthMock },
+      rpc: rpcMock,
     })),
     getSessionMock,
+    refreshSessionMock,
+    rpcMock,
     signInAnonymouslyMock,
     setAuthMock,
   };
@@ -17,7 +22,7 @@ const { createClientMock, getSessionMock, signInAnonymouslyMock, setAuthMock } =
 
 vi.mock('@supabase/supabase-js', () => ({ createClient: createClientMock }));
 
-import { ensureAnonymousIdentity, getAccessToken } from '../../lib/supabase';
+import { ensureAnonymousIdentity, getAccessToken, rpcWithAuthRecovery } from '../../lib/supabase';
 
 const user = { id: 'user-1' };
 
@@ -25,6 +30,8 @@ describe('ensureAnonymousIdentity', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     setAuthMock.mockResolvedValue(undefined);
+    refreshSessionMock.mockReset();
+    rpcMock.mockReset();
   });
 
   it('gjenbruker eksisterende auth-session', async () => {
@@ -85,5 +92,45 @@ describe('ensureAnonymousIdentity', () => {
       .mockResolvedValueOnce({ data: { session: { user, access_token: 'access-token' } }, error: null });
 
     await expect(getAccessToken()).resolves.toBe('access-token');
+  });
+});
+
+describe('rpcWithAuthRecovery', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('fornyer utløpt JWT og gjentar RPC-en én gang', async () => {
+    rpcMock
+      .mockResolvedValueOnce({ data: null, error: { code: 'PGRST303' } })
+      .mockResolvedValueOnce({ data: { status: 'ok' }, error: null });
+    refreshSessionMock.mockResolvedValue({
+      data: { session: { access_token: 'fresh-token' } },
+      error: null,
+    });
+
+    await expect(rpcWithAuthRecovery('next_round', { p_session_id: 'session-1' }))
+      .resolves.toMatchObject({ data: { status: 'ok' }, error: null });
+    expect(refreshSessionMock).toHaveBeenCalledOnce();
+    expect(rpcMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('gjentar ikke andre RPC-feil', async () => {
+    rpcMock.mockResolvedValue({ data: null, error: { code: '42501' } });
+
+    await rpcWithAuthRecovery('next_round', { p_session_id: 'session-1' });
+
+    expect(refreshSessionMock).not.toHaveBeenCalled();
+    expect(rpcMock).toHaveBeenCalledOnce();
+  });
+
+  it('gjentar ikke RPC-en når tokenfornying feiler', async () => {
+    rpcMock.mockResolvedValue({ data: null, error: { code: 'PGRST303' } });
+    refreshSessionMock.mockResolvedValue({ data: { session: null }, error: { message: 'expired' } });
+
+    await rpcWithAuthRecovery('restore_session', { p_session_id: 'session-1' });
+
+    expect(refreshSessionMock).toHaveBeenCalledOnce();
+    expect(rpcMock).toHaveBeenCalledOnce();
   });
 });

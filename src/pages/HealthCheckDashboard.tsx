@@ -40,13 +40,33 @@ export function HealthCheckDashboardPage() {
   const [actionLoading, setActionLoading] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [codeCopied, setCodeCopied] = useState(false);
+  const copyFeedbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [finalizeLocked, setFinalizeLocked] = useState(false);
   const terminalRequestStartedRef = useRef(false);
   const mutationInFlightRef = useRef(false);
   const resultHeadingRef = useRef<HTMLHeadingElement>(null);
   const sessionId = session?.id ?? null;
+  const joinCode = session?.join_code ?? null;
   const participantData = useRealtimeParticipants(healthState?.phase === 'lobby' ? sessionId : null);
   const presence = useSessionPresence(sessionId, localParticipant?.participantId ?? null);
+
+  useEffect(() => () => {
+    if (copyFeedbackTimerRef.current) clearTimeout(copyFeedbackTimerRef.current);
+  }, []);
+
+  const handleCopyCode = useCallback(async () => {
+    if (!joinCode) return;
+    try {
+      await navigator.clipboard.writeText(joinCode);
+      setCodeCopied(true);
+      setActionError(null);
+      if (copyFeedbackTimerRef.current) clearTimeout(copyFeedbackTimerRef.current);
+      copyFeedbackTimerRef.current = setTimeout(() => setCodeCopied(false), 2000);
+    } catch {
+      setCodeCopied(false);
+      setActionError('Kunne ikke kopiere. Marker koden manuelt.');
+    }
+  }, [joinCode]);
 
   const loadState = useCallback(async () => {
     if (!sessionId || result) return;
@@ -262,12 +282,7 @@ export function HealthCheckDashboardPage() {
         members={members}
         actionLoading={actionLoading}
         error={actionError ?? participantData.error}
-        onCopyCode={() => {
-          if (session.join_code && navigator.clipboard) {
-            void navigator.clipboard.writeText(session.join_code).catch(() => undefined);
-          }
-          setCodeCopied(true);
-        }}
+        onCopyCode={() => void handleCopyCode()}
         onStart={() => void handleStart()}
         onRemoveMember={(memberId) => void handleRemove(memberId)}
         onAbort={() => void handleAbort()}
