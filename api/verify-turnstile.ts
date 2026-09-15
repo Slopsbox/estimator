@@ -49,14 +49,21 @@ function createDependencies() {
       return error ? null : data.user?.id ?? null;
     },
     async verifyChallenge(token: string) {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 8_000);
+      try {
       const response = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ secret, response: token }),
+        signal: controller.signal,
       });
       if (!response.ok) return false;
       const result = await response.json() as { success?: boolean };
       return result.success === true;
+      } finally {
+        clearTimeout(timeout);
+      }
     },
     async attest(userId: string) {
       const { data, error } = await serviceClient.rpc('attest_turnstile_for_service', { p_user_id: userId });

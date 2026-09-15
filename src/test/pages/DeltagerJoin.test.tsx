@@ -1,9 +1,18 @@
 import { describe, expect, it, vi } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { DeltagerJoinPage } from '../../pages/DeltagerJoin';
 import { LAST_USED_NAME_STORAGE_KEY } from '../../lib/localStorage';
+
+const { verificationState } = vi.hoisted(() => ({
+  verificationState: { verified: true, verifying: false },
+}));
+vi.mock('../../components/HumanVerification', () => ({
+  HumanVerification: ({ children }: { children: (state: { verified: boolean; verifying: boolean }) => React.ReactNode }) => (
+    <>{children(verificationState)}</>
+  ),
+}));
 
 // Mock useSession – loading styres av mockLoading-flagg for fleksibilitet i tester
 let mockLoading = false;
@@ -45,6 +54,8 @@ describe('DeltagerJoinPage', () => {
     mockRestoreStatus = 'ready';
     mockJoinSession.mockReset();
     mockNavigate.mockReset();
+    verificationState.verified = true;
+    verificationState.verifying = false;
     sessionStorage.clear();
     localStorage.clear();
   });
@@ -95,6 +106,20 @@ describe('DeltagerJoinPage', () => {
     await user.type(screen.getByLabelText(/ditt navn/i), 'Ola');
     await user.type(screen.getByLabelText(/sesjonskode/i), 'ABCD');
     expect(screen.getByRole('button', { name: /bli med/i })).not.toBeDisabled();
+  });
+
+  it('lar skjemaet fylles ut mens verifisering pågår, men venter med join', async () => {
+    verificationState.verified = false;
+    const user = userEvent.setup();
+    render(<MemoryRouter><DeltagerJoinPage /></MemoryRouter>);
+
+    await user.type(screen.getByLabelText(/ditt navn/i), 'Ola');
+    await user.type(screen.getByLabelText(/sesjonskode/i), 'ABCD');
+
+    expect(screen.getByLabelText(/ditt navn/i)).toHaveValue('Ola');
+    expect(screen.getByRole('button', { name: /bli med/i })).toBeDisabled();
+    fireEvent.submit(screen.getByLabelText(/sesjonskode/i).closest('form')!);
+    expect(mockJoinSession).not.toHaveBeenCalled();
   });
 
   it('forblir disabled med kun navn, ingen kode', async () => {

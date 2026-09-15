@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AppLogo } from '../components/AppLogo';
 import { NavyPageLayout } from '../components/NavyPageLayout';
+import { HumanVerification } from '../components/HumanVerification';
 import { PreStartPanel } from '../components/dashboard/PreStartPanel';
 import { VotesPanel } from '../components/dashboard/VotesPanel';
 import { useRealtimeParticipants } from '../hooks/useRealtimeParticipants';
@@ -15,7 +16,7 @@ import { useWakeLock } from '../hooks/useWakeLock';
 /** Fasilitator-dashboard (revisjon 3) – ett sammenhengende view, ingen tabs. */
 export function DashboardPage() {
   const navigate = useNavigate();
-  const { session, activityType, localParticipant, loading, error, restoreStatus, createSession, startSession, nextRound, endSession, revealVotes, logout } =
+  const { session, activityType, localParticipant, loading, error, restoreStatus, createSession, startSession, nextRound, endSession, revealVotes, clearLocalSession, logout } =
     useSession();
 
   const [nameInput, setNameInput] = useState('');
@@ -142,7 +143,14 @@ export function DashboardPage() {
 
   // ── Opprett sesjon ─────────────────────────────────────────
   if (!session && localParticipant && (restoreStatus === 'initializing' || restoreStatus === 'reconnecting')) {
-    return <div className="min-h-screen flex items-center justify-center">{restoreStatus === 'initializing' ? 'Gjenoppretter sesjon…' : 'Kobler til sesjonen på nytt…'}</div>;
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center gap-4 px-6 text-center">
+        <p>{restoreStatus === 'initializing' ? 'Gjenoppretter sesjon…' : 'Kobler til sesjonen på nytt…'}</p>
+        <button type="button" className="min-h-11 rounded-md px-4 font-semibold" onClick={() => { clearLocalSession(); navigate('/'); }}>
+          Start på nytt
+        </button>
+      </div>
+    );
   }
 
   if (!isFacilitator || !session || activityType !== 'estimation') {
@@ -162,12 +170,23 @@ export function DashboardPage() {
           </div>
         }
       >
+        <HumanVerification>{({ verified, verifying }) => (
+        <>
         {restoreStatus === 'invalid' && (
           <p role="alert" className="mb-4 text-sm" style={{ color: 'var(--color-danger)' }}>
             Forrige sesjon er utløpt eller ikke lenger tilgjengelig.
           </p>
         )}
-        <form onSubmit={handleCreate} className="space-y-4">
+        <form
+          onSubmit={(event) => {
+            if (!verified) {
+              event.preventDefault();
+              return;
+            }
+            void handleCreate(event);
+          }}
+          className="space-y-4"
+        >
           <div>
             <label
               htmlFor="facilitator-name"
@@ -211,7 +230,7 @@ export function DashboardPage() {
 
           <button
             type="submit"
-            disabled={!nameInput.trim() || creating || loading}
+            disabled={!verified || verifying || !nameInput.trim() || creating || loading}
             className="w-full font-semibold text-white transition-opacity focus-visible:ring-2 focus-visible:ring-[var(--color-navy-700)] focus-visible:ring-offset-2"
             style={{
               height: 52,
@@ -219,8 +238,8 @@ export function DashboardPage() {
               background: '#0B1D3A',
               fontSize: 16,
               fontWeight: 600,
-              opacity: !nameInput.trim() || creating || loading ? 0.4 : 1,
-              cursor: !nameInput.trim() || creating || loading ? 'not-allowed' : 'pointer',
+              opacity: !verified || verifying || !nameInput.trim() || creating || loading ? 0.4 : 1,
+              cursor: verified && !verifying && nameInput.trim() && !creating && !loading ? 'pointer' : 'not-allowed',
             }}
           >
             {creating || loading ? 'Oppretter…' : 'Opprett sesjon'}
@@ -230,6 +249,8 @@ export function DashboardPage() {
         <p style={{ fontSize: 13, color: '#6B6865', textAlign: 'center', marginTop: 16 }}>
           Deltakere kobler seg til med en 4-sifret kode
         </p>
+        </>
+        )}</HumanVerification>
       </NavyPageLayout>
     );
   }

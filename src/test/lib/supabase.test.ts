@@ -87,12 +87,15 @@ describe('ensureAnonymousIdentity', () => {
   });
 
   it('returns the current access token after ensuring identity', async () => {
-    getSessionMock
-      .mockResolvedValueOnce({ data: { session: { user, access_token: 'access-token' } }, error: null })
-      .mockResolvedValueOnce({ data: { session: { user, access_token: 'access-token' } }, error: null });
+    getSessionMock.mockResolvedValue({
+      data: { session: { user, access_token: 'access-token' } },
+      error: null,
+    });
 
     await expect(getAccessToken()).resolves.toBe('access-token');
+    expect(getSessionMock).toHaveBeenCalledOnce();
   });
+
 });
 
 describe('rpcWithAuthRecovery', () => {

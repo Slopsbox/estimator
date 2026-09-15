@@ -5,6 +5,12 @@ import { MemoryRouter } from 'react-router-dom';
 import { DashboardPage } from '../../pages/Dashboard';
 import type { LocalParticipant, Participant, RoundParticipant, Session, Vote } from '../../lib/types';
 
+vi.mock('../../components/HumanVerification', () => ({
+  HumanVerification: ({ children }: { children: (state: { verified: boolean; verifying: boolean }) => React.ReactNode }) => (
+    <>{children({ verified: true, verifying: false })}</>
+  ),
+}));
+
 // ── Navigasjon-mock ────────────────────────────────────────────────────────────
 const mockNavigate = vi.fn();
 

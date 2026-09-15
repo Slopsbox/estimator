@@ -4,6 +4,12 @@ import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { SQUAD_HEALTH_TEMPLATE_V1 } from '../../domains/health-check/domain';
 
+vi.mock('../../components/HumanVerification', () => ({
+  HumanVerification: ({ children }: { children: (state: { verified: boolean; verifying: boolean }) => React.ReactNode }) => (
+    <>{children({ verified: true, verifying: false })}</>
+  ),
+}));
+
 const mocks = vi.hoisted(() => ({
   session: null as null | Record<string, unknown>,
   localParticipant: null as null | Record<string, unknown>,

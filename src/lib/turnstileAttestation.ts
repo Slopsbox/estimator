@@ -12,11 +12,15 @@ export function markTurnstileVerified(): void {
 }
 
 export function hasRecentTurnstileVerification(): boolean {
-  if (memoryVerifiedUntil > Date.now()) return true;
+  return turnstileVerificationRemainingMs() > 0;
+}
+
+export function turnstileVerificationRemainingMs(): number {
+  if (memoryVerifiedUntil > Date.now()) return memoryVerifiedUntil - Date.now();
   try {
     const verifiedUntil = Number(sessionStorage.getItem(KEY));
-    return Number.isFinite(verifiedUntil) && verifiedUntil > Date.now();
+    return Number.isFinite(verifiedUntil) ? Math.max(0, verifiedUntil - Date.now()) : 0;
   } catch {
-    return false;
+    return 0;
   }
 }

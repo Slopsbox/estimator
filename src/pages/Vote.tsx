@@ -30,6 +30,7 @@ export function VotePage() {
     ownVote,
     roundParticipant,
     restoreStatus,
+    clearLocalSession,
     logout,
     leaveSession,
     claimRound,
@@ -134,7 +135,14 @@ export function VotePage() {
   };
 
   if (!session && (restoreStatus === 'initializing' || restoreStatus === 'reconnecting')) {
-    return <div className="min-h-screen flex items-center justify-center">{restoreStatus === 'initializing' ? 'Gjenoppretter sesjon…' : 'Kobler til sesjonen på nytt…'}</div>;
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center gap-4 px-6 text-center">
+        <p>{restoreStatus === 'initializing' ? 'Gjenoppretter sesjon…' : 'Kobler til sesjonen på nytt…'}</p>
+        <button type="button" className="min-h-11 rounded-md px-4 font-semibold" onClick={() => { clearLocalSession(); navigate('/'); }}>
+          Start på nytt
+        </button>
+      </div>
+    );
   }
 
   if (session && !session.started) return <VoteWaiting session={session} name={name} onLeave={() => { void handleLeave(); }} />;

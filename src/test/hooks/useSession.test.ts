@@ -89,6 +89,21 @@ function snapshot(activityType: 'estimation' | 'health_check' = 'estimation') {
   };
 }
 
+function snapshotForSession(sessionId: string) {
+  const nextSession = { ...SESSION, id: sessionId };
+  const nextParticipant = { ...PARTICIPANT, session_id: sessionId };
+  const nextLocalParticipant = { ...LOCAL_PARTICIPANT, sessionId };
+  return {
+    session: nextSession,
+    participant: nextParticipant,
+    localParticipant: nextLocalParticipant,
+    pointer: { version: 2 as const, activityType: 'estimation' as const, ...nextLocalParticipant },
+    activityType: 'estimation' as const,
+    ownVote: { ...VOTE, session_id: sessionId },
+    roundParticipant: { ...ROUND_PARTICIPANT, session_id: sessionId },
+  };
+}
+
 function storePointer() {
   localStorage.setItem(LOCAL_PARTICIPANT_STORAGE_KEY, JSON.stringify(pointer()));
 }
@@ -256,6 +271,23 @@ describe('SessionProvider', () => {
     await waitFor(() => expect(result.current.session?.current_round).toBe(2));
   });
 
+  it('avstemmer den nye sesjonen når create skjer under en gammel restore', async () => {
+    storePointer();
+    const newSnapshot = snapshotForSession('session-2');
+    let resolveOldRestore!: (value: { ok: true; snapshot: ReturnType<typeof snapshot> }) => void;
+    roomMocks.restore
+      .mockReturnValueOnce(new Promise((resolve) => { resolveOldRestore = resolve; }))
+      .mockResolvedValueOnce({ ok: true, snapshot: newSnapshot });
+    roomMocks.create.mockResolvedValueOnce({ ok: true, snapshot: newSnapshot });
+    const { result } = renderHook(() => useSession(), { wrapper });
+    await waitFor(() => expect(roomMocks.restore).toHaveBeenCalledOnce());
+
+    await act(async () => { await result.current.createSession('Ola'); });
+    await act(async () => resolveOldRestore({ ok: true, snapshot: snapshot() }));
+
+    await waitFor(() => expect(roomMocks.restore).toHaveBeenCalledTimes(2));
+  });
+
   it('ignorerer stale restore etter logout uten storage-commit', async () => {
     storePointer();
     let resolveRestore!: (value: { ok: true; snapshot: ReturnType<typeof snapshot> }) => void;
@@ -280,6 +312,14 @@ describe('SessionProvider', () => {
     expect(roomMocks.persist).toHaveBeenCalledWith(snapshot(), { clearCreateRequestId: true });
     expect(localStorage.getItem(CREATE_REQUEST_ID_STORAGE_KEY)).toBeNull();
     expect(result.current.session).toEqual(SESSION);
+  });
+
+  it('avstemmer create-snapshotet bare én gang når realtime er klart', async () => {
+    roomMocks.create.mockResolvedValueOnce({ ok: true, snapshot: snapshot() });
+    const { result } = renderHook(() => useSession(), { wrapper });
+
+    await act(async () => { await result.current.createSession('Ola'); });
+    await waitFor(() => expect(roomMocks.restore).toHaveBeenCalledTimes(1));
   });
 
   it('retryer idempotent create automatisk når første respons går tapt', async () => {
@@ -364,6 +404,14 @@ describe('SessionProvider', () => {
 
     expect(joined).toEqual({ ok: true, activityType: 'health_check' });
     expect(roomMocks.persist).toHaveBeenCalledWith(snapshot('health_check'), { rememberName: true });
+  });
+
+  it('avstemmer join-snapshotet bare én gang når realtime er klart', async () => {
+    roomMocks.join.mockResolvedValueOnce({ ok: true, snapshot: snapshot() });
+    const { result } = renderHook(() => useSession(), { wrapper });
+
+    await act(async () => { await result.current.joinSession('ABCD', 'Kari'); });
+    await waitFor(() => expect(roomMocks.restore).toHaveBeenCalledTimes(1));
   });
 
   it('stale join etter logout lagrer verken pointer eller navn', async () => {

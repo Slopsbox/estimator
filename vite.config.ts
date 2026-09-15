@@ -3,6 +3,13 @@ import react from '@vitejs/plugin-react';
 import { VitePWA } from 'vite-plugin-pwa';
 
 export default defineConfig({
+  build: {
+    rollupOptions: {
+      output: {
+        entryFileNames: 'assets/app-[hash].js',
+      },
+    },
+  },
   plugins: [
     react(),
     VitePWA({
@@ -38,14 +45,14 @@ export default defineConfig({
         ],
       },
       workbox: {
-        globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
+        globPatterns: ['**/*.{css,html,ico,png,svg,woff2}', 'assets/app-*.js'],
         navigateFallback: 'index.html',
         navigateFallbackDenylist: [/^\/api/],
-        // Ikke pre-cache JS-chunks – la dem hentes on-demand med network-first
+        // Hash-navngitte JS-chunks hentes ved behov og kan trygt gjenbrukes fra cache.
         runtimeCaching: [
           {
             urlPattern: /\.js$/,
-            handler: 'NetworkFirst',
+            handler: 'CacheFirst',
             options: {
               cacheName: 'js-chunks',
               expiration: {

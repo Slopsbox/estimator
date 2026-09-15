@@ -46,4 +46,11 @@ describe('FacilitatorActivityChooserPage', () => {
     sessionState.activityType = null;
     sessionState.localParticipant = null;
   });
+
+  it('viser aktivitetsvalget uten å vente på verifisering', () => {
+    render(<MemoryRouter><FacilitatorActivityChooserPage /></MemoryRouter>);
+
+    expect(screen.getByRole('button', { name: /Estimering/ })).toBeEnabled();
+    expect(screen.getByRole('button', { name: /Helsesjekk/ })).toBeEnabled();
+  });
 });

@@ -24,15 +24,19 @@ export function createTurnstileVerificationHandler({
     if (!authMatch) return response(401, 'Unauthorized');
 
     let userId: string | null;
+    let challengeVerified: boolean;
     try {
-      userId = await authenticate(authMatch[1]);
+      [userId, challengeVerified] = await Promise.all([
+        authenticate(authMatch[1]),
+        verifyChallenge(input.token),
+      ]);
     } catch {
-      return response(401, 'Unauthorized');
+      return response(502, 'Verification unavailable');
     }
     if (!userId) return response(401, 'Unauthorized');
+    if (!challengeVerified) return response(403, 'Verification failed');
 
     try {
-      if (!await verifyChallenge(input.token)) return response(403, 'Verification failed');
       if (!await attest(userId)) return response(500, 'Internal server error');
     } catch {
       return response(502, 'Verification unavailable');

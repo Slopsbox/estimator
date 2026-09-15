@@ -8,6 +8,24 @@ const ACCESS_TOKEN = 'supabase-access-token';
 const USER_ID = '10000000-0000-4000-8000-000000000001';
 
 describe('createTurnstileVerificationHandler', () => {
+  it('validates identity and challenge in parallel before attesting', async () => {
+    let resolveAuthentication!: (value: string | null) => void;
+    let resolveChallenge!: (value: boolean) => void;
+    const authenticate = vi.fn(() => new Promise<string | null>((resolve) => { resolveAuthentication = resolve; }));
+    const verifyChallenge = vi.fn(() => new Promise<boolean>((resolve) => { resolveChallenge = resolve; }));
+    const attest = vi.fn().mockResolvedValue(true);
+    const handler = createTurnstileVerificationHandler({ authenticate, verifyChallenge, attest });
+
+    const result = handler({ authorization: `Bearer ${ACCESS_TOKEN}`, token: TOKEN });
+
+    expect(authenticate).toHaveBeenCalledOnce();
+    expect(verifyChallenge).toHaveBeenCalledOnce();
+    expect(attest).not.toHaveBeenCalled();
+    resolveAuthentication(USER_ID);
+    resolveChallenge(true);
+    await expect(result).resolves.toEqual({ status: 200, body: { success: true } });
+  });
+
   it('binds a valid Turnstile challenge to the authenticated Supabase user', async () => {
     const attest = vi.fn().mockResolvedValue(true);
     const handler = createTurnstileVerificationHandler({

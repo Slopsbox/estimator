@@ -119,6 +119,11 @@ export function HealthCheckRespondPage() {
       <div className="min-h-screen flex flex-col items-center justify-center gap-3 px-6 text-center">
         <p>{stateError ?? 'Henter helsesjekk…'}</p>
         {stateError ? <button type="button" onClick={() => void loadState()} className="min-h-11 rounded-md px-4 font-bold focus-visible:ring-2 focus-visible:ring-[var(--color-navy-700)] focus-visible:ring-offset-2">Prøv igjen</button> : null}
+        {(restoreStatus === 'initializing' || restoreStatus === 'reconnecting') ? (
+          <button type="button" onClick={() => { clearLocalSession(); navigate('/'); }} className="min-h-11 rounded-md px-4 font-bold focus-visible:ring-2 focus-visible:ring-[var(--color-navy-700)] focus-visible:ring-offset-2">
+            Start på nytt
+          </button>
+        ) : null}
       </div>
     );
   }

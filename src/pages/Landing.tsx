@@ -1,66 +1,20 @@
-import { useEffect, useState } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
-import { TurnstileGate } from '../components/TurnstileGate';
+import { useNavigate } from 'react-router-dom';
 import { AppLogo } from '../components/AppLogo';
 import { resolveRoomRoute } from '../lib/roomRoutes';
-import { getAccessToken } from '../lib/supabase';
-import { markTurnstileVerified } from '../lib/turnstileAttestation';
-
-const VERIFICATION_TTL_MS = 15 * 60 * 1000;
 
 /**
  * Landingsside – Gjensidige Builders designsystem.
  *
- * Mørk navy-bakgrunn med dekorative blobs, app-ikon SVG, hvitt bottom-sheet,
- * standard Turnstile-widget og to rolleknapper.
+ * Mørk navy-bakgrunn med dekorative blobs, app-ikon SVG, hvitt bottom-sheet
+ * og to rolleknapper.
  */
 export function LandingPage() {
-  const [verified, setVerified] = useState(false);
-  const [verifyError, setVerifyError] = useState(false);
-  const [turnstileAttempt, setTurnstileAttempt] = useState(0);
   const navigate = useNavigate();
-  const location = useLocation();
-  const returnTo = typeof location.state === 'object' && location.state !== null
-    && 'returnTo' in location.state && typeof location.state.returnTo === 'string'
-    && location.state.returnTo.startsWith('/')
-    ? location.state.returnTo
-    : null;
-
-  useEffect(() => {
-    if (!verified) return;
-    const timer = window.setTimeout(() => setVerified(false), VERIFICATION_TTL_MS);
-    return () => window.clearTimeout(timer);
-  }, [verified]);
-
-  const handleVerified = async (token: string) => {
-    setVerifyError(false);
-    try {
-      const accessToken = await getAccessToken();
-      const res = await fetch('/api/verify-turnstile', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${accessToken}`,
-        },
-        body: JSON.stringify({ token }),
-      });
-      const data = await res.json() as { success: boolean };
-      if (data.success) {
-        markTurnstileVerified();
-        setVerified(true);
-        if (returnTo) navigate(returnTo, { replace: true });
-      } else {
-        // Server avviste tokenet – vis feil og la brukeren prøve igjen
-        setVerifyError(true);
-        setVerified(false);
-        setTurnstileAttempt((attempt) => attempt + 1);
-      }
-    } catch {
-      // Nettverksfeil: IKKE tillat videre – vis feilmelding
-      setVerifyError(true);
-      setVerified(false);
-      setTurnstileAttempt((attempt) => attempt + 1);
-    }
+  const preloadParticipantFlow = () => {
+    void Promise.all([import('../app/SessionRoutes'), import('./DeltagerJoin')]).catch(() => undefined);
+  };
+  const preloadFacilitatorFlow = () => {
+    void Promise.all([import('../app/SessionRoutes'), import('./FacilitatorActivityChooser')]).catch(() => undefined);
   };
 
   return (
@@ -125,40 +79,22 @@ export function LandingPage() {
           />
         </div>
 
-        {/* Turnstile */}
-        <div className="space-y-1">
-          <p
-            className="text-center text-sm"
-            style={{ color: 'var(--color-neutral-500)' }}
-          >
-            Bekreft at du er et menneske
-          </p>
-          <TurnstileGate key={turnstileAttempt} onSuccess={handleVerified} theme="light" />
-          {verifyError && (
-            <p
-              className="text-center text-xs"
-              style={{ color: 'var(--color-danger)' }}
-            >
-              Verifisering mislyktes. Prøv igjen.
-            </p>
-          )}
-        </div>
-
         {/* Rolleknapper */}
         <div className="space-y-3">
           {/* Deltaker-knapp */}
           <button
             type="button"
-            disabled={!verified}
+            onPointerEnter={preloadParticipantFlow}
+            onFocus={preloadParticipantFlow}
             onClick={() => navigate(resolveRoomRoute('estimation', 'join'))}
             className="w-full py-4 px-6 font-semibold text-white text-base transition-all flex items-center justify-center gap-2.5 focus:outline-none focus:ring-2 focus:ring-offset-2"
             style={{
-              background: verified ? 'var(--color-red-600)' : 'var(--color-neutral-200)',
-              color: verified ? 'white' : 'var(--color-neutral-400)',
+              background: 'var(--color-red-600)',
+              color: 'white',
               borderRadius: 'var(--radius-md)',
               fontWeight: 600,
-              cursor: verified ? 'pointer' : 'not-allowed',
-              ...(verified ? { boxShadow: '0 2px 12px rgba(200,0,45,0.35)' } : {}),
+              cursor: 'pointer',
+              boxShadow: '0 2px 12px rgba(200,0,45,0.35)',
             }}
           >
             {/* Bruker-SVG */}
@@ -172,16 +108,17 @@ export function LandingPage() {
           {/* Fasilitator-knapp */}
           <button
             type="button"
-            disabled={!verified}
+            onPointerEnter={preloadFacilitatorFlow}
+            onFocus={preloadFacilitatorFlow}
             onClick={() => navigate('/facilitator')}
             className="w-full py-4 px-6 font-semibold text-base transition-all flex items-center justify-center gap-2.5 focus:outline-none focus:ring-2 focus:ring-offset-2"
             style={{
               background: 'transparent',
-              color: verified ? 'var(--color-red-600)' : 'var(--color-neutral-400)',
-              border: `2px solid ${verified ? 'var(--color-red-600)' : 'var(--color-neutral-300)'}`,
+              color: 'var(--color-red-600)',
+              border: '2px solid var(--color-red-600)',
               borderRadius: 'var(--radius-md)',
               fontWeight: 600,
-              cursor: verified ? 'pointer' : 'not-allowed',
+              cursor: 'pointer',
             }}
           >
             {/* Grid-SVG */}
@@ -194,15 +131,6 @@ export function LandingPage() {
             Fasilitator
           </button>
         </div>
-
-        {!verified && (
-          <p
-            className="text-center text-xs"
-            style={{ color: 'var(--color-neutral-400)' }}
-          >
-            Løs verifiseringen ovenfor for å fortsette
-          </p>
-        )}
       </div>
     </div>
   );

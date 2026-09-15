@@ -2,6 +2,7 @@ import { useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AppLogo } from '../components/AppLogo';
 import { NavyPageLayout } from '../components/NavyPageLayout';
+import { HumanVerification } from '../components/HumanVerification';
 import { useSession } from '../hooks/useSession';
 import { readLastUsedName } from '../lib/localStorage';
 import { resolveRoomRoute } from '../lib/roomRoutes';
@@ -74,7 +75,7 @@ export function DeltagerJoinPage() {
     navigate(resolveRoomRoute(result.activityType, 'participant'));
   };
 
-  const canSubmit = name.trim().length > 0 && code.length === 4;
+  const hasCompleteInput = name.trim().length > 0 && code.length === 4;
 
   return (
     <NavyPageLayout
@@ -92,12 +93,24 @@ export function DeltagerJoinPage() {
         </div>
       }
     >
+      <HumanVerification>{({ verified, verifying }) => {
+        const canSubmit = hasCompleteInput && verified && !verifying;
+        return <>
       {restoreStatus === 'invalid' && (
         <p role="alert" className="mb-4 text-sm" style={{ color: 'var(--color-danger)' }}>
           Forrige sesjon er utløpt eller ikke lenger tilgjengelig.
         </p>
       )}
-      <form onSubmit={handleJoin} className="space-y-4">
+      <form
+        onSubmit={(event) => {
+          if (!verified) {
+            event.preventDefault();
+            return;
+          }
+          void handleJoin(event);
+        }}
+        className="space-y-4"
+      >
         {/* Navn-input */}
         <div>
           <label
@@ -243,6 +256,8 @@ export function DeltagerJoinPage() {
           )}
         </button>
       </form>
+        </>;
+      }}</HumanVerification>
     </NavyPageLayout>
   );
 }

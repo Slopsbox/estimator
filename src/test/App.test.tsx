@@ -2,7 +2,7 @@ import { render, screen, waitFor } from '@testing-library/react';
 import type { PropsWithChildren } from 'react';
 import { beforeEach, vi, describe, expect, it } from 'vitest';
 
-const { providerSpy, sessionState } = vi.hoisted(() => ({
+const { providerSpy, sessionState, readSessionPointer } = vi.hoisted(() => ({
   providerSpy: vi.fn(),
   sessionState: {
     session: null as Record<string, unknown> | null,
@@ -10,6 +10,7 @@ const { providerSpy, sessionState } = vi.hoisted(() => ({
     localParticipant: null as Record<string, unknown> | null,
     restoreStatus: 'ready',
   },
+  readSessionPointer: vi.fn(),
 }));
 vi.mock('../hooks/SessionProvider', () => ({
   SessionProvider: ({ children }: PropsWithChildren) => {
@@ -23,6 +24,7 @@ vi.mock('../hooks/useSession', () => ({
 vi.mock('../lib/turnstileAttestation', () => ({
   hasRecentTurnstileVerification: () => true,
 }));
+vi.mock('../lib/localStorage', () => ({ readSessionPointer }));
 vi.mock('../pages/Landing', () => ({ LandingPage: () => <div>Landing route</div> }));
 vi.mock('../pages/DeltagerJoin', () => ({ DeltagerJoinPage: () => <div>Join route</div> }));
 vi.mock('../pages/Vote', () => ({ VotePage: () => <div>Vote route</div> }));
@@ -40,13 +42,14 @@ describe('App', () => {
     sessionState.activityType = null;
     sessionState.localParticipant = null;
     sessionState.restoreStatus = 'ready';
+    readSessionPointer.mockReturnValue(null);
   });
 
-  it('wrapper produksjonsrutene i SessionProvider', async () => {
+  it('viser landingssiden uten å vente på SessionProvider', async () => {
     window.history.pushState({}, '', '/');
     render(<App />);
     expect(await screen.findByText('Landing route')).toBeInTheDocument();
-    await waitFor(() => expect(providerSpy).toHaveBeenCalled());
+    expect(providerSpy).not.toHaveBeenCalled();
   });
 
   it.each([
@@ -100,9 +103,15 @@ describe('App', () => {
   });
 
   it('gjenopptar aktiv deltakersesjon når PWA-en starter på forsiden', async () => {
-    sessionState.session = { id: 'session-1' };
-    sessionState.activityType = 'estimation';
-    sessionState.localParticipant = { role: 'participant' };
+    readSessionPointer.mockReturnValue({
+      version: 2,
+      sessionId: 'session-1',
+      participantId: 'participant-1',
+      activityType: 'estimation',
+      role: 'participant',
+      name: 'Ola',
+      updatedAt: new Date().toISOString(),
+    });
     window.history.pushState({}, '', '/');
 
     render(<App />);

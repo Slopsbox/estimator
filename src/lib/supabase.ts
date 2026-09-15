@@ -16,9 +16,14 @@ export const supabase = createClient<Database>(supabaseUrl, supabaseAnonKey, {
   },
 });
 
-let identityPromise: Promise<User> | null = null;
+interface IdentityCredentials {
+  user: User;
+  accessToken: string;
+}
 
-export function ensureAnonymousIdentity(): Promise<User> {
+let identityPromise: Promise<IdentityCredentials> | null = null;
+
+function ensureIdentityCredentials(): Promise<IdentityCredentials> {
   if (identityPromise) return identityPromise;
 
   identityPromise = (async () => {
@@ -27,7 +32,7 @@ export function ensureAnonymousIdentity(): Promise<User> {
 
     if (current.data.session) {
       await supabase.realtime.setAuth(current.data.session.access_token);
-      return current.data.session.user;
+      return { user: current.data.session.user, accessToken: current.data.session.access_token };
     }
 
     const signedIn = await supabase.auth.signInAnonymously();
@@ -36,7 +41,7 @@ export function ensureAnonymousIdentity(): Promise<User> {
     }
 
     await supabase.realtime.setAuth(signedIn.data.session.access_token);
-    return signedIn.data.user;
+    return { user: signedIn.data.user, accessToken: signedIn.data.session.access_token };
   })().catch(() => {
     throw new Error('Kunne ikke opprette sikker identitet. Prøv igjen.');
   }).finally(() => {
@@ -46,13 +51,12 @@ export function ensureAnonymousIdentity(): Promise<User> {
   return identityPromise;
 }
 
+export async function ensureAnonymousIdentity(): Promise<User> {
+  return (await ensureIdentityCredentials()).user;
+}
+
 export async function getAccessToken(): Promise<string> {
-  await ensureAnonymousIdentity();
-  const { data, error } = await supabase.auth.getSession();
-  if (error || !data.session?.access_token) {
-    throw new Error('Kunne ikke opprette sikker identitet. Prøv igjen.');
-  }
-  return data.session.access_token;
+  return (await ensureIdentityCredentials()).accessToken;
 }
 
 /** Forny en utløpt JWT og gjenta RPC-en én gang. Andre feil retries ikke. */

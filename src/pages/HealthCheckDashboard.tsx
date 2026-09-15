@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AppLogo } from '../components/AppLogo';
+import { HumanVerification } from '../components/HumanVerification';
 import { NavyPageLayout } from '../components/NavyPageLayout';
 import {
   HealthCheckFacilitatorDashboard,
@@ -241,7 +242,14 @@ export function HealthCheckDashboardPage() {
   }
 
   if (!session && localParticipant && (restoreStatus === 'initializing' || restoreStatus === 'reconnecting')) {
-    return <div className="min-h-screen flex items-center justify-center">Gjenoppretter helsesjekk…</div>;
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center gap-4 px-6 text-center">
+        <p>Gjenoppretter helsesjekk…</p>
+        <button type="button" className="min-h-11 rounded-md px-4 font-semibold" onClick={() => { clearLocalSession(); navigate('/'); }}>
+          Start på nytt
+        </button>
+      </div>
+    );
   }
 
   if (session && (activityType !== 'health_check' || localParticipant?.role !== 'facilitator')) {
@@ -325,11 +333,12 @@ function HealthCheckCreationForm({
       onBack={onBack}
       navyContent={<div className="text-center"><AppLogo size={56} className="mx-auto mb-4" /><h1 className="text-3xl font-bold text-white">Opprett helsesjekk</h1></div>}
     >
+      <HumanVerification>{({ verified, verifying }) => (
       <form
         className="mx-auto w-full max-w-xl space-y-4 pb-10"
         onSubmit={async (event) => {
           event.preventDefault();
-          if (!valid) return;
+          if (!valid || !verified) return;
           setSubmitting(true);
           await onCreate(name.trim(), squadName.trim(), measurementDate);
           setSubmitting(false);
@@ -342,10 +351,11 @@ function HealthCheckCreationForm({
           <input id="health-measurement-date" type="date" required value={measurementDate} onChange={(event) => setMeasurementDate(event.currentTarget.value)} className="mt-2 block min-h-12 w-full rounded-md border bg-white px-4 focus-visible:ring-2 focus-visible:ring-[var(--color-navy-700)] focus-visible:ring-offset-2" style={{ borderColor: 'var(--color-neutral-300)' }} />
         </label>
         {error ? <p role="alert" className="text-sm" style={{ color: 'var(--color-danger)' }}>{error}</p> : null}
-        <button type="submit" disabled={!valid || submitting} className="min-h-12 w-full rounded-md px-4 font-bold text-white focus-visible:ring-2 focus-visible:ring-[var(--color-navy-700)] focus-visible:ring-offset-2 disabled:opacity-40" style={{ background: 'var(--color-red-600)' }}>
+        <button type="submit" disabled={!verified || verifying || !valid || submitting} className="min-h-12 w-full rounded-md px-4 font-bold text-white focus-visible:ring-2 focus-visible:ring-[var(--color-navy-700)] focus-visible:ring-offset-2 disabled:opacity-40" style={{ background: 'var(--color-red-600)' }}>
           {submitting ? 'Oppretter…' : 'Opprett helsesjekk'}
         </button>
       </form>
+      )}</HumanVerification>
     </NavyPageLayout>
   );
 }

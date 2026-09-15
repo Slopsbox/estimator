@@ -43,6 +43,7 @@ export function SessionProvider({ children }: PropsWithChildren) {
   const restoreRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const restoreInFlightRef = useRef<Promise<void> | null>(null);
   const restoreRequestedRef = useRef(false);
+  const skipNextPointerRestoreRef = useRef(false);
 
   const clearAppSession = useCallback((status: RestoreStatus = 'ready') => {
     generationRef.current += 1;
@@ -118,9 +119,10 @@ export function SessionProvider({ children }: PropsWithChildren) {
       if (restoreInFlightRef.current === attempt) restoreInFlightRef.current = null;
       const latestPointer = storage.readSessionPointer();
       const shouldRestoreAgain = restoreRequestedRef.current
-        && generation === generationRef.current
-        && latestPointer?.sessionId === activePointer.sessionId
-        && latestPointer.participantId === activePointer.participantId;
+        && latestPointer !== null
+        && (generation !== generationRef.current
+          || (latestPointer.sessionId === activePointer.sessionId
+            && latestPointer.participantId === activePointer.participantId));
       restoreRequestedRef.current = false;
       if (shouldRestoreAgain) setRestoreTrigger((current) => current + 1);
     });
@@ -134,6 +136,10 @@ export function SessionProvider({ children }: PropsWithChildren) {
 
   useEffect(() => {
     if (!pointer?.sessionId) return;
+    if (skipNextPointerRestoreRef.current) {
+      skipNextPointerRestoreRef.current = false;
+      return;
+    }
     queueMicrotask(() => { void restore(); });
   }, [pointer?.sessionId, restore, restoreTrigger]);
 
@@ -220,6 +226,7 @@ export function SessionProvider({ children }: PropsWithChildren) {
       if (generation !== generationRef.current) return null;
       if (!result.ok) throw new Error('create_failed');
       roomMembership.persist(result.snapshot, { clearCreateRequestId: true });
+      skipNextPointerRestoreRef.current = true;
       applyMembership(result.snapshot);
       return result.snapshot.session;
     } catch {
@@ -255,6 +262,7 @@ export function SessionProvider({ children }: PropsWithChildren) {
         throw new Error('create_health_failed');
       }
       roomMembership.persist(result.snapshot, { clearCreateRequestId: true });
+      skipNextPointerRestoreRef.current = true;
       applyMembership(result.snapshot);
       return result.snapshot.session;
     } catch (error) {
@@ -282,6 +290,7 @@ export function SessionProvider({ children }: PropsWithChildren) {
       }
       if (!result.ok) throw new Error('join_failed');
       roomMembership.persist(result.snapshot, { rememberName: true });
+      skipNextPointerRestoreRef.current = true;
       applyMembership(result.snapshot);
       return { ok: true, activityType: result.snapshot.activityType };
     } catch {

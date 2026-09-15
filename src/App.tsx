@@ -3,6 +3,7 @@ import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { LandingPage } from './pages/Landing';
 import { AppLogo } from './components/AppLogo';
 import { ChunkErrorBoundary } from './components/ChunkErrorBoundary';
+import { readSessionPointer } from './lib/localStorage';
 import { resolveRoomRoute } from './lib/roomRoutes';
 
 function lazyWithRetry<T extends React.ComponentType<unknown>>(
@@ -63,14 +64,21 @@ function LoadingScreen() {
   );
 }
 
+function LandingEntry() {
+  const pointer = readSessionPointer();
+  return pointer
+    ? <Navigate to={resolveRoomRoute(pointer.activityType, pointer.role)} replace />
+    : <LandingPage />;
+}
+
 export function App() {
   return (
     <BrowserRouter>
       <ChunkErrorBoundary>
         <Suspense fallback={<LoadingScreen />}>
           <Routes>
+            <Route path="/" element={<LandingEntry />} />
             <Route element={<SessionRoutes />}>
-              <Route path="/" element={<LandingPage />} />
               <Route path="/facilitator" element={<FacilitatorActivityChooserPage />} />
               <Route path={resolveRoomRoute('estimation', 'join')} element={<DeltagerJoinPage />} />
               <Route path={resolveRoomRoute('health_check', 'join')} element={<DeltagerJoinPage />} />
@@ -81,8 +89,8 @@ export function App() {
               <Route path="/join" element={<Navigate to={resolveRoomRoute('estimation', 'join')} replace />} />
               <Route path="/vote" element={<Navigate to={resolveRoomRoute('estimation', 'participant')} replace />} />
               <Route path="/dashboard" element={<Navigate to={resolveRoomRoute('estimation', 'facilitator')} replace />} />
-              <Route path="*" element={<Navigate to="/" replace />} />
             </Route>
+            <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </Suspense>
       </ChunkErrorBoundary>
