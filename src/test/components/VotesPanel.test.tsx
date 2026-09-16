@@ -172,7 +172,7 @@ describe('VotesPanel', () => {
     expect(screen.getByRole('button', { name: /ny runde/i })).toBeDisabled();
   });
 
-  it('viser kompakt re-estimeringsstatus etter avsløring', () => {
+  it('viser forklarende re-estimeringsstatus etter avsløring', () => {
     const p = [makeParticipant('1', 'Ola'), makeParticipant('2', 'Kari')];
     const v = [makeVote('1', 'xs', 'gold'), makeVote('2', 'xl', 'silver')];
     render(
@@ -185,7 +185,8 @@ describe('VotesPanel', () => {
         revealed={true}
       />,
     );
-    expect(screen.getByRole('status')).toHaveTextContent('Her må vi ta en prat og estimere på nytt');
+    expect(screen.getByRole('status')).toHaveTextContent('Ta en prat før dere går videre');
+    expect(screen.getByRole('status')).toHaveTextContent('Stemmene spriker nok til at saken bør estimeres på nytt.');
     expect(screen.queryByRole('region', { name: /teamets risikovurdering/i })).not.toBeInTheDocument();
     expect(screen.queryByRole('region', { name: /prioriteringsanbefaling/i })).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: /estimer på nytt/i })).toBeInTheDocument();
@@ -221,7 +222,8 @@ describe('VotesPanel', () => {
       />,
     );
 
-    expect(screen.getByRole('status')).toHaveTextContent('Dette er innenfor');
+    expect(screen.getByRole('status')).toHaveTextContent('Resultatet er klart');
+    expect(screen.getByRole('status')).toHaveTextContent('Stemmene er nær nok hverandre til å gå videre.');
     expect(screen.getByRole('region', { name: /prioriteringsanbefaling/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /ny runde/i })).toBeInTheDocument();
   });

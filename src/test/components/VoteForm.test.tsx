@@ -65,12 +65,12 @@ describe('VoteForm', () => {
     expect(onSelectValue).toHaveBeenCalledWith('gold');
   });
 
-  it('viser hint-tekst "Hold inne for beskrivelse"', () => {
+  it('viser hint-tekst med ventetiden for beskrivelse', () => {
     render(<VoteForm {...defaultProps} />);
-    expect(screen.getByText(/hold inne for beskrivelse/i)).toBeInTheDocument();
+    expect(screen.getByText(/hold inne i 2 sekunder for beskrivelse/i)).toBeInTheDocument();
   });
 
-  it('åpner bottom sheet med størrelse-info ved long press', async () => {
+  it('åpner bottom sheet med størrelse-info etter to sekunders long press', async () => {
     render(<VoteForm {...defaultProps} />);
 
     const btn = screen.getByRole('button', { name: /størrelse XS/i });
@@ -79,7 +79,13 @@ describe('VoteForm', () => {
       btn.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
     });
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(3000);
+      await vi.advanceTimersByTimeAsync(1999);
+    });
+
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1);
     });
 
     // Sheet skal nå være åpen med XS-info
@@ -88,7 +94,7 @@ describe('VoteForm', () => {
     expect(screen.getByText('Triviell, ingen avhengigheter')).toBeInTheDocument();
   });
 
-  it('åpner bottom sheet med verdi-info ved long press på gull-knapp', async () => {
+  it('åpner bottom sheet med verdi-info etter to sekunders long press på gull-knapp', async () => {
     render(<VoteForm {...defaultProps} />);
 
     const btn = screen.getByRole('button', { name: /verdi gull/i });
@@ -96,7 +102,13 @@ describe('VoteForm', () => {
       btn.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
     });
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(3000);
+      await vi.advanceTimersByTimeAsync(1999);
+    });
+
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1);
     });
 
     expect(screen.getByRole('dialog')).toBeInTheDocument();
@@ -113,7 +125,7 @@ describe('VoteForm', () => {
       btn.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
     });
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(3000);
+      await vi.advanceTimersByTimeAsync(2000);
     });
 
     const dialog = screen.getByRole('dialog');
@@ -158,7 +170,7 @@ describe('VoteForm', () => {
       btn.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
     });
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(3000);
+      await vi.advanceTimersByTimeAsync(2000);
     });
 
     expect(screen.getByText('~1 dag')).toBeInTheDocument();
@@ -173,7 +185,7 @@ describe('VoteForm', () => {
       btn.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
     });
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(3000);
+      await vi.advanceTimersByTimeAsync(2000);
     });
 
     expect(screen.getByText('Nyttig sak, lav OKR-relevans.')).toBeInTheDocument();

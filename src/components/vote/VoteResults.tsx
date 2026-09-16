@@ -52,22 +52,34 @@ export function VoteResults({
         </div>
       )}
     >
-      <div className="-mx-6 -mt-8 space-y-4 px-4 pb-8 pt-6">
+      <div className="-mx-6 -mt-8 space-y-4 px-4 pb-8 pt-6 sm:mx-auto sm:max-w-xl sm:px-0">
         <EstimationResultStatus votes={uniqueVotes} />
 
         {ownVote ? (
           <section
-            className="rounded-lg px-4 py-4"
-            style={{ background: 'var(--color-red-600)', color: 'white' }}
+            className="rounded-xl px-4 pb-5 pt-4 text-center"
+            style={{
+              background: 'white',
+              borderWidth: '1px',
+              borderTopWidth: '4px',
+              borderStyle: 'solid',
+              borderColor: 'var(--color-neutral-200)',
+              borderTopColor: 'var(--color-red-600)',
+              color: 'var(--color-navy-900)',
+            }}
             aria-labelledby="own-vote-heading"
             aria-label="Din stemme"
             role="region"
           >
-            <h2 id="own-vote-heading" className="text-xs font-bold uppercase tracking-wide text-white">
+            <h2 id="own-vote-heading" className="text-xs font-bold uppercase tracking-widest" style={{ color: 'var(--color-red-600)' }}>
               Din stemme
             </h2>
-            <p className="mt-1 text-xl font-extrabold">
-              {formatVote(ownVote.size, ownVote.value as Value)}
+            <p className="mt-2 text-4xl font-extrabold leading-none tracking-tight">
+              {ownVote.size.toUpperCase()}
+            </p>
+            <p className="mt-2 text-base font-bold">
+              {VALUE_MEDAL[ownVote.value as Value]}{' '}
+              {VALUES.find((item) => item.key === ownVote.value)?.label}
             </p>
           </section>
         ) : null}

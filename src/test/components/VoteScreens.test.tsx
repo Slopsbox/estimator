@@ -254,23 +254,25 @@ describe('VoteResults', () => {
     expect(screen.queryByText(/Runde/)).not.toBeInTheDocument();
   });
 
-  it('viser én kompakt godkjent-status ved liten forskjell', () => {
+  it('viser en forklarende godkjent-status ved liten forskjell', () => {
     const votes = [makeVote('p-1', 'm', 'gold'), makeVote('p-2', 'm', 'silver')];
     render(<VoteResults {...defaultProps} votes={votes} />);
-    expect(screen.getByRole('status')).toHaveTextContent('Dette er innenfor');
+    expect(screen.getByRole('status')).toHaveTextContent('Resultatet er klart');
+    expect(screen.getByRole('status')).toHaveTextContent('Stemmene er nær nok hverandre til å gå videre.');
     expect(screen.queryByText(/Konsensus/)).not.toBeInTheDocument();
   });
 
   it('ber teamet ta en prat ved stor uenighet om verdi', () => {
     const votes = [makeVote('p-1', 'm', 'gold'), makeVote('p-2', 'm', 'bronze')];
     render(<VoteResults {...defaultProps} votes={votes} />);
-    expect(screen.getByRole('status')).toHaveTextContent('Her må vi ta en prat og estimere på nytt');
+    expect(screen.getByRole('status')).toHaveTextContent('Ta en prat før dere går videre');
+    expect(screen.getByRole('status')).toHaveTextContent('Stemmene spriker nok til at saken bør estimeres på nytt.');
   });
 
   it('ber teamet ta en prat ved minst to størrelsestrinn', () => {
     const votes = [makeVote('p-1', 's', 'silver'), makeVote('p-2', 'l', 'silver')];
     render(<VoteResults {...defaultProps} votes={votes} />);
-    expect(screen.getByRole('status')).toHaveTextContent('Her må vi ta en prat og estimere på nytt');
+    expect(screen.getByRole('status')).toHaveTextContent('Ta en prat før dere går videre');
   });
 
   it('viser ikke konsensus-streak', () => {
@@ -289,11 +291,12 @@ describe('VoteResults', () => {
       />,
     );
     expect(screen.getByText('Din stemme')).toBeInTheDocument();
-    expect(screen.getByText('M · 🥇 Gull')).toBeInTheDocument();
-    expect(screen.getAllByText(/M · 🥇 Gull/)).toHaveLength(1);
+    const ownVoteRegion = screen.getByRole('region', { name: 'Din stemme' });
+    expect(ownVoteRegion).toHaveTextContent('M');
+    expect(ownVoteRegion).toHaveTextContent('🥇 Gull');
     expect(screen.getByRole('region', { name: 'Din stemme' })).toHaveStyle({
-      background: 'var(--color-red-600)',
-      color: 'rgb(255, 255, 255)',
+      background: 'white',
+      borderTopColor: 'var(--color-red-600)',
     });
     expect(screen.getByRole('list', { name: /andre stemmer/i })).toHaveTextContent('L · 🥈 Sølv');
     expect(screen.getByRole('list', { name: /andre stemmer/i })).not.toHaveTextContent('M · 🥇 Gull');
@@ -309,8 +312,10 @@ describe('VoteResults', () => {
       />,
     );
     expect(screen.getByText('Din stemme')).toBeInTheDocument();
-    expect(screen.getAllByText(/M · 🥇 Gull/)).toHaveLength(2);
-    expect(screen.getByRole('list', { name: /andre stemmer/i }).querySelectorAll('li')).toHaveLength(1);
+    const otherVotes = screen.getByRole('list', { name: /andre stemmer/i });
+    expect(screen.getByRole('region', { name: 'Din stemme' })).toHaveTextContent('M');
+    expect(otherVotes).toHaveTextContent('M · 🥇 Gull');
+    expect(otherVotes.querySelectorAll('li')).toHaveLength(1);
   });
 
   it('viser IKKE "Din stemme" uten egen stemme', () => {

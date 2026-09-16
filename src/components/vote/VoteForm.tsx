@@ -114,7 +114,7 @@ interface SizeButtonProps {
 
 function SizeButton({ sizeKey, label, isSelected, submitting, onSelect, onInfo }: SizeButtonProps) {
   const { isPressed, progress, wasLongPress, handlers } = useLongPress({
-    duration: 3000,
+    duration: 2000,
     onLongPress: useCallback(() => onInfo(sizeKey), [onInfo, sizeKey]),
   });
 
@@ -178,7 +178,7 @@ function ValueButton({
   onInfo,
 }: ValueButtonProps) {
   const { isPressed, progress, wasLongPress, handlers } = useLongPress({
-    duration: 3000,
+    duration: 2000,
     onLongPress: useCallback(() => onInfo(valueKey), [onInfo, valueKey]),
   });
 
@@ -237,7 +237,7 @@ type SheetContent =
 /**
  * State A – Stemmeform: deltaker velger størrelse og verdi.
  * Navy-topp-mønster (matching DeltagerJoin/fasilitator).
- * Hold inne knapp i 3 sek for å se forklaring.
+ * Hold inne knapp i 2 sek for å se forklaring.
  */
 export function VoteForm({
   name,
@@ -359,7 +359,7 @@ export function VoteForm({
               marginTop: 4,
             }}
           >
-            Hold inne for beskrivelse
+            Hold inne i 2 sekunder for beskrivelse
           </p>
 
           {/* Feilmelding */}
