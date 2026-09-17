@@ -28,6 +28,7 @@ describe('estimationService', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    rpc.mockReset();
     ensureIdentity.mockResolvedValue({ id: 'user-1' });
   });
 
@@ -49,6 +50,39 @@ describe('estimationService', () => {
     rpc.mockResolvedValue({ data: { status: 'already_revealed', session: SESSION }, error: null });
 
     await expect(service.reveal(SESSION)).resolves.toEqual({ ok: true, session: SESSION });
+  });
+
+  it('retryer end_session én gang ved transient RPC-feil', async () => {
+    rpc
+      .mockResolvedValueOnce({ data: null, error: { message: 'temporary network failure' } })
+      .mockResolvedValueOnce({ data: { status: 'ok', session: { ...SESSION, status: 'completed' } }, error: null });
+
+    await expect(service.end(SESSION)).resolves.toEqual({
+      ok: true,
+      session: { ...SESSION, status: 'completed' },
+    });
+    expect(rpc).toHaveBeenCalledTimes(2);
+    expect(rpc).toHaveBeenNthCalledWith(1, 'end_session', { p_session_id: SESSION.id });
+    expect(rpc).toHaveBeenNthCalledWith(2, 'end_session', { p_session_id: SESSION.id });
+  });
+
+  it('gir opp etter ett retry-forsøk når end_session fortsatt feiler', async () => {
+    rpc.mockResolvedValue({ data: null, error: { message: 'temporary network failure' } });
+
+    await expect(service.end(SESSION)).resolves.toEqual({ ok: false, reason: 'rpc' });
+    expect(rpc).toHaveBeenCalledTimes(2);
+  });
+
+  it.each([
+    ['start', 'start_session'],
+    ['reveal', 'reveal_votes'],
+    ['next', 'next_round'],
+  ] as const)('retryer ikke %s ved transient RPC-feil', async (method, rpcName) => {
+    rpc.mockResolvedValue({ data: null, error: { message: 'temporary network failure' } });
+
+    await expect(service[method](SESSION)).resolves.toEqual({ ok: false, reason: 'rpc' });
+    expect(rpc).toHaveBeenCalledOnce();
+    expect(rpc).toHaveBeenCalledWith(rpcName, { p_session_id: SESSION.id });
   });
 
   it('avviser already_revealed for andre sessionmutasjoner', async () => {

@@ -53,7 +53,12 @@ export function createEstimationService({
     start: (session: Session) => sessionMutation('start_session', session),
     reveal: (session: Session) => sessionMutation('reveal_votes', session),
     next: (session: Session) => sessionMutation('next_round', session),
-    end: (session: Session) => sessionMutation('end_session', session),
+    async end(session: Session) {
+      const result = await sessionMutation('end_session', session);
+      return !result.ok && result.reason === 'rpc'
+        ? sessionMutation('end_session', session)
+        : result;
+    },
 
     async claim(session: Session, participant: LocalParticipant) {
       if (session.activity_type !== 'estimation') return { ok: false as const, reason: 'malformed' as const };
