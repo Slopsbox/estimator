@@ -1,4 +1,66 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }]
+  "headers": [
+    {
+      "source": "/sw.js",
+      "headers": [{ "key": "Cache-Control", "value": "public, max-age=0, no-cache, must-revalidate" }]
+    },
+    {
+      "source": "/manifest.webmanifest",
+      "headers": [{ "key": "Cache-Control", "value": "public, max-age=0, no-cache, must-revalidate" }]
+    },
+    {
+      "source": "/registerSW.js",
+      "headers": [{ "key": "Cache-Control", "value": "public, max-age=0, no-cache, must-revalidate" }]
+    },
+    {
+      "source": "/index.html",
+      "headers": [{ "key": "Cache-Control", "value": "public, max-age=0, no-cache, must-revalidate" }]
+    },
+    {
+      "source": "/",
+      "headers": [{ "key": "Cache-Control", "value": "public, max-age=0, no-cache, must-revalidate" }]
+    },
+    {
+      "source": "/facilitator",
+      "headers": [{ "key": "Cache-Control", "value": "public, max-age=0, no-cache, must-revalidate" }]
+    },
+    {
+      "source": "/estimation/:path*",
+      "headers": [{ "key": "Cache-Control", "value": "public, max-age=0, no-cache, must-revalidate" }]
+    },
+    {
+      "source": "/health-check/:path*",
+      "headers": [{ "key": "Cache-Control", "value": "public, max-age=0, no-cache, must-revalidate" }]
+    },
+    {
+      "source": "/join",
+      "headers": [{ "key": "Cache-Control", "value": "public, max-age=0, no-cache, must-revalidate" }]
+    },
+    {
+      "source": "/vote",
+      "headers": [{ "key": "Cache-Control", "value": "public, max-age=0, no-cache, must-revalidate" }]
+    },
+    {
+      "source": "/dashboard",
+      "headers": [{ "key": "Cache-Control", "value": "public, max-age=0, no-cache, must-revalidate" }]
+    },
+    {
+      "source": "/assets/:path*",
+      "headers": [{ "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }]
+    },
+    {
+      "source": "/workbox-:hash.js",
+      "headers": [{ "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }]
+    }
+  ],
+  "rewrites": [
+    { "source": "/facilitator", "destination": "/index.html" },
+    { "source": "/estimation/:path*", "destination": "/index.html" },
+    { "source": "/health-check/:path*", "destination": "/index.html" },
+    { "source": "/join", "destination": "/index.html" },
+    { "source": "/vote", "destination": "/index.html" },
+    { "source": "/dashboard", "destination": "/index.html" }
+    ,{ "source": "/((?!api/|assets/|icons/|sw\\.js$|registerSW\\.js$|manifest\\.webmanifest$|workbox-).*)", "destination": "/index.html" }
+  ]
 }

@@ -19,6 +19,7 @@ export function HealthCheckRespondPage() {
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [sessionEnded, setSessionEnded] = useState(false);
   const submitInFlightRef = useRef(false);
+  const stateRequestSequenceRef = useRef(0);
   const sessionId = session?.id ?? null;
   const draftKey = sessionId && localParticipant
     ? `${sessionId}:${localParticipant.participantId}`
@@ -27,7 +28,9 @@ export function HealthCheckRespondPage() {
 
   const loadState = useCallback(async () => {
     if (!sessionId) return;
+    const requestSequence = ++stateRequestSequenceRef.current;
     const result = await sessionServices.health.getState(sessionId);
+    if (requestSequence !== stateRequestSequenceRef.current) return;
     if (!result.ok) {
       if (result.reason === 'forbidden') {
         if (draftKey) clearHealthCheckDraft(draftKey);
@@ -55,7 +58,9 @@ export function HealthCheckRespondPage() {
 
   useEffect(() => {
     if (!sessionId || sessionEnded) return;
-    const timer = window.setInterval(() => void loadState(), 2000);
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === 'visible' && navigator.onLine !== false) void loadState();
+    }, 2000);
     return () => window.clearInterval(timer);
   }, [loadState, sessionEnded, sessionId]);
 
@@ -73,7 +78,7 @@ export function HealthCheckRespondPage() {
   useEffect(() => {
     if (sessionEnded) return;
     if ((restoreStatus === 'ready' || restoreStatus === 'invalid') && !session && !localParticipant) {
-      navigate(resolveRoomRoute('estimation', 'join'), { replace: true });
+      navigate(resolveRoomRoute('health_check', 'join'), { replace: true });
     }
   }, [localParticipant, navigate, restoreStatus, session, sessionEnded]);
 
@@ -161,6 +166,7 @@ export function HealthCheckRespondPage() {
         key={draftKey}
         participantName={localParticipant.name}
         draftKey={draftKey}
+        draftExpiresAt={healthState.expiresAt}
         submitting={submitting}
         submitError={submitError}
         onSubmit={handleSubmit}

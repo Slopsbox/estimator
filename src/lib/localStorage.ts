@@ -3,10 +3,21 @@ import type { LocalParticipant, ParticipantRole, RoomActivityType, SessionPointe
 export const LOCAL_PARTICIPANT_STORAGE_KEY = 'estimat_local_participant';
 export const LAST_USED_NAME_STORAGE_KEY = 'estimat_last_used_name';
 export const CREATE_REQUEST_ID_STORAGE_KEY = 'estimat_create_request_id';
-const POINTER_TTL_MS = 24 * 60 * 60 * 1000;
+const SESSION_POINTER_CHANNEL = 'estimat-session-pointer';
+const SESSION_POINTER_SOURCE = crypto.randomUUID();
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const memoryStorage = new Map<string, string>();
 const memoryFallbackKeys = new Set<string>();
+
+function announcePointerChange(): void {
+  try {
+    const channel = new BroadcastChannel(SESSION_POINTER_CHANNEL);
+    channel.postMessage({ source: SESSION_POINTER_SOURCE });
+    channel.close();
+  } catch {
+    // localStorage-eventet er fallback når BroadcastChannel ikke finnes.
+  }
+}
 
 function getItem(key: string): string | null {
   if (memoryFallbackKeys.has(key)) return memoryStorage.get(key) ?? null;
@@ -81,7 +92,7 @@ export function readSessionPointer(): SessionPointer | null {
         ? parsed.updatedAt
         : new Date().toISOString();
       const updatedAtMs = Date.parse(updatedAt);
-      if (!Number.isFinite(updatedAtMs) || Date.now() - updatedAtMs > POINTER_TTL_MS) {
+      if (!Number.isFinite(updatedAtMs)) {
         removeItem(LOCAL_PARTICIPANT_STORAGE_KEY);
         return null;
       }
@@ -112,10 +123,36 @@ export function writeSessionPointer(pointer: SessionPointer): void {
     ...pointer,
     updatedAt: new Date().toISOString(),
   }));
+  announcePointerChange();
 }
 
 export function clearSessionPointer(): void {
   removeItem(LOCAL_PARTICIPANT_STORAGE_KEY);
+  announcePointerChange();
+}
+
+export function subscribeToSessionPointerChanges(callback: () => void): () => void {
+  const handleStorage = (event: StorageEvent) => {
+    if (event.key === LOCAL_PARTICIPANT_STORAGE_KEY) callback();
+  };
+  window.addEventListener('storage', handleStorage);
+
+  let channel: BroadcastChannel | null = null;
+  try {
+    channel = new BroadcastChannel(SESSION_POINTER_CHANNEL);
+    channel.addEventListener('message', (event: MessageEvent<unknown>) => {
+      const message = event.data;
+      if (typeof message === 'object' && message !== null
+        && 'source' in message && message.source !== SESSION_POINTER_SOURCE) callback();
+    });
+  } catch {
+    // storage-eventet dekker nettlesere uten BroadcastChannel.
+  }
+
+  return () => {
+    window.removeEventListener('storage', handleStorage);
+    channel?.close();
+  };
 }
 
 /** Midlertidige alias beholdes mens resten av frontend flyttes til pointer-navn. */

@@ -2,7 +2,7 @@ import { useEffect, useReducer } from 'react';
 import { createHealthCheckDraftState, healthCheckDraftReducer } from './healthCheckDraftReducer';
 import { readHealthCheckDraft, writeHealthCheckDraft } from '../storage/healthCheckStorage';
 
-export function useHealthCheckDraft(draftKey?: string) {
+export function useHealthCheckDraft(draftKey?: string, roomExpiresAt?: string) {
   const reducer = useReducer(
     healthCheckDraftReducer,
     undefined,
@@ -11,8 +11,8 @@ export function useHealthCheckDraft(draftKey?: string) {
   const [state] = reducer;
 
   useEffect(() => {
-    if (draftKey) writeHealthCheckDraft(draftKey, state);
-  }, [draftKey, state]);
+    if (draftKey) writeHealthCheckDraft(draftKey, state, roomExpiresAt);
+  }, [draftKey, roomExpiresAt, state]);
 
   return reducer;
 }

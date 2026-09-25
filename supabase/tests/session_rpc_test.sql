@@ -13,12 +13,13 @@ values
   ('10000000-0000-0000-0000-000000000003', 'authenticated', 'authenticated', 'participant-b@test.invalid', now(), now()),
   ('10000000-0000-0000-0000-000000000004', 'authenticated', 'authenticated', 'outsider@test.invalid', now(), now()),
   ('10000000-0000-0000-0000-000000000005', 'authenticated', 'authenticated', 'health-facilitator@test.invalid', now(), now()),
-  ('10000000-0000-0000-0000-000000000006', 'authenticated', 'authenticated', 'health-member@test.invalid', now(), now());
+  ('10000000-0000-0000-0000-000000000006', 'authenticated', 'authenticated', 'health-member@test.invalid', now(), now()),
+  ('10000000-0000-0000-0000-000000000007', 'authenticated', 'authenticated', 'risk-facilitator@test.invalid', now(), now());
 
 insert into private.turnstile_attestations (user_id, verified_until)
 select id, clock_timestamp() + interval '15 minutes' from auth.users
 where id between '10000000-0000-0000-0000-000000000001'::uuid
-             and '10000000-0000-0000-0000-000000000006'::uuid;
+             and '10000000-0000-0000-0000-000000000007'::uuid;
 
 create temporary table session_test_context (
   key text primary key,
@@ -362,7 +363,8 @@ select set_config('request.jwt.claim.sub', '10000000-0000-0000-0000-000000000003
 insert into session_test_context (key, value)
 select 'second_session_id', public.create_session(
   '20000000-0000-0000-0000-000000000002',
-  'Other facilitator'
+  'Other facilitator',
+  true
 )->'session'->>'id';
 
 select extensions.throws_ok(
@@ -394,6 +396,11 @@ select public.cast_vote(
 );
 
 select set_config('request.jwt.claim.sub', '10000000-0000-0000-0000-000000000003', true);
+select public.join_session(
+  (select value from session_test_context where key = 'join_code'),
+  'Sam returned',
+  true
+);
 select public.cast_vote(
   (select value::uuid from session_test_context where key = 'session_id'),
   2,
@@ -467,12 +474,12 @@ select extensions.ok(
       join pg_catalog.pg_index index_metadata
         on index_metadata.indexrelid = index_relation.oid
      where namespace.nspname = 'public'
-       and index_relation.relname = 'sessions_one_active_facilitator_activity_uidx'
+       and index_relation.relname = 'sessions_one_active_facilitator_uidx'
        and index_metadata.indisunique
        and index_metadata.indpred is not null
-       and pg_get_indexdef(index_relation.oid) like '%(facilitator_user_id, activity_type)%'
+       and pg_get_indexdef(index_relation.oid) like '%(facilitator_user_id)%'
   ),
-  'active facilitator quota is enforced per activity by a partial unique index'
+  'active facilitator quota is enforced across activities by a partial unique index'
 );
 
 select extensions.ok(
@@ -486,8 +493,8 @@ select extensions.ok(
 );
 
 select extensions.ok(
-  has_function_privilege('authenticated', 'public.create_session(uuid,text)', 'EXECUTE')
-  and has_function_privilege('authenticated', 'public.join_session(text,text)', 'EXECUTE')
+  has_function_privilege('authenticated', 'public.create_session(uuid,text,boolean)', 'EXECUTE')
+  and has_function_privilege('authenticated', 'public.join_session(text,text,boolean)', 'EXECUTE')
   and has_function_privilege('authenticated', 'public.restore_session(uuid)', 'EXECUTE')
   and has_function_privilege('authenticated', 'public.claim_round(uuid)', 'EXECUTE')
   and has_function_privilege('authenticated', 'public.cast_vote(uuid,integer,text,text)', 'EXECUTE')
@@ -497,7 +504,8 @@ select extensions.ok(
   and has_function_privilege('authenticated', 'public.next_round(uuid)', 'EXECUTE')
   and has_function_privilege('authenticated', 'public.end_session(uuid)', 'EXECUTE')
   and has_function_privilege('authenticated', 'public.leave_session(uuid)', 'EXECUTE')
-  and has_function_privilege('authenticated', 'public.get_round_vote_statuses(uuid,integer)', 'EXECUTE'),
+  and has_function_privilege('authenticated', 'public.get_round_vote_statuses(uuid,integer)', 'EXECUTE')
+  and has_function_privilege('authenticated', 'public.deactivate_estimation_participant(uuid,uuid)', 'EXECUTE'),
   'authenticated role can execute every additive session RPC'
 );
 
@@ -538,6 +546,9 @@ insert into public.health_check_sessions (
   'squad-health-v1', 'Health fixture', current_date,
   statement_timestamp() + interval '23 hours 55 minutes'
 );
+update public.participants
+   set active_room_user_id = user_id
+ where id = '50000000-0000-0000-0000-000000000003';
 
 set local role authenticated;
 select set_config('request.jwt.claim.sub', '10000000-0000-0000-0000-000000000005', true);
@@ -549,21 +560,20 @@ select 'parallel_estimation_result', public.create_session(
 reset role;
 
 select extensions.ok(
-  (select value::jsonb->>'status' = 'ok'
-     and value::jsonb->'session'->>'activity_type' = 'estimation'
+  (select value::jsonb->>'status' = 'active_session_exists'
      from session_test_context where key = 'parallel_estimation_result')
   and (select count(*) from public.sessions
-        where facilitator_user_id = '10000000-0000-0000-0000-000000000005'
-          and status = 'active') = 2,
-  'facilitator can create an estimation while a health check is active'
+         where facilitator_user_id = '10000000-0000-0000-0000-000000000005'
+           and status = 'active') = 1,
+  'an active health check blocks silent estimation creation'
 );
 
-select extensions.throws_ok(
-  $$select public.create_session(
+select extensions.is(
+  public.create_session(
     '50000000-0000-0000-0000-000000000002', 'Health Fac'
-  )$$,
-  '22023', 'wrong_activity_type',
-  'estimation creation rejects a request ID already used by a health check'
+  )->>'status',
+  'request_already_used',
+  'estimation creation reports the active health room before request reuse'
 );
 
 set local role authenticated;
@@ -733,20 +743,20 @@ select extensions.throws_ok(
 );
 
 select set_config('request.jwt.claim.sub', '10000000-0000-0000-0000-000000000005', true);
-select extensions.throws_ok(
-  $$select public.create_session('50000000-0000-0000-0000-000000000002', 'Health Fac')$$,
-  '22023', 'wrong_activity_type',
-  'create_session rejects an idempotent active health room'
+select extensions.is(
+  public.create_session('50000000-0000-0000-0000-000000000002', 'Health Fac')->>'status',
+  'request_already_used',
+  'create_session rejects a request id already consumed by a health room'
 );
-select extensions.throws_ok(
-  $$select public.create_session(null, 'Health Fac')$$,
-  '22023', 'wrong_activity_type',
-  'create_session checks active room activity before request id validation'
+select extensions.is(
+  public.create_session(null, 'Health Fac')->>'status',
+  'active_session_exists',
+  'create_session checks active continuity before request id validation'
 );
-select extensions.throws_ok(
-  $$select public.create_session('50000000-0000-0000-0000-000000000099', '')$$,
-  '22023', 'wrong_activity_type',
-  'create_session checks active room activity before name validation'
+select extensions.is(
+  public.create_session('50000000-0000-0000-0000-000000000099', '')->>'status',
+  'active_session_exists',
+  'create_session checks active continuity before name validation'
 );
 select extensions.throws_ok(
   $$select public.start_session('50000000-0000-0000-0000-000000000001')$$,
@@ -840,12 +850,12 @@ insert into public.sessions (
   consensus_streak, facilitator_user_id, create_request_id, activity_type
 ) values (
   '60000000-0000-0000-0000-000000000001', 'active', 1, 'RISK', false, true,
-  3, '10000000-0000-0000-0000-000000000001',
+  3, '10000000-0000-0000-0000-000000000007',
   '60000000-0000-0000-0000-000000000002', 'estimation'
 );
 insert into public.participants (id, session_id, name, role, user_id)
 values
-  ('60000000-0000-0000-0000-000000000003', '60000000-0000-0000-0000-000000000001', 'Risk Fac', 'facilitator', '10000000-0000-0000-0000-000000000001'),
+  ('60000000-0000-0000-0000-000000000003', '60000000-0000-0000-0000-000000000001', 'Risk Fac', 'facilitator', '10000000-0000-0000-0000-000000000007'),
   ('60000000-0000-0000-0000-000000000004', '60000000-0000-0000-0000-000000000001', 'Risk A', 'participant', '10000000-0000-0000-0000-000000000002'),
   ('60000000-0000-0000-0000-000000000005', '60000000-0000-0000-0000-000000000001', 'Risk B', 'participant', '10000000-0000-0000-0000-000000000003');
 insert into public.round_participants (session_id, round, participant_id)
@@ -858,7 +868,7 @@ values
   ('60000000-0000-0000-0000-000000000001', '60000000-0000-0000-0000-000000000005', 1, 'm', 'gold');
 
 set local role authenticated;
-select set_config('request.jwt.claim.sub', '10000000-0000-0000-0000-000000000001', true);
+select set_config('request.jwt.claim.sub', '10000000-0000-0000-0000-000000000007', true);
 select extensions.ok(
   not (public.reveal_votes('60000000-0000-0000-0000-000000000001')->>'consensus')::boolean
   and (select consensus_streak from public.sessions where id = '60000000-0000-0000-0000-000000000001') = 0,

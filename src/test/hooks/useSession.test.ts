@@ -25,11 +25,12 @@ const {
     },
     estimationMocks: {
       start: vi.fn(), reveal: vi.fn(), next: vi.fn(), end: vi.fn(),
-      claim: vi.fn(), cast: vi.fn(), retract: vi.fn(),
+      claim: vi.fn(), cast: vi.fn(), retract: vi.fn(), deactivateParticipant: vi.fn(),
     },
     storageMocks: {
       readSessionPointer: vi.fn(), writeSessionPointer: vi.fn(), clearSessionPointer: vi.fn(),
       getOrCreateCreateRequestId: vi.fn(), clearCreateRequestId: vi.fn(), writeLastUsedName: vi.fn(),
+      subscribeToSessionPointerChanges: vi.fn<(_listener: () => void) => () => void>(() => () => undefined),
     },
     channelMock,
     removeChannelMock: vi.fn(),
@@ -116,6 +117,7 @@ describe('SessionProvider', () => {
   beforeEach(() => {
     localStorage.clear();
     vi.clearAllMocks();
+    vi.spyOn(window, 'confirm').mockReturnValue(false);
     storageMocks.readSessionPointer.mockImplementation(() => {
       const stored = localStorage.getItem(LOCAL_PARTICIPANT_STORAGE_KEY);
       return stored ? JSON.parse(stored) : null;
@@ -277,7 +279,7 @@ describe('SessionProvider', () => {
     let resolveOldRestore!: (value: { ok: true; snapshot: ReturnType<typeof snapshot> }) => void;
     roomMocks.restore
       .mockReturnValueOnce(new Promise((resolve) => { resolveOldRestore = resolve; }))
-      .mockResolvedValueOnce({ ok: true, snapshot: newSnapshot });
+      .mockResolvedValue({ ok: true, snapshot: newSnapshot });
     roomMocks.create.mockResolvedValueOnce({ ok: true, snapshot: newSnapshot });
     const { result } = renderHook(() => useSession(), { wrapper });
     await waitFor(() => expect(roomMocks.restore).toHaveBeenCalledOnce());
@@ -302,13 +304,37 @@ describe('SessionProvider', () => {
     expect(roomMocks.persist).not.toHaveBeenCalled();
   });
 
+  it('lar ikke en gammel restore overskrive rombytte fra en annen fane', async () => {
+    storePointer();
+    let pointerListener: (() => void) | null = null;
+    storageMocks.subscribeToSessionPointerChanges.mockImplementationOnce((listener: () => void) => {
+      pointerListener = listener;
+      return () => undefined;
+    });
+    let resolveOldRestore!: (value: { ok: true; snapshot: ReturnType<typeof snapshot> }) => void;
+    const newSnapshot = snapshotForSession('session-2');
+    roomMocks.restore
+      .mockReturnValueOnce(new Promise((resolve) => { resolveOldRestore = resolve; }))
+      .mockResolvedValueOnce({ ok: true, snapshot: newSnapshot });
+    renderHook(() => useSession(), { wrapper });
+    await waitFor(() => expect(roomMocks.restore).toHaveBeenCalledOnce());
+    await waitFor(() => expect(pointerListener).not.toBeNull());
+    roomMocks.persist.mockClear();
+
+    localStorage.setItem(LOCAL_PARTICIPANT_STORAGE_KEY, JSON.stringify(newSnapshot.pointer));
+    act(() => { if (pointerListener) pointerListener(); });
+    await act(async () => resolveOldRestore({ ok: true, snapshot: snapshot() }));
+
+    await waitFor(() => expect(roomMocks.restore.mock.calls.some((call) => call[0] === 'session-2')).toBe(true));
+  });
+
   it('create committer pointer og request-ID bare etter current suksess', async () => {
     roomMocks.create.mockResolvedValueOnce({ ok: true, snapshot: snapshot() });
     const { result } = renderHook(() => useSession(), { wrapper });
 
     await act(async () => { await result.current.createSession('Ola'); });
 
-    expect(roomMocks.create).toHaveBeenCalledWith('Ola', 'request-1');
+    expect(roomMocks.create).toHaveBeenCalledWith('Ola', 'request-1', false);
     expect(roomMocks.persist).toHaveBeenCalledWith(snapshot(), { clearCreateRequestId: true });
     expect(localStorage.getItem(CREATE_REQUEST_ID_STORAGE_KEY)).toBeNull();
     expect(result.current.session).toEqual(SESSION);
@@ -330,8 +356,8 @@ describe('SessionProvider', () => {
 
     await act(async () => { await result.current.createSession('Ola'); });
 
-    expect(roomMocks.create).toHaveBeenNthCalledWith(1, 'Ola', 'request-1');
-    expect(roomMocks.create).toHaveBeenNthCalledWith(2, 'Ola', 'request-1');
+    expect(roomMocks.create).toHaveBeenNthCalledWith(1, 'Ola', 'request-1', false);
+    expect(roomMocks.create).toHaveBeenNthCalledWith(2, 'Ola', 'request-1', false);
     expect(result.current.session).toEqual(SESSION);
     expect(result.current.error).toBeNull();
   });
@@ -350,7 +376,7 @@ describe('SessionProvider', () => {
       measurementDate: '2026-08-26',
       requestId: 'request-1',
       deliveryId: '40000000-0000-4000-8000-000000000004',
-    });
+    }, false);
     expect(roomMocks.persist).toHaveBeenCalledWith(healthSnapshot, { clearCreateRequestId: true });
     expect(result.current.activityType).toBe('health_check');
   });
@@ -362,7 +388,7 @@ describe('SessionProvider', () => {
     await act(async () => { await result.current.createHealthCheck('Ola', 'Plattform', '2026-08-26'); });
 
     expect(result.current.error).toBe(
-      'Du har allerede en aktiv helsesjekk. Åpne den aktive sesjonen eller avslutt den først.',
+      'Du har allerede en aktiv sesjon. Bekreft rombytte for å avslutte eller forlate den først.',
     );
     expect(roomMocks.persist).not.toHaveBeenCalled();
   });

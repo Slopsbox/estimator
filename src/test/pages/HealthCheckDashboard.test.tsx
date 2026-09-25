@@ -72,6 +72,7 @@ const FACILITATOR = {
 };
 const LOBBY_STATE = {
   phase: 'lobby',
+  expiresAt: '2026-08-27T09:55:00Z',
   templateVersion: 'squad-health-v1',
   squadName: 'Plattform',
   measurementDate: '2026-08-26',

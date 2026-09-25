@@ -183,6 +183,18 @@ describe('useRealtimeVotes', () => {
     expect(result.current.votes).toHaveLength(1);
   });
 
+  it('markerer ikke reveal-resultatet som klart når den autoritative refetchen feiler', async () => {
+    chainable.then.mockImplementation((resolve: (result: { data: null; error: object }) => void) => {
+      resolve({ data: null, error: { code: 'network' } });
+      return Promise.resolve();
+    });
+
+    const { result } = renderHook(() => useRealtimeVotes(SESSION_ID, CURRENT_ROUND, true));
+
+    await waitFor(() => expect(result.current.error).not.toBeNull());
+    expect(result.current.resultsReady).toBe(false);
+  });
+
   it('venter på køet reveal-refetch når en eldre fetch allerede pågår', async () => {
     const resolvers: Array<(result: { data: Vote[]; error: null }) => void> = [];
     chainable.then.mockImplementation((resolve: (result: { data: Vote[]; error: null }) => void) => {

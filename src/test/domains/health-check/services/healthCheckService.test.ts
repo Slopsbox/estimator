@@ -21,6 +21,7 @@ const STATE = {
   measurement_date: '2026-08-26',
   respondent_state: null,
   role: 'facilitator',
+  expires_at: EXPIRES_AT,
 };
 
 const validResponses = (): HealthCheckResponseMap => Object.fromEntries(
@@ -104,6 +105,7 @@ describe('healthCheckService', () => {
         measurementDate: '2026-08-26',
         respondentState: null,
         role: 'facilitator',
+        expiresAt: EXPIRES_AT,
       },
     });
     await expect(service.start(ROOM_ID)).resolves.toEqual({

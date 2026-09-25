@@ -21,9 +21,18 @@ import {
 type PublicFunctions = Database['public']['Functions'];
 
 export interface RoomMembershipStorage {
+  readSessionPointer?(): SessionPointer | null;
   writeSessionPointer(pointer: SessionPointer): void;
   clearCreateRequestId(): void;
   writeLastUsedName(name: string): void;
+}
+
+function samePointer(left: SessionPointer | null, right: SessionPointer): boolean {
+  return left?.activityType === right.activityType
+    && left.participantId === right.participantId
+    && left.sessionId === right.sessionId
+    && left.name === right.name
+    && left.role === right.role;
 }
 
 export interface RoomMembershipSnapshot {
@@ -39,12 +48,17 @@ export interface RoomMembershipSnapshot {
 }
 
 type ServiceFailure = 'identity' | 'rpc' | 'malformed';
+export interface ActiveRoomConflict {
+  sessionId: string;
+  activityType: RoomActivityType;
+  role: LocalParticipant['role'];
+}
 export type CreateRoomResult = { ok: true; snapshot: RoomMembershipSnapshot }
-  | { ok: false; reason: ServiceFailure };
+  | { ok: false; reason: ServiceFailure | 'active_session_exists' | 'request_already_used'; conflict?: ActiveRoomConflict };
 export type CreateHealthRoomResult = { ok: true; snapshot: RoomMembershipSnapshot }
-  | { ok: false; reason: ServiceFailure | 'active_session_exists' | 'request_already_used' };
+  | { ok: false; reason: ServiceFailure | 'active_session_exists' | 'request_already_used'; conflict?: ActiveRoomConflict };
 export type JoinRoomResult = { ok: true; snapshot: RoomMembershipSnapshot }
-  | { ok: false; reason: ServiceFailure | 'session_not_found' | 'role_conflict' };
+  | { ok: false; reason: ServiceFailure | 'session_not_found' | 'role_conflict' | 'active_session_exists' | 'membership_removed'; conflict?: ActiveRoomConflict };
 export type RestoreRoomResult = { ok: true; snapshot: RoomMembershipSnapshot }
   | { ok: false; reason: ServiceFailure | 'membership_missing' | 'session_completed' };
 export type LeaveRoomResult = { ok: true } | { ok: false; reason: ServiceFailure };
@@ -59,6 +73,16 @@ export interface CreateHealthRoomInput {
 
 function isActivityType(value: unknown): value is RoomActivityType {
   return value === 'estimation' || value === 'health_check';
+}
+
+function parseActiveRoomConflict(value: unknown): ActiveRoomConflict | undefined {
+  if (!isRecord(value) || value.status !== 'active_session_exists' || !isRecord(value.active_session)) {
+    return undefined;
+  }
+  const active = value.active_session;
+  if (typeof active.id !== 'string' || !isActivityType(active.activity_type)
+    || (active.role !== 'facilitator' && active.role !== 'participant')) return undefined;
+  return { sessionId: active.id, activityType: active.activity_type, role: active.role };
 }
 
 const voteFields = ['id', 'session_id', 'participant_id', 'round', 'size', 'value', 'created_at'] as const;
@@ -213,31 +237,36 @@ export function createRoomMembershipService({
   }
 
   return {
-    async create(name: string, requestId: string): Promise<CreateRoomResult> {
+    async create(name: string, requestId: string, replaceActive = false): Promise<CreateRoomResult> {
       const result = await membershipRpc('create_session', {
         p_request_id: requestId,
         p_facilitator_name: name.trim(),
+        p_replace_active: replaceActive,
       });
       if ('reason' in result) return { ok: false, reason: result.reason };
+      if (isRecord(result.data) && result.data.status === 'request_already_used') {
+        return { ok: false, reason: 'request_already_used' };
+      }
       const snapshot = parseMembership(result.data);
-      return snapshot ? { ok: true, snapshot } : { ok: false, reason: 'malformed' };
+      if (snapshot) return { ok: true, snapshot };
+      return isRecord(result.data) && result.data.status === 'active_session_exists'
+        ? { ok: false, reason: 'active_session_exists', conflict: parseActiveRoomConflict(result.data) }
+        : { ok: false, reason: 'malformed' };
     },
 
-    async createHealth(input: CreateHealthRoomInput): Promise<CreateHealthRoomResult> {
+    async createHealth(input: CreateHealthRoomInput, replaceActive = false): Promise<CreateHealthRoomResult> {
       const result = await membershipRpc('create_health_check_room_prototype', {
         p_request_id: input.requestId,
         p_facilitator_name: input.name.trim(),
         p_squad_name: input.squadName.trim(),
         p_measurement_date: input.measurementDate,
         p_delivery_id: input.deliveryId,
+        p_replace_active: replaceActive,
       });
       if ('reason' in result) return { ok: false, reason: result.reason };
       if (isRecord(result.data)
         && result.data.status === 'active_session_exists') {
-        const restored = await membershipRpc('restore_active_health_check_for_facilitator', {});
-        if ('reason' in restored) return { ok: false, reason: restored.reason };
-        const snapshot = parseHealthMembership(restored.data);
-        return snapshot ? { ok: true, snapshot } : { ok: false, reason: 'malformed' };
+        return { ok: false, reason: 'active_session_exists', conflict: parseActiveRoomConflict(result.data) };
       }
       if (isRecord(result.data) && result.data.status === 'request_already_used') {
         return { ok: false, reason: result.data.status };
@@ -246,14 +275,19 @@ export function createRoomMembershipService({
       return snapshot ? { ok: true, snapshot } : { ok: false, reason: 'malformed' };
     },
 
-    async join(code: string, name: string): Promise<JoinRoomResult> {
+    async join(code: string, name: string, replaceActive = false): Promise<JoinRoomResult> {
       const result = await membershipRpc('join_session', {
         p_join_code: code.trim().toUpperCase(),
         p_name: name.trim(),
+        p_replace_active: replaceActive,
       });
       if ('reason' in result) return { ok: false, reason: result.reason };
-      if (isRecord(result.data) && (result.data.status === 'session_not_found' || result.data.status === 'role_conflict')) {
+      if (isRecord(result.data) && (result.data.status === 'session_not_found'
+        || result.data.status === 'role_conflict' || result.data.status === 'membership_removed')) {
         return { ok: false, reason: result.data.status };
+      }
+      if (isRecord(result.data) && result.data.status === 'active_session_exists') {
+        return { ok: false, reason: 'active_session_exists', conflict: parseActiveRoomConflict(result.data) };
       }
       const snapshot = parseMembership(result.data);
       return snapshot ? { ok: true, snapshot } : { ok: false, reason: 'malformed' };
@@ -282,7 +316,9 @@ export function createRoomMembershipService({
       snapshot: RoomMembershipSnapshot,
       options: { clearCreateRequestId?: boolean; rememberName?: boolean } = {},
     ): void {
-      storage.writeSessionPointer(snapshot.pointer);
+      if (!storage.readSessionPointer || !samePointer(storage.readSessionPointer(), snapshot.pointer)) {
+        storage.writeSessionPointer(snapshot.pointer);
+      }
       if (options.clearCreateRequestId) storage.clearCreateRequestId();
       if (options.rememberName) storage.writeLastUsedName(snapshot.participant.name);
     },

@@ -54,6 +54,7 @@ describe('roomMembershipService', () => {
   const rpc = vi.fn<RpcClient['rpc']>();
   const ensureIdentity = vi.fn<() => Promise<unknown>>();
   const storage: RoomMembershipStorage = {
+    readSessionPointer: vi.fn(() => null),
     writeSessionPointer: vi.fn(),
     clearCreateRequestId: vi.fn(),
     writeLastUsedName: vi.fn(),
@@ -71,7 +72,7 @@ describe('roomMembershipService', () => {
     const result = await service.create('  Ola  ', 'request-1');
 
     expect(rpc).toHaveBeenCalledWith('create_session', {
-      p_request_id: 'request-1', p_facilitator_name: 'Ola',
+      p_request_id: 'request-1', p_facilitator_name: 'Ola', p_replace_active: false,
     });
     expect(result).toMatchObject({ ok: true, snapshot: { activityType: 'estimation' } });
   });
@@ -96,6 +97,7 @@ describe('roomMembershipService', () => {
       p_measurement_date: '2026-08-26',
       p_request_id: '30000000-0000-4000-8000-000000000003',
       p_delivery_id: '40000000-0000-4000-8000-000000000004',
+      p_replace_active: false,
     });
     expect(result).toMatchObject({
       ok: true,
@@ -134,13 +136,14 @@ describe('roomMembershipService', () => {
     })).resolves.toEqual({ ok: false, reason: 'request_already_used' });
   });
 
-  it('restores the active health membership when creation reports an existing room', async () => {
-    rpc
-      .mockResolvedValueOnce({ data: { status: 'active_session_exists' }, error: null })
-      .mockResolvedValueOnce({
-        data: { status: 'ok', session: HEALTH_SESSION, participant: HEALTH_PARTICIPANT },
-        error: null,
-      });
+  it('returnerer en eksplisitt konflikt når en annen aktiv sesjon finnes', async () => {
+    rpc.mockResolvedValueOnce({
+      data: {
+        status: 'active_session_exists',
+        active_session: { id: 'session-old', activity_type: 'estimation', role: 'participant' },
+      },
+      error: null,
+    });
 
     const result = await service.createHealth({
       name: 'Ola', squadName: 'Ny verdi ignoreres', measurementDate: '2026-08-26',
@@ -148,21 +151,22 @@ describe('roomMembershipService', () => {
       deliveryId: '40000000-0000-4000-8000-000000000004',
     });
 
-    expect(rpc).toHaveBeenLastCalledWith('restore_active_health_check_for_facilitator', {});
-    expect(result).toMatchObject({ ok: true, snapshot: { session: { id: HEALTH_SESSION.id } } });
+    expect(result).toEqual({
+      ok: false,
+      reason: 'active_session_exists',
+      conflict: { sessionId: 'session-old', activityType: 'estimation', role: 'participant' },
+    });
   });
 
-  it('restores an active health room that is already collecting responses', async () => {
-    rpc
-      .mockResolvedValueOnce({ data: { status: 'active_session_exists' }, error: null })
-      .mockResolvedValueOnce({
-        data: {
-          status: 'ok',
-          session: { ...HEALTH_SESSION, phase: 'collecting' },
-          participant: HEALTH_PARTICIPANT,
-        },
-        error: null,
-      });
+  it('aksepterer idempotent health-oppretting når RPC-en returnerer snapshot', async () => {
+    rpc.mockResolvedValueOnce({
+      data: {
+        status: 'ok',
+        session: { ...HEALTH_SESSION, phase: 'collecting' },
+        participant: HEALTH_PARTICIPANT,
+      },
+      error: null,
+    });
 
     await expect(service.createHealth({
       name: 'Ola', squadName: 'Plattform', measurementDate: '2026-08-26',
@@ -176,7 +180,7 @@ describe('roomMembershipService', () => {
 
     const result = await service.join(' abcd ', '  Kari  ');
 
-    expect(rpc).toHaveBeenCalledWith('join_session', { p_join_code: 'ABCD', p_name: 'Kari' });
+    expect(rpc).toHaveBeenCalledWith('join_session', { p_join_code: 'ABCD', p_name: 'Kari', p_replace_active: false });
     expect(result).toMatchObject({ ok: true, snapshot: { localParticipant: { name: 'Kari' } } });
   });
 

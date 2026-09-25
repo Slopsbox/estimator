@@ -202,11 +202,11 @@ select extensions.ok(
   'health schema has no address or separate artifact columns'
 );
 select extensions.ok(
-  to_regprocedure('public.create_health_check_room(uuid,uuid,text,text,date,uuid)') is not null
-  and to_regprocedure('public.create_health_check_room_prototype(uuid,text,text,date,uuid)') is not null
+  to_regprocedure('public.create_health_check_room(uuid,uuid,text,text,date,uuid,boolean)') is not null
+  and to_regprocedure('public.create_health_check_room_prototype(uuid,text,text,date,uuid,boolean)') is not null
   and to_regprocedure('public.create_health_check_room_prototype(uuid,uuid,text,text,date,uuid)') is null
   and to_regprocedure('public.create_health_check_room(uuid,uuid,text,text,date,uuid,bytea,bytea,integer)') is null,
-  'prototype creation exposes no caller-supplied user or delivery-envelope arguments'
+  'prototype creation exposes only the explicit replacement control in addition to approved arguments'
 );
 
 select extensions.is(
@@ -237,6 +237,13 @@ insert into public.sessions (
   0, '61000000-0000-0000-0000-000000000014',
   '64000000-0000-0000-0000-000000000011', 'estimation'
 );
+insert into public.participants (
+  session_id, name, role, user_id, active_room_user_id
+) values (
+  '64000000-0000-0000-0000-000000000010', 'Parallel', 'facilitator',
+  '61000000-0000-0000-0000-000000000014',
+  '61000000-0000-0000-0000-000000000014'
+);
 set local role service_role;
 select extensions.is(
   public.create_health_check_room(
@@ -245,8 +252,8 @@ select extensions.is(
     'Parallel', 'Parallel squad', date '2026-08-26',
     '64000000-0000-0000-0000-000000000013'
   )->>'status',
-  'ok',
-  'an active estimation does not block the same facilitator from creating a health check'
+  'active_session_exists',
+  'an active estimation blocks silent health-check creation for the same facilitator'
 );
 reset role;
 insert into public.sessions (

@@ -3,6 +3,11 @@ import react from '@vitejs/plugin-react';
 import { VitePWA } from 'vite-plugin-pwa';
 
 export default defineConfig({
+  define: {
+    __APP_BUILD_ID__: JSON.stringify(
+      process.env.VERCEL_DEPLOYMENT_ID ?? process.env.VERCEL_GIT_COMMIT_SHA ?? 'local-build',
+    ),
+  },
   build: {
     rollupOptions: {
       output: {
@@ -13,12 +18,13 @@ export default defineConfig({
   plugins: [
     react(),
     VitePWA({
-      registerType: 'autoUpdate',
+      registerType: 'prompt',
       includeAssets: ['icons/*.png'],
       manifest: {
         name: 'Estimat – Planning Poker',
         short_name: 'Estimat',
         description: 'Sprint estimering for teamet',
+        lang: 'nb',
         theme_color: '#0B1D3A',
         background_color: '#F5F4F0',
         display: 'standalone',
@@ -45,26 +51,15 @@ export default defineConfig({
         ],
       },
       workbox: {
-        globPatterns: ['**/*.{css,html,ico,png,svg,woff2}', 'assets/app-*.js'],
+        globPatterns: ['**/*.{js,css,html,ico,png,svg,woff,woff2}'],
         navigateFallback: 'index.html',
-        navigateFallbackDenylist: [/^\/api/],
-        // Hash-navngitte JS-chunks hentes ved behov og kan trygt gjenbrukes fra cache.
-        runtimeCaching: [
-          {
-            urlPattern: /\.js$/,
-            handler: 'CacheFirst',
-            options: {
-              cacheName: 'js-chunks',
-              expiration: {
-                maxEntries: 50,
-                maxAgeSeconds: 60 * 60 * 24, // 1 dag
-              },
-            },
-          },
+        navigateFallbackDenylist: [
+          /^\/api(?:\/|$)/,
+          /^\/assets(?:\/|$)/,
+          /^\/icons(?:\/|$)/,
+          /^\/(?:sw\.js|registerSW\.js|manifest\.webmanifest|workbox-[^/]+\.js)$/,
         ],
-        // Hopp over waiting – aktiver ny SW umiddelbart
-        skipWaiting: true,
-        clientsClaim: true,
+        cleanupOutdatedCaches: true,
       },
     }),
   ],

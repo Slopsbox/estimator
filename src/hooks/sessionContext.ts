@@ -4,7 +4,7 @@ import type { LocalParticipant, RoomActivityType, RoundParticipant, Session, Vot
 export type RestoreStatus = 'initializing' | 'ready' | 'reconnecting' | 'invalid';
 export type ConnectionState = 'idle' | 'connecting' | 'connected' | 'disconnected';
 export type MutationResult = { ok: true } | { ok: false; message: string };
-export type JoinResult = { ok: true; activityType: RoomActivityType } | { ok: false; reason: 'session_not_found' | 'role_conflict' | 'transient' };
+export type JoinResult = { ok: true; activityType: RoomActivityType } | { ok: false; reason: 'session_not_found' | 'role_conflict' | 'membership_removed' | 'active_session_exists' | 'transient' };
 
 export interface SessionContextValue {
   session: Session | null;
@@ -17,9 +17,9 @@ export interface SessionContextValue {
   initialized: boolean;
   restoreStatus: RestoreStatus;
   connectionState: ConnectionState;
-  createSession: (name: string) => Promise<Session | null>;
-  createHealthCheck: (name: string, squadName: string, measurementDate: string) => Promise<Session | null>;
-  joinSession: (code: string, name: string) => Promise<JoinResult>;
+  createSession: (name: string, replaceActive?: boolean) => Promise<Session | null>;
+  createHealthCheck: (name: string, squadName: string, measurementDate: string, replaceActive?: boolean) => Promise<Session | null>;
+  joinSession: (code: string, name: string, replaceActive?: boolean) => Promise<JoinResult>;
   startSession: () => Promise<MutationResult>;
   revealVotes: () => Promise<MutationResult>;
   nextRound: () => Promise<MutationResult>;
@@ -28,6 +28,7 @@ export interface SessionContextValue {
   claimRound: () => Promise<MutationResult>;
   castVote: (vote: VoteSubmission) => Promise<MutationResult>;
   retractVote: () => Promise<MutationResult>;
+  deactivateParticipant: (participantId: string) => Promise<MutationResult>;
   retryRestore: () => Promise<void>;
   clearLocalSession: () => void;
   /** Clears only the local app pointer. It does not leave the database membership. */

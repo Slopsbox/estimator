@@ -19,28 +19,34 @@ export type Database = {
     Tables: {
       participants: {
         Row: {
+          active_room_user_id: string | null
           id: string
           joined_at: string
           left_at: string | null
           name: string
+          removed_at: string | null
           role: string
           session_id: string
           user_id: string | null
         }
         Insert: {
+          active_room_user_id?: string | null
           id?: string
           joined_at?: string
           left_at?: string | null
           name: string
+          removed_at?: string | null
           role: string
           session_id: string
           user_id?: string | null
         }
         Update: {
+          active_room_user_id?: string | null
           id?: string
           joined_at?: string
           left_at?: string | null
           name?: string
+          removed_at?: string | null
           role?: string
           session_id?: string
           user_id?: string | null
@@ -194,7 +200,7 @@ export type Database = {
       }
       claim_round: { Args: { p_session_id: string }; Returns: Json }
       create_session: {
-        Args: { p_facilitator_name: string; p_request_id: string }
+        Args: { p_facilitator_name: string; p_replace_active?: boolean; p_request_id: string }
         Returns: Json
       }
       create_health_check_room_prototype: {
@@ -202,6 +208,7 @@ export type Database = {
           p_delivery_id: string
           p_facilitator_name: string
           p_measurement_date: string
+          p_replace_active?: boolean
           p_request_id: string
           p_squad_name: string
         }
@@ -214,7 +221,14 @@ export type Database = {
       get_health_check_state: { Args: { p_room_id: string }; Returns: Json }
       get_round_vote_statuses: { Args: { p_round: number; p_session_id: string }; Returns: Json }
       end_session: { Args: { p_session_id: string }; Returns: Json }
-      join_session: { Args: { p_join_code: string; p_name: string }; Returns: Json }
+      deactivate_estimation_participant: {
+        Args: { p_participant_id: string; p_session_id: string }
+        Returns: Json
+      }
+      join_session: {
+        Args: { p_join_code: string; p_name: string; p_replace_active?: boolean }
+        Returns: Json
+      }
       leave_session: { Args: { p_session_id: string }; Returns: Json }
       next_round: { Args: { p_session_id: string }; Returns: Json }
       remove_health_check_respondent: {

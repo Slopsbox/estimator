@@ -16,7 +16,7 @@ import { useWakeLock } from '../hooks/useWakeLock';
 /** Fasilitator-dashboard (revisjon 3) – ett sammenhengende view, ingen tabs. */
 export function DashboardPage() {
   const navigate = useNavigate();
-  const { session, activityType, localParticipant, loading, error, restoreStatus, createSession, startSession, nextRound, endSession, revealVotes, clearLocalSession, logout } =
+  const { session, activityType, localParticipant, loading, error, restoreStatus, connectionState, createSession, startSession, nextRound, endSession, revealVotes, deactivateParticipant, clearLocalSession, logout } =
     useSession();
 
   const [nameInput, setNameInput] = useState('');
@@ -257,7 +257,7 @@ export function DashboardPage() {
 
   // Tell deltakere som har stemt (ikke fasilitator)
   const roundParticipantIds = new Set(roundParticipants.map((row) => row.participant_id));
-  const voterParticipants = participants.filter((p) => p.role === 'participant' && roundParticipantIds.has(p.id));
+  const voterParticipants = participants.filter((p) => p.role === 'participant' && p.left_at === null && roundParticipantIds.has(p.id));
   const rosterIds = new Set(voterParticipants.map((participant) => participant.id));
   const rosterVotes = votes.filter((vote) => rosterIds.has(vote.participant_id));
   const votedParticipantIds = new Set(
@@ -278,6 +278,10 @@ export function DashboardPage() {
   const datasetError = participantData.error || roundData.error
     || (session.votes_revealed ? voteData.error : statusData.error);
   const dataActionsDisabled = datasetLoading || Boolean(datasetError);
+  const realtimeDisconnected = connectionState === 'disconnected'
+    || participantData.connectionState === 'disconnected'
+    || roundData.connectionState === 'disconnected'
+    || (session.votes_revealed && voteData.connectionState === 'disconnected');
 
   // ── Dashboard ──────────────────────────────────────────────
   // Wrapper-komponent som aktiverer Wake Lock kun i det aktive dashboard-viewet
@@ -295,7 +299,7 @@ export function DashboardPage() {
     totalCount={totalCount}
     progressPct={progressPct}
     sessionStarted={sessionStarted}
-    actionLoading={actionLoading || dataActionsDisabled}
+    actionLoading={actionLoading || dataActionsDisabled || realtimeDisconnected}
     endSessionLoading={actionLoading}
     datasetLoading={datasetLoading}
     error={actionError ?? copyError ?? datasetError ?? error}
@@ -306,6 +310,13 @@ export function DashboardPage() {
     handleNextRound={handleNextRound}
     handleStartSession={handleStartSession}
     handleCopyCode={handleCopyCode}
+    handleRemoveParticipant={(participantId) => {
+      if (window.confirm('Fjerne deltakeren fra denne sesjonen? Historiske stemmer beholdes.')) {
+        void deactivateParticipant(participantId).then((result) => {
+          if (!result.ok) setActionError(result.message);
+        });
+      }
+    }}
   />;
 }
 
@@ -335,6 +346,7 @@ interface ActiveDashboardViewProps {
   handleNextRound: () => void;
   handleStartSession: () => void;
   handleCopyCode: () => void;
+  handleRemoveParticipant: (participantId: string) => void;
 }
 
 /**
@@ -367,6 +379,7 @@ function ActiveDashboardView({
   handleNextRound,
   handleStartSession,
   handleCopyCode,
+  handleRemoveParticipant,
 }: ActiveDashboardViewProps) {
   useWakeLock(); // Holder skjermen våken mens fasilitator er i aktiv sesjon
 
@@ -501,8 +514,10 @@ function ActiveDashboardView({
                 totalCount={totalCount}
                 actionLoading={actionLoading}
                 presentParticipantIds={presentParticipantIds}
+                presenceReady={presenceReady}
                 reestimatingParticipantIds={reestimatingParticipantIds}
                 votedParticipantIds={votedParticipantIds}
+                onRemoveParticipant={handleRemoveParticipant}
                 onReveal={handleReveal}
                 onNextRound={handleNextRound}
               />

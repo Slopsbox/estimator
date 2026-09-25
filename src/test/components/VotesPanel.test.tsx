@@ -272,6 +272,7 @@ describe('VotesPanel', () => {
         votedCount={1}
         totalCount={1}
         presentParticipantIds={new Set()}
+        presenceReady
       />,
     );
     expect(screen.getByText('Klar ✓')).toBeInTheDocument();

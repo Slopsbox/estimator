@@ -30,6 +30,7 @@ export function VotePage() {
     ownVote,
     roundParticipant,
     restoreStatus,
+    connectionState,
     clearLocalSession,
     logout,
     leaveSession,
@@ -50,7 +51,7 @@ export function VotePage() {
   const claimKeyRef = useRef<string | null>(null);
   const confettiTriggeredRef = useRef(false);
 
-  const { votes, ownVote: realtimeOwnVote, revealed, resultsReady } = useRealtimeVotes(
+  const { votes, ownVote: realtimeOwnVote, revealed, resultsReady, error: voteError, refetch: refetchVotes, connectionState: voteConnectionState } = useRealtimeVotes(
     session?.id ?? null,
     session?.current_round ?? 1,
     session?.votes_revealed ?? false,
@@ -58,6 +59,19 @@ export function VotePage() {
   );
   const [suppressRealtimeVote, setSuppressRealtimeVote] = useState(false);
   const effectiveOwnVote = ownVote ?? (suppressRealtimeVote ? null : realtimeOwnVote);
+  const reconnecting = connectionState === 'connecting' || connectionState === 'disconnected'
+    || voteConnectionState === 'connecting' || voteConnectionState === 'disconnected';
+
+  const withConnectionStatus = (content: React.ReactNode) => (
+    <>
+      {reconnecting ? (
+        <div role="status" className="fixed inset-x-4 top-4 z-50 mx-auto max-w-md rounded-md bg-white px-4 py-3 text-center text-sm font-semibold shadow-md" style={{ color: 'var(--color-navy-900)' }}>
+          Kobler til sesjonen igjen. Du kan fortsette når tilkoblingen er gjenopprettet.
+        </div>
+      ) : null}
+      {content}
+    </>
+  );
 
   useEffect(() => {
     if (resultsReady && votes.length > 0 && effectiveOwnVote
@@ -145,26 +159,40 @@ export function VotePage() {
     );
   }
 
-  if (session && !session.started) return <VoteWaiting session={session} name={name} onLeave={() => { void handleLeave(); }} />;
+  if (session && !session.started) return withConnectionStatus(<VoteWaiting session={session} name={name} onLeave={() => { void handleLeave(); }} />);
 
   if (revealed && !resultsReady) {
-    return <div className="min-h-screen flex items-center justify-center">Henter resultater…</div>;
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center gap-4 px-6 text-center">
+        <p role={voteError ? 'alert' : undefined}>
+          {voteError ?? (voteConnectionState === 'disconnected' ? 'Kobler til igjen…' : 'Henter resultater…')}
+        </p>
+        {voteError ? (
+          <button type="button" className="min-h-11 rounded-md px-4 font-semibold" onClick={() => { void refetchVotes(); }}>
+            Prøv igjen
+          </button>
+        ) : null}
+        <button type="button" className="min-h-11 rounded-md px-4 font-semibold" onClick={() => { void handleLeave(); }}>
+          Forlat sesjonen
+        </button>
+      </div>
+    );
   }
 
   if (revealed) {
-    return (
+    return withConnectionStatus(
       <VoteResults
         name={name}
         votes={votes}
         ownVote={effectiveOwnVote}
         currentRound={session?.current_round}
         onLeave={() => { void handleLeave(); }}
-      />
+      />,
     );
   }
 
   if (effectiveOwnVote) {
-    return (
+    return withConnectionStatus(
       <VoteAwaitReveal
         name={name}
         selectedSize={isSize(effectiveOwnVote.size) ? effectiveOwnVote.size : 'm'}
@@ -174,23 +202,23 @@ export function VotePage() {
         onAmalie={handleAmalie}
         error={submitError}
         onLeave={() => { void handleLeave(); }}
-      />
+      />,
     );
   }
 
-  return (
+  return withConnectionStatus(
     <VoteForm
       name={name}
       currentRound={session?.current_round ?? 1}
       selectedSize={selectedSize}
       selectedValue={selectedValue}
       submitting={submitting}
-      canSubmit={Boolean(roundParticipant)}
+      canSubmit={Boolean(roundParticipant) && !reconnecting}
       submitError={submitError}
       onSelectSize={setSelectedSize}
       onSelectValue={setSelectedValue}
       onVote={handleVote}
       onBack={() => { void handleLeave(); }}
-    />
+    />,
   );
 }

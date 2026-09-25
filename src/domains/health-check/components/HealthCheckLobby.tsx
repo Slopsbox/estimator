@@ -3,7 +3,7 @@ import { NavyPageLayout } from '../../../components/NavyPageLayout';
 export interface HealthCheckLobbyMember {
   readonly memberId: string;
   readonly displayName: string;
-  readonly isOnline: boolean;
+  readonly isOnline: boolean | undefined;
 }
 
 export interface HealthCheckLobbyProps {
@@ -119,7 +119,7 @@ export function HealthCheckLobby({
           {members.length > 0 ? (
             <ul aria-label="Deltakere" className="mt-4 divide-y" style={{ borderColor: 'var(--color-neutral-200)' }}>
               {members.map((member) => {
-                const presence = member.isOnline ? 'online' : 'offline';
+                const presence = member.isOnline === undefined ? 'status ukjent' : member.isOnline ? 'online' : 'offline';
                 return (
                   <li key={member.memberId} className="flex min-w-0 items-center gap-3 py-2">
                     <div className="min-w-0 flex-1">

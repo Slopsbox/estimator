@@ -31,6 +31,7 @@ export function parseHealthCheckState(value: unknown): HealthCheckState | null {
     'measurement_date',
     'respondent_state',
     'role',
+    'expires_at',
   ]);
   if (!record) return null;
 
@@ -40,6 +41,7 @@ export function parseHealthCheckState(value: unknown): HealthCheckState | null {
   const measurementDate = dataValue(record, 'measurement_date');
   const respondentState = dataValue(record, 'respondent_state');
   const role = dataValue(record, 'role');
+  const expiresAt = dataValue(record, 'expires_at');
 
   if (
     (phase !== 'lobby' && phase !== 'collecting' && phase !== 'download_pending')
@@ -50,6 +52,7 @@ export function parseHealthCheckState(value: unknown): HealthCheckState | null {
       && respondentState !== 'in_progress'
       && respondentState !== 'completed')
     || (role !== 'facilitator' && role !== 'participant')
+    || !isRfc3339Timestamp(expiresAt)
   ) return null;
 
   if (role === 'facilitator' && respondentState !== null) return null;
@@ -66,6 +69,7 @@ export function parseHealthCheckState(value: unknown): HealthCheckState | null {
     measurementDate,
     respondentState,
     role,
+    expiresAt,
   };
 }
 

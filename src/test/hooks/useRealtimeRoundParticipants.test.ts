@@ -91,6 +91,20 @@ describe('useRealtimeRoundParticipants', () => {
     expect(result.current.roundParticipants).toEqual([]);
   });
 
+  it('håndterer DELETE-payload som bare inneholder primærnøkkelen', async () => {
+    db.result = { data: [row()], error: null };
+    const { result } = renderHook(() => useRealtimeRoundParticipants('session-1', 1));
+    await waitFor(() => expect(result.current.roundParticipants).toEqual([row()]));
+
+    act(() => channel.trigger('DELETE', {
+      session_id: 'session-1',
+      round: 1,
+      participant_id: 'participant-1',
+    }));
+
+    expect(result.current.roundParticipants).toEqual([]);
+  });
+
   it('tømmer roster ved rundebytte, men bevarer den under reconnect i samme scope', async () => {
     db.result = { data: [row()], error: null };
     const { result, rerender } = renderHook(

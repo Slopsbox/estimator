@@ -14,6 +14,14 @@ function isRoundParticipant(value: unknown): value is RoundParticipant {
     && typeof row.reestimate_used === 'boolean';
 }
 
+function isRoundParticipantKey(value: unknown): value is Pick<RoundParticipant, 'session_id' | 'round' | 'participant_id'> {
+  if (typeof value !== 'object' || value === null) return false;
+  const row = value as Record<string, unknown>;
+  return typeof row.session_id === 'string'
+    && typeof row.round === 'number'
+    && typeof row.participant_id === 'string';
+}
+
 export function useRealtimeRoundParticipants(sessionId: string | null, round: number) {
   const fetchCollection = useCallback(async () => {
     const result = await supabase
@@ -36,7 +44,7 @@ export function useRealtimeRoundParticipants(sessionId: string | null, round: nu
     setRows: React.Dispatch<React.SetStateAction<RoundParticipant[]>>,
     isCurrent: () => boolean,
   ) => {
-    const belongsToScope = (row: RoundParticipant) => row.session_id === sessionId && row.round === round;
+    const belongsToScope = (row: Pick<RoundParticipant, 'session_id' | 'round'>) => row.session_id === sessionId && row.round === round;
     const upsert = (value: unknown) => {
       if (!isCurrent() || !isRoundParticipant(value) || !belongsToScope(value)) return;
       setRows((current) => {
@@ -46,7 +54,7 @@ export function useRealtimeRoundParticipants(sessionId: string | null, round: nu
       });
     };
     const remove = (value: unknown) => {
-      if (!isCurrent() || !isRoundParticipant(value) || !belongsToScope(value)) return;
+      if (!isCurrent() || !isRoundParticipantKey(value) || !belongsToScope(value)) return;
       setRows((current) => current.filter((row) => row.participant_id !== value.participant_id));
     };
     return channel

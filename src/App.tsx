@@ -6,46 +6,25 @@ import { ChunkErrorBoundary } from './components/ChunkErrorBoundary';
 import { readSessionPointer } from './lib/localStorage';
 import { resolveRoomRoute } from './lib/roomRoutes';
 
-function lazyWithRetry<T extends React.ComponentType<unknown>>(
-  importFn: () => Promise<{ default: T }>,
-) {
-  return lazy(async () => {
-    try {
-      return await importFn();
-    } catch (error) {
-      // Chunk-feil etter deploy – reload én gang
-      const hasReloaded = sessionStorage.getItem('chunk-reload');
-      if (!hasReloaded) {
-        sessionStorage.setItem('chunk-reload', '1');
-        window.location.reload();
-        // Return dummy mens reload skjer
-        return { default: (() => null) as unknown as T };
-      }
-      sessionStorage.removeItem('chunk-reload');
-      throw error;
-    }
-  });
-}
-
-const DeltagerJoinPage = lazyWithRetry(() =>
+const DeltagerJoinPage = lazy(() =>
   import('./pages/DeltagerJoin').then((m) => ({ default: m.DeltagerJoinPage })),
 );
-const VotePage = lazyWithRetry(() =>
+const VotePage = lazy(() =>
   import('./pages/Vote').then((m) => ({ default: m.VotePage })),
 );
-const DashboardPage = lazyWithRetry(() =>
+const DashboardPage = lazy(() =>
   import('./pages/Dashboard').then((m) => ({ default: m.DashboardPage })),
 );
-const FacilitatorActivityChooserPage = lazyWithRetry(() =>
+const FacilitatorActivityChooserPage = lazy(() =>
   import('./pages/FacilitatorActivityChooser').then((m) => ({ default: m.FacilitatorActivityChooserPage })),
 );
-const HealthCheckDashboardPage = lazyWithRetry(() =>
+const HealthCheckDashboardPage = lazy(() =>
   import('./pages/HealthCheckDashboard').then((m) => ({ default: m.HealthCheckDashboardPage })),
 );
-const HealthCheckRespondPage = lazyWithRetry(() =>
+const HealthCheckRespondPage = lazy(() =>
   import('./pages/HealthCheckRespond').then((m) => ({ default: m.HealthCheckRespondPage })),
 );
-const SessionRoutes = lazyWithRetry(() =>
+const SessionRoutes = lazy(() =>
   import('./app/SessionRoutes').then((m) => ({ default: m.SessionRoutes })),
 );
 

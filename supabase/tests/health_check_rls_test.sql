@@ -129,29 +129,29 @@ select extensions.ok(
 );
 
 select extensions.ok(
-  has_function_privilege('service_role', 'public.create_health_check_room(uuid,uuid,text,text,date,uuid)', 'EXECUTE')
-  and not has_function_privilege('authenticated', 'public.create_health_check_room(uuid,uuid,text,text,date,uuid)', 'EXECUTE')
-  and not has_function_privilege('anon', 'public.create_health_check_room(uuid,uuid,text,text,date,uuid)', 'EXECUTE'),
+  has_function_privilege('service_role', 'public.create_health_check_room(uuid,uuid,text,text,date,uuid,boolean)', 'EXECUTE')
+  and not has_function_privilege('authenticated', 'public.create_health_check_room(uuid,uuid,text,text,date,uuid,boolean)', 'EXECUTE')
+  and not has_function_privilege('anon', 'public.create_health_check_room(uuid,uuid,text,text,date,uuid,boolean)', 'EXECUTE'),
   'health room creation is executable only by service_role among API roles'
 );
 select extensions.ok(
-  has_function_privilege('authenticated', 'public.create_health_check_room_prototype(uuid,text,text,date,uuid)', 'EXECUTE')
-  and not has_function_privilege('anon', 'public.create_health_check_room_prototype(uuid,text,text,date,uuid)', 'EXECUTE')
-  and not has_function_privilege('service_role', 'public.create_health_check_room_prototype(uuid,text,text,date,uuid)', 'EXECUTE')
+  has_function_privilege('authenticated', 'public.create_health_check_room_prototype(uuid,text,text,date,uuid,boolean)', 'EXECUTE')
+  and not has_function_privilege('anon', 'public.create_health_check_room_prototype(uuid,text,text,date,uuid,boolean)', 'EXECUTE')
+  and not has_function_privilege('service_role', 'public.create_health_check_room_prototype(uuid,text,text,date,uuid,boolean)', 'EXECUTE')
   and not exists (
     select 1
       from pg_proc p,
            lateral aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) acl
-     where p.oid = 'public.create_health_check_room_prototype(uuid,text,text,date,uuid)'::regprocedure
+     where p.oid = 'public.create_health_check_room_prototype(uuid,text,text,date,uuid,boolean)'::regprocedure
        and acl.grantee = 0
        and acl.privilege_type = 'EXECUTE'
   ),
   'prototype room creation is executable only by authenticated among API roles and PUBLIC'
 );
 select extensions.ok(
-  has_function_privilege('service_role', 'public.join_health_check_room(uuid,text,text)', 'EXECUTE')
-  and not has_function_privilege('authenticated', 'public.join_health_check_room(uuid,text,text)', 'EXECUTE')
-  and not has_function_privilege('anon', 'public.join_health_check_room(uuid,text,text)', 'EXECUTE'),
+  has_function_privilege('service_role', 'public.join_health_check_room(uuid,text,text,boolean)', 'EXECUTE')
+  and not has_function_privilege('authenticated', 'public.join_health_check_room(uuid,text,text,boolean)', 'EXECUTE')
+  and not has_function_privilege('anon', 'public.join_health_check_room(uuid,text,text,boolean)', 'EXECUTE'),
   'health room join is executable only by service_role among API roles'
 );
 select extensions.ok(
@@ -187,7 +187,7 @@ select extensions.ok(
 );
 select extensions.ok(
   not has_function_privilege('anon', 'public.get_health_check_state(uuid)', 'EXECUTE')
-  and not has_function_privilege('authenticated', 'public.create_health_check_room(uuid,uuid,text,text,date,uuid)', 'EXECUTE')
+  and not has_function_privilege('authenticated', 'public.create_health_check_room(uuid,uuid,text,text,date,uuid,boolean)', 'EXECUTE')
   and not has_function_privilege('authenticated', 'private.cleanup_expired_health_checks()', 'EXECUTE'),
   'PUBLIC receives no implicit SECURITY DEFINER execution'
 );
@@ -314,9 +314,9 @@ select extensions.is(
 select extensions.ok(
   (select bool_and(prosecdef and proconfig @> array['search_path=pg_catalog'])
    from pg_proc where oid in (
-       'public.create_health_check_room(uuid,uuid,text,text,date,uuid)'::regprocedure,
-       'public.create_health_check_room_prototype(uuid,text,text,date,uuid)'::regprocedure,
-      'public.join_health_check_room(uuid,text,text)'::regprocedure,
+       'public.create_health_check_room(uuid,uuid,text,text,date,uuid,boolean)'::regprocedure,
+       'public.create_health_check_room_prototype(uuid,text,text,date,uuid,boolean)'::regprocedure,
+       'public.join_health_check_room(uuid,text,text,boolean)'::regprocedure,
      'public.get_health_check_state(uuid)'::regprocedure,
      'public.start_health_check(uuid)'::regprocedure,
      'public.submit_health_check(uuid,smallint[])'::regprocedure,
@@ -371,7 +371,7 @@ select extensions.ok(
   'internal trigger helpers are not client executable'
 );
 select extensions.ok(
-  has_function_privilege('authenticated', 'public.join_session(text,text)', 'EXECUTE')
+  has_function_privilege('authenticated', 'public.join_session(text,text,boolean)', 'EXECUTE')
   and has_function_privilege('authenticated', 'public.leave_session(uuid)', 'EXECUTE'),
   'common membership RPC grants remain intact after full replacement'
 );

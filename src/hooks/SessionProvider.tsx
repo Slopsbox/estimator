@@ -14,6 +14,7 @@ import type { RoomMembershipSnapshot } from '../rooms/services/roomMembershipSer
 import { SessionContext, type ConnectionState, type JoinResult, type MutationResult, type RestoreStatus, type SessionContextValue } from './sessionContext';
 
 const GENERIC_RESTORE_ERROR = 'Kunne ikke koble til sesjonen. Vi prøver igjen.';
+const REQUEST_TIMEOUT_MS = 10_000;
 const { roomMembership, estimation, storage, realtime } = sessionServices;
 
 export function SessionProvider({ children }: PropsWithChildren) {
@@ -44,6 +45,21 @@ export function SessionProvider({ children }: PropsWithChildren) {
   const restoreInFlightRef = useRef<Promise<void> | null>(null);
   const restoreRequestedRef = useRef(false);
   const skipNextPointerRestoreRef = useRef(false);
+  const pointerRef = useRef<SessionPointer | null>(pointer);
+
+  const withTimeout = useCallback(async <T,>(operation: Promise<T>): Promise<T> => {
+    let timeout: ReturnType<typeof setTimeout> | null = null;
+    try {
+      return await Promise.race([
+        operation,
+        new Promise<T>((_resolve, reject) => {
+          timeout = setTimeout(() => reject(new Error('request_timeout')), REQUEST_TIMEOUT_MS);
+        }),
+      ]);
+    } finally {
+      if (timeout) clearTimeout(timeout);
+    }
+  }, []);
 
   const clearAppSession = useCallback((status: RestoreStatus = 'ready') => {
     generationRef.current += 1;
@@ -53,6 +69,7 @@ export function SessionProvider({ children }: PropsWithChildren) {
       restoreRetryTimerRef.current = null;
     }
     storage.clearSessionPointer();
+    pointerRef.current = null;
     setPointer(null);
     setSession(null);
     setActivityType(null);
@@ -67,6 +84,12 @@ export function SessionProvider({ children }: PropsWithChildren) {
   const restore = useCallback(async () => {
     const activePointer = storage.readSessionPointer();
     if (!activePointer) {
+      setPointer(null);
+      setSession(null);
+      setActivityType(null);
+      setLocalParticipant(null);
+      setOwnVote(null);
+      setRoundParticipant(null);
       setRestoreStatus('ready');
       setConnectionState('idle');
       return;
@@ -80,14 +103,19 @@ export function SessionProvider({ children }: PropsWithChildren) {
     const attempt = (async () => {
       setConnectionState('connecting');
       try {
-        const result = await roomMembership.restore(activePointer.sessionId);
+        const result = await withTimeout(roomMembership.restore(activePointer.sessionId));
         if (generation !== generationRef.current || snapshotSequence !== snapshotSequenceRef.current) return;
+        const currentPointer = pointerRef.current;
+        if (!currentPointer
+          || currentPointer.sessionId !== activePointer.sessionId
+          || currentPointer.participantId !== activePointer.participantId) return;
         if (!result.ok && (result.reason === 'membership_missing' || result.reason === 'session_completed')) {
           clearAppSession('invalid');
           return;
         }
         if (!result.ok) throw new Error('restore_failed');
         roomMembership.persist(result.snapshot);
+        pointerRef.current = result.snapshot.pointer;
         setPointer(result.snapshot.pointer);
         setSession(result.snapshot.session);
         setActivityType(result.snapshot.activityType);
@@ -128,7 +156,7 @@ export function SessionProvider({ children }: PropsWithChildren) {
     });
     restoreInFlightRef.current = attempt;
     return attempt;
-  }, [clearAppSession]);
+  }, [clearAppSession, withTimeout]);
 
   useEffect(() => () => {
     if (restoreRetryTimerRef.current) clearTimeout(restoreRetryTimerRef.current);
@@ -144,16 +172,66 @@ export function SessionProvider({ children }: PropsWithChildren) {
   }, [pointer?.sessionId, restore, restoreTrigger]);
 
   useEffect(() => {
-    const handleRetry = () => {
-      if (document.visibilityState === 'visible' || navigator.onLine) void restore();
+    const restartRestore = () => {
+      generationRef.current += 1;
+      restoreInFlightRef.current = null;
+      restoreRequestedRef.current = false;
+      snapshotSequenceRef.current += 1;
+      setRestoreTrigger((current) => current + 1);
+      void restore();
     };
-    window.addEventListener('online', handleRetry);
-    document.addEventListener('visibilitychange', handleRetry);
+    const handleOnline = () => { if (document.visibilityState === 'visible') restartRestore(); };
+    const handleVisibility = () => { if (document.visibilityState === 'visible') restartRestore(); };
+    const handlePageShow = () => { if (document.visibilityState === 'visible') restartRestore(); };
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('pageshow', handlePageShow);
+    document.addEventListener('visibilitychange', handleVisibility);
     return () => {
-      window.removeEventListener('online', handleRetry);
-      document.removeEventListener('visibilitychange', handleRetry);
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('pageshow', handlePageShow);
+      document.removeEventListener('visibilitychange', handleVisibility);
     };
   }, [restore]);
+
+  useEffect(() => storage.subscribeToSessionPointerChanges(() => {
+    const nextPointer = storage.readSessionPointer();
+    if (!nextPointer) {
+      generationRef.current += 1;
+      pointerRef.current = null;
+      setPointer(null);
+      setSession(null);
+      setActivityType(null);
+      setLocalParticipant(null);
+      setOwnVote(null);
+      setRoundParticipant(null);
+      setRestoreStatus('ready');
+      setConnectionState('idle');
+      setError('Den aktive sesjonen ble avsluttet eller flyttet i en annen fane.');
+      return;
+    }
+    const changedRoom = pointer?.sessionId !== nextPointer.sessionId;
+    pointerRef.current = nextPointer;
+    setPointer(nextPointer);
+    if (!changedRoom) return;
+    generationRef.current += 1;
+    snapshotSequenceRef.current += 1;
+    restoreInFlightRef.current = null;
+    restoreRequestedRef.current = false;
+    setSession(null);
+    setActivityType(nextPointer.activityType);
+    setOwnVote(null);
+    setRoundParticipant(null);
+    setLocalParticipant({
+      participantId: nextPointer.participantId,
+      sessionId: nextPointer.sessionId,
+      name: nextPointer.name,
+      role: nextPointer.role,
+    });
+    setRestoreStatus('initializing');
+    setConnectionState('connecting');
+    setError('Den aktive sesjonen ble byttet i en annen fane.');
+    queueMicrotask(() => { void restore(); });
+  }), [pointer?.sessionId, restore]);
 
   useEffect(() => {
     const sessionId = pointer?.sessionId;
@@ -172,9 +250,28 @@ export function SessionProvider({ children }: PropsWithChildren) {
         }, () => {
           if (active && !retired && channel === currentChannel && generation === generationRef.current) void restore();
         })
+        .on('postgres_changes', {
+          event: 'UPDATE', schema: 'public', table: 'participants', filter: `id=eq.${pointer?.participantId ?? ''}`,
+        }, () => {
+          if (active && !retired && channel === currentChannel && generation === generationRef.current) void restore();
+        })
+        .on('postgres_changes', {
+          event: '*', schema: 'public', table: 'round_participants', filter: `participant_id=eq.${pointer?.participantId ?? ''}`,
+        }, () => {
+          if (active && !retired && channel === currentChannel && generation === generationRef.current) void restore();
+        })
+        .on('postgres_changes', {
+          event: 'DELETE', schema: 'public', table: 'votes', filter: `participant_id=eq.${pointer?.participantId ?? ''}`,
+        }, () => {
+          if (active && !retired && channel === currentChannel && generation === generationRef.current) void restore();
+        })
         .subscribe((status) => {
           if (!active || retired || channel !== currentChannel || generation !== generationRef.current) return;
           if (status === 'SUBSCRIBED') {
+            if (retryTimerRef.current) {
+              clearTimeout(retryTimerRef.current);
+              retryTimerRef.current = null;
+            }
             setConnectionState('connected');
             void restore();
             return;
@@ -199,9 +296,10 @@ export function SessionProvider({ children }: PropsWithChildren) {
       if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
       if (channel) void realtime.removeChannel(channel);
     };
-  }, [pointer?.sessionId, restore]);
+  }, [pointer?.participantId, pointer?.sessionId, restore]);
 
   const applyMembership = useCallback((snapshot: RoomMembershipSnapshot) => {
+    pointerRef.current = snapshot.pointer;
     setPointer(snapshot.pointer);
     setSession(snapshot.session);
     setActivityType(snapshot.activityType);
@@ -212,50 +310,84 @@ export function SessionProvider({ children }: PropsWithChildren) {
     setError(null);
   }, []);
 
-  const createSession = useCallback(async (name: string): Promise<Session | null> => {
+  const runConfirmedRoomSwitch = useCallback(async <T,>(
+    retry: () => Promise<T>,
+  ): Promise<T | null> => {
+    const confirmed = window.confirm(
+      'Du har allerede en aktiv sesjon. Hvis du fortsetter, avsluttes eller forlates den før du går til det nye rommet. Vil du bytte rom?',
+    );
+    return confirmed ? retry() : null;
+  }, []);
+
+  const createSession = useCallback(async (name: string, replaceActive = false): Promise<Session | null> => {
     const generation = ++generationRef.current;
-    setPointer(null);
     setLoading(true);
     setError(null);
     try {
       const requestId = storage.getOrCreateCreateRequestId();
-      let result = await roomMembership.create(name, requestId);
+      let result = await roomMembership.create(name, requestId, replaceActive);
       if (!result.ok && result.reason === 'rpc') {
-        result = await roomMembership.create(name, requestId);
+        result = await roomMembership.create(name, requestId, replaceActive);
       }
       if (generation !== generationRef.current) return null;
-      if (!result.ok) throw new Error('create_failed');
+      if (!result.ok) {
+        if (result.reason === 'active_session_exists' && !replaceActive) {
+          const switched = await runConfirmedRoomSwitch(() => roomMembership.create(name, requestId, true));
+          if (switched) result = switched;
+        }
+      }
+      if (!result.ok) {
+        if (result.reason === 'request_already_used') {
+          storage.clearCreateRequestId();
+          throw new Error('request_already_used');
+        }
+        if (result.reason === 'active_session_exists') throw new Error('active_session_exists');
+        throw new Error('create_failed');
+      }
       roomMembership.persist(result.snapshot, { clearCreateRequestId: true });
       skipNextPointerRestoreRef.current = true;
       applyMembership(result.snapshot);
       return result.snapshot.session;
-    } catch {
-      if (generation === generationRef.current) setError('Kunne ikke opprette sesjon. Prøv igjen.');
+    } catch (caught) {
+      if (generation === generationRef.current) setError(caught instanceof Error && caught.message === 'active_session_exists'
+        ? 'Du har allerede en aktiv sesjon. Bekreft rombytte for å avslutte den og opprette en ny.'
+        : caught instanceof Error && caught.message === 'request_already_used'
+          ? 'Forrige opprettelsesforsøk kan ikke brukes igjen. Prøv på nytt.'
+        : 'Kunne ikke opprette sesjon. Prøv igjen.');
       return null;
     } finally {
       if (generation === generationRef.current) setLoading(false);
     }
-  }, [applyMembership]);
+  }, [applyMembership, runConfirmedRoomSwitch]);
 
   const createHealthCheck = useCallback(async (
     name: string,
     squadName: string,
     measurementDate: string,
+    replaceActive = false,
   ): Promise<Session | null> => {
     const generation = ++generationRef.current;
-    setPointer(null);
     setLoading(true);
     setError(null);
     try {
-      const result = await roomMembership.createHealth({
+      const createInput = {
         name,
         squadName,
         measurementDate,
         requestId: storage.getOrCreateCreateRequestId(),
         deliveryId: crypto.randomUUID(),
-      });
+      };
+      let result = await roomMembership.createHealth(createInput, replaceActive);
+      if (!result.ok && result.reason === 'active_session_exists' && !replaceActive) {
+        const switched = await runConfirmedRoomSwitch(() => roomMembership.createHealth(createInput, true));
+        if (switched) result = switched;
+      }
       if (generation !== generationRef.current) return null;
       if (!result.ok) {
+        if (result.reason === 'request_already_used') {
+          storage.clearCreateRequestId();
+          throw new Error('request_already_used');
+        }
         if (result.reason === 'active_session_exists') {
           throw new Error('active_health_session_exists');
         }
@@ -268,24 +400,30 @@ export function SessionProvider({ children }: PropsWithChildren) {
     } catch (error) {
       if (generation === generationRef.current) {
         setError(error instanceof Error && error.message === 'active_health_session_exists'
-          ? 'Du har allerede en aktiv helsesjekk. Åpne den aktive sesjonen eller avslutt den først.'
+          ? 'Du har allerede en aktiv sesjon. Bekreft rombytte for å avslutte eller forlate den først.'
+          : error instanceof Error && error.message === 'request_already_used'
+            ? 'Forrige opprettelsesforsøk kan ikke brukes igjen. Prøv på nytt.'
           : 'Kunne ikke opprette helsesjekken. Prøv igjen.');
       }
       return null;
     } finally {
       if (generation === generationRef.current) setLoading(false);
     }
-  }, [applyMembership]);
+  }, [applyMembership, runConfirmedRoomSwitch]);
 
-  const joinSession = useCallback(async (code: string, name: string): Promise<JoinResult> => {
+  const joinSession = useCallback(async (code: string, name: string, replaceActive = false): Promise<JoinResult> => {
     const generation = ++generationRef.current;
-    setPointer(null);
     setLoading(true);
     setError(null);
     try {
-      const result = await roomMembership.join(code, name);
+      let result = await roomMembership.join(code, name, replaceActive);
+      if (!result.ok && result.reason === 'active_session_exists' && !replaceActive) {
+        const switched = await runConfirmedRoomSwitch(() => roomMembership.join(code, name, true));
+        if (switched) result = switched;
+      }
       if (generation !== generationRef.current) return { ok: false, reason: 'transient' };
-      if (!result.ok && (result.reason === 'session_not_found' || result.reason === 'role_conflict')) {
+      if (!result.ok && (result.reason === 'session_not_found' || result.reason === 'role_conflict'
+        || result.reason === 'membership_removed' || result.reason === 'active_session_exists')) {
         return { ok: false, reason: result.reason };
       }
       if (!result.ok) throw new Error('join_failed');
@@ -299,7 +437,7 @@ export function SessionProvider({ children }: PropsWithChildren) {
     } finally {
       if (generation === generationRef.current) setLoading(false);
     }
-  }, [applyMembership]);
+  }, [applyMembership, runConfirmedRoomSwitch]);
 
   const sessionMutation = useCallback(async (
     operation: 'start' | 'reveal' | 'next' | 'end',
@@ -402,6 +540,15 @@ export function SessionProvider({ children }: PropsWithChildren) {
     return { ok: true };
   }, [roundParticipant, session]);
 
+  const deactivateParticipant = useCallback(async (participantId: string): Promise<MutationResult> => {
+    if (!session || localParticipant?.role !== 'facilitator') {
+      return { ok: false, message: 'Kun fasilitator kan fjerne deltakere.' };
+    }
+    const result = await estimation.deactivateParticipant(session, participantId);
+    if (!result.ok) return { ok: false, message: 'Kunne ikke fjerne deltakeren. Prøv igjen.' };
+    return { ok: true };
+  }, [localParticipant?.role, session]);
+
   const value: SessionContextValue = {
     session,
     activityType,
@@ -424,6 +571,7 @@ export function SessionProvider({ children }: PropsWithChildren) {
     claimRound,
     castVote,
     retractVote,
+    deactivateParticipant,
     retryRestore: restore,
     clearLocalSession: () => clearAppSession('ready'),
     logout: () => clearAppSession('ready'),

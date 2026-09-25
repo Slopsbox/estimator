@@ -50,6 +50,8 @@ describe('useSessionPresence', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     channels.length = 0;
+    Object.defineProperty(navigator, 'onLine', { value: true, configurable: true });
+    Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
   });
 
   it('oppretter privat presence-kanal og tracker først etter SUBSCRIBED', async () => {
@@ -73,6 +75,7 @@ describe('useSessionPresence', () => {
     const { result } = renderHook(() => useSessionPresence('session-1', 'participant-1'));
     const channel = channels[0];
     await act(async () => channel.status?.('SUBSCRIBED'));
+    expect(result.current.presenceReady).toBe(false);
     channel.state = {
       'participant-1': [{ participantId: 'participant-1' }, { participantId: 'participant-1' }],
       'participant-2': [{ participantId: 'participant-2' }],
@@ -89,6 +92,30 @@ describe('useSessionPresence', () => {
     channel.state['participant-3'] = [{ participantId: 'participant-3' }];
     act(() => channel.handlers.join());
     expect([...result.current.presentParticipantIds]).toEqual(['participant-2', 'participant-3']);
+  });
+
+  it('krever nøyaktig ok fra track og en sync fra gjeldende kanal før presence er klar', async () => {
+    vi.useFakeTimers();
+    try {
+      const { result } = renderHook(() => useSessionPresence('session-1', 'participant-1'));
+      const first = channels[0];
+      first.track.mockResolvedValueOnce('error');
+
+      await act(async () => first.status?.('SUBSCRIBED'));
+      act(() => first.handlers.sync());
+      expect(result.current.connectionState).toBe('disconnected');
+      expect(result.current.presenceReady).toBe(false);
+
+      act(() => vi.advanceTimersByTime(2000));
+      const second = channels[1];
+      act(() => second.handlers.sync());
+      expect(result.current.presenceReady).toBe(false);
+
+      await act(async () => second.status?.('SUBSCRIBED'));
+      expect(result.current.presenceReady).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('bruker bare presence key og ignorerer spoofet participantId i payload', () => {
@@ -114,6 +141,8 @@ describe('useSessionPresence', () => {
       act(() => vi.advanceTimersByTime(2000));
       await act(async () => channels[1].status?.('SUBSCRIBED'));
       expect(result.current.connectionState).toBe('connected');
+      expect(result.current.presenceReady).toBe(false);
+      act(() => channels[1].handlers.sync());
       expect(result.current.presenceReady).toBe(true);
     } finally {
       vi.useRealTimers();
@@ -130,12 +159,54 @@ describe('useSessionPresence', () => {
 
       await act(async () => first.status?.('CHANNEL_ERROR'));
       expect(result.current.connectionState).toBe('disconnected');
+      expect(result.current.presenceReady).toBe(false);
       expect(result.current.presentParticipantIds.has('participant-2')).toBe(true);
       act(() => vi.advanceTimersByTime(2000));
 
       const second = channels[1];
       await act(async () => second.status?.('SUBSCRIBED'));
       expect(second.track).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('avbryter reconnect-timer når gjeldende kanal blir SUBSCRIBED igjen', async () => {
+    vi.useFakeTimers();
+    try {
+      renderHook(() => useSessionPresence('session-1', 'participant-1'));
+      const channel = channels[0];
+
+      await act(async () => {
+        channel.status?.('CHANNEL_ERROR');
+        await Promise.resolve();
+      });
+      await act(async () => channel.status?.('SUBSCRIBED'));
+      act(() => vi.advanceTimersByTime(2000));
+
+      expect(channels).toHaveLength(1);
+      expect(removeChannelMock).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('venter med reconnect mens nettleseren er offline og kobler til straks den er online', async () => {
+    vi.useFakeTimers();
+    try {
+      renderHook(() => useSessionPresence('session-1', 'participant-1'));
+      Object.defineProperty(navigator, 'onLine', { value: false, configurable: true });
+
+      await act(async () => channels[0].status?.('CHANNEL_ERROR'));
+      act(() => vi.advanceTimersByTime(10_000));
+      expect(channels).toHaveLength(1);
+
+      Object.defineProperty(navigator, 'onLine', { value: true, configurable: true });
+      await act(async () => {
+        window.dispatchEvent(new Event('online'));
+        await Promise.resolve();
+      });
+      expect(channels).toHaveLength(2);
     } finally {
       vi.useRealTimers();
     }

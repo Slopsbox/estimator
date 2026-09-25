@@ -6,6 +6,7 @@ import {
   clearSessionPointer,
   getOrCreateCreateRequestId,
   readSessionPointer,
+  subscribeToSessionPointerChanges,
   writeLastUsedName,
   writeSessionPointer,
 } from '../lib/localStorage';
@@ -37,6 +38,7 @@ const storage = {
   getOrCreateCreateRequestId,
   clearCreateRequestId,
   writeLastUsedName,
+  subscribeToSessionPointerChanges,
 };
 
 export const sessionServices = {

@@ -1,24 +1,14 @@
-import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { ChunkErrorBoundary } from '../../components/ChunkErrorBoundary';
-
-// ── Hjelpere ────────────────────────────────────────────────────────────────────
 
 function ThrowingChild({ error }: { error: Error }): never {
   throw error;
 }
 
 function HealthyChild() {
-  return <div>Frisk barn</div>;
+  return <div>Friskt innhold</div>;
 }
-
-/** Undertrykk React-feil i konsoll for forventede throws i tester */
-function suppressConsoleError() {
-  const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
-  return () => spy.mockRestore();
-}
-
-// ── window.location.reload mock ───────────────────────────────────────────────
 
 let reloadSpy: ReturnType<typeof vi.fn>;
 
@@ -29,7 +19,9 @@ beforeEach(() => {
     writable: true,
     value: { ...window.location, reload: reloadSpy },
   });
+  window.history.replaceState({}, '', '/');
   sessionStorage.clear();
+  vi.spyOn(console, 'error').mockImplementation(() => {});
 });
 
 afterEach(() => {
@@ -37,25 +29,32 @@ afterEach(() => {
   sessionStorage.clear();
 });
 
-// ── Tester ────────────────────────────────────────────────────────────────────
-
-describe('ChunkErrorBoundary – frisk tilstand', () => {
-  it('rendrer children uten feil', () => {
+describe('ChunkErrorBoundary', () => {
+  it('rendrer children når ingen feil oppstår', () => {
     render(
       <ChunkErrorBoundary>
         <HealthyChild />
       </ChunkErrorBoundary>,
     );
 
-    expect(screen.getByText('Frisk barn')).toBeInTheDocument();
+    expect(screen.getByText('Friskt innhold')).toBeInTheDocument();
   });
-});
 
-describe('ChunkErrorBoundary – chunk-feil utløser reload', () => {
-  it('kaller window.location.reload() ved "Failed to fetch dynamically imported module"', () => {
-    const restore = suppressConsoleError();
-    const chunkError = new Error('Failed to fetch dynamically imported module');
+  it('laster siden på nytt én gang ved en gjenkjent chunk-feil', () => {
+    const chunkError = new TypeError(
+      'Failed to fetch dynamically imported module: https://estimat.no/assets/Vote-deadbeef.js',
+    );
 
+    const firstRender = render(
+      <ChunkErrorBoundary>
+        <ThrowingChild error={chunkError} />
+      </ChunkErrorBoundary>,
+    );
+
+    expect(reloadSpy).toHaveBeenCalledTimes(1);
+    expect(screen.getByText('Laster siste versjon av appen...')).toBeInTheDocument();
+
+    firstRender.unmount();
     render(
       <ChunkErrorBoundary>
         <ThrowingChild error={chunkError} />
@@ -63,95 +62,20 @@ describe('ChunkErrorBoundary – chunk-feil utløser reload', () => {
     );
 
     expect(reloadSpy).toHaveBeenCalledTimes(1);
-    restore();
+    expect(screen.getByRole('heading', { name: 'Appen kunne ikke lastes' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Last siden på nytt' })).toBeInTheDocument();
   });
 
-  it('kaller window.location.reload() ved "Loading chunk" feil', () => {
-    const restore = suppressConsoleError();
-    const chunkError = new Error('Loading chunk 3 failed');
-
+  it('viser en ærlig fallback uten automatisk reload ved en generell render-feil', () => {
     render(
       <ChunkErrorBoundary>
-        <ThrowingChild error={chunkError} />
-      </ChunkErrorBoundary>,
-    );
-
-    expect(reloadSpy).toHaveBeenCalledTimes(1);
-    restore();
-  });
-
-  it('kaller window.location.reload() ved "Loading CSS chunk" feil', () => {
-    const restore = suppressConsoleError();
-    const chunkError = new Error('Loading CSS chunk 5 failed');
-
-    render(
-      <ChunkErrorBoundary>
-        <ThrowingChild error={chunkError} />
-      </ChunkErrorBoundary>,
-    );
-
-    expect(reloadSpy).toHaveBeenCalledTimes(1);
-    restore();
-  });
-
-  it('kaller window.location.reload() ved ChunkLoadError (error.name)', () => {
-    const restore = suppressConsoleError();
-    const chunkError = new Error('Unexpected token');
-    chunkError.name = 'ChunkLoadError';
-
-    render(
-      <ChunkErrorBoundary>
-        <ThrowingChild error={chunkError} />
-      </ChunkErrorBoundary>,
-    );
-
-    expect(reloadSpy).toHaveBeenCalledTimes(1);
-    restore();
-  });
-
-  it('viser "Oppdaterer appen…" mens reload skjer', () => {
-    const restore = suppressConsoleError();
-    const chunkError = new Error('Failed to fetch dynamically imported module');
-
-    render(
-      <ChunkErrorBoundary>
-        <ThrowingChild error={chunkError} />
-      </ChunkErrorBoundary>,
-    );
-
-    expect(screen.getByText('Oppdaterer appen…')).toBeInTheDocument();
-    restore();
-  });
-});
-
-describe('ChunkErrorBoundary – ikke-chunk-feil', () => {
-  it('kaller IKKE reload() ved generell JavaScript-feil', () => {
-    const restore = suppressConsoleError();
-    const genericError = new Error('Cannot read properties of undefined');
-
-    render(
-      <ChunkErrorBoundary>
-        <ThrowingChild error={genericError} />
+        <ThrowingChild error={new Error('Cannot read properties of undefined')} />
       </ChunkErrorBoundary>,
     );
 
     expect(reloadSpy).not.toHaveBeenCalled();
-    restore();
-  });
-
-  it('viser fallback-UI (Oppdaterer appen…) selv for generell feil', () => {
-    const restore = suppressConsoleError();
-    const genericError = new Error('Noe gikk galt');
-
-    render(
-      <ChunkErrorBoundary>
-        <ThrowingChild error={genericError} />
-      </ChunkErrorBoundary>,
-    );
-
-    // hasError = true → fallback vises, men ingen reload
-    expect(screen.getByText('Oppdaterer appen…')).toBeInTheDocument();
-    expect(reloadSpy).not.toHaveBeenCalled();
-    restore();
+    expect(screen.getByRole('heading', { name: 'Noe gikk galt' })).toBeInTheDocument();
+    expect(screen.getByText(/uventet feil/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Prøv på nytt' })).toBeInTheDocument();
   });
 });

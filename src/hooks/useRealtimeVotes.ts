@@ -68,8 +68,8 @@ export function useRealtimeVotes(
   useEffect(() => {
     if (!revealScope) return;
     let active = true;
-    void Promise.resolve(refetch()).finally(() => {
-      if (active) setReadyRevealScope(revealScope);
+    void Promise.resolve(refetch()).then((succeeded) => {
+      if (active && succeeded) setReadyRevealScope(revealScope);
     });
     return () => { active = false; };
   }, [refetch, revealScope]);

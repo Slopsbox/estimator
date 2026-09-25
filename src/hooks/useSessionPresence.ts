@@ -30,23 +30,57 @@ export function useSessionPresence(sessionId: string | null, participantId: stri
       setPresenceReady(false);
       return;
     }
+    const activeSessionId = sessionId;
+    const activeParticipantId = participantId;
 
     let active = true;
     let channel: RealtimeChannel | null = null;
+    let reconnectPending = false;
     const isCurrent = () => active && generationRef.current === generation;
+    const canUseNetwork = () => navigator.onLine !== false && document.visibilityState !== 'hidden';
 
-    const connect = () => {
+    const reconnect = (staleChannel: RealtimeChannel) => {
+      if (!isCurrent() || channel !== staleChannel || !reconnectPending || !canUseNetwork()) return;
+      reconnectPending = false;
+      void supabase.removeChannel(staleChannel);
+      connect();
+    };
+
+    const scheduleReconnect = (staleChannel: RealtimeChannel) => {
+      reconnectPending = true;
+      if (retryTimerRef.current) {
+        clearTimeout(retryTimerRef.current);
+        retryTimerRef.current = null;
+      }
+      if (!canUseNetwork()) return;
+      retryTimerRef.current = setTimeout(() => {
+        retryTimerRef.current = null;
+        reconnect(staleChannel);
+      }, 2000);
+    };
+
+    function connect() {
       if (!isCurrent()) return;
       setConnectionState('connecting');
       setPresenceReady(false);
-      const currentChannel = supabase.channel(`session:${sessionId}:presence`, {
-        config: { private: true, presence: { key: participantId } },
+      const currentChannel = supabase.channel(`session:${activeSessionId}:presence`, {
+        config: { private: true, presence: { key: activeParticipantId } },
       });
       channel = currentChannel;
+      let trackSucceeded = false;
+      let presenceSynced = false;
+      let statusRevision = 0;
+
+      const updateReady = () => {
+        if (!isCurrent() || channel !== currentChannel) return;
+        setPresenceReady(trackSucceeded && presenceSynced);
+      };
 
       const sync = () => {
         if (!isCurrent() || channel !== currentChannel) return;
+        presenceSynced = true;
         setPresentParticipantIds(idsFromState(currentChannel.presenceState()));
+        updateReady();
       };
 
       currentChannel
@@ -56,42 +90,60 @@ export function useSessionPresence(sessionId: string | null, participantId: stri
         .subscribe(async (status) => {
           if (!isCurrent() || channel !== currentChannel) return;
           if (status === 'SUBSCRIBED') {
+            const subscribedRevision = ++statusRevision;
+            reconnectPending = false;
+            if (retryTimerRef.current) {
+              clearTimeout(retryTimerRef.current);
+              retryTimerRef.current = null;
+            }
+            trackSucceeded = false;
+            setPresenceReady(false);
             try {
-              await currentChannel.track({ participantId, online_at: new Date().toISOString() });
-              if (!isCurrent() || channel !== currentChannel) return;
+              const result = await currentChannel.track({ participantId: activeParticipantId, online_at: new Date().toISOString() });
+              if (!isCurrent() || channel !== currentChannel || statusRevision !== subscribedRevision) return;
+              if (result !== 'ok') throw new Error('Presence track failed');
+              trackSucceeded = true;
               setConnectionState('connected');
-              setPresenceReady(true);
+              updateReady();
             } catch {
-              if (!isCurrent() || channel !== currentChannel) return;
+              if (!isCurrent() || channel !== currentChannel || statusRevision !== subscribedRevision) return;
+              trackSucceeded = false;
               setConnectionState('disconnected');
               setPresenceReady(false);
-              if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
-              retryTimerRef.current = setTimeout(() => {
-                if (!isCurrent()) return;
-                void supabase.removeChannel(currentChannel);
-                connect();
-              }, 2000);
+              scheduleReconnect(currentChannel);
             }
             return;
           }
           if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
+            statusRevision += 1;
+            trackSucceeded = false;
+            presenceSynced = false;
             setConnectionState('disconnected');
-            if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
-            const staleChannel = currentChannel;
-            retryTimerRef.current = setTimeout(() => {
-              if (!isCurrent()) return;
-              void supabase.removeChannel(staleChannel);
-              connect();
-            }, 2000);
+            setPresenceReady(false);
+            scheduleReconnect(currentChannel);
           }
         });
-    };
+    }
 
     connect();
+    const recover = () => {
+      if (!isCurrent() || !canUseNetwork()) return;
+      if (channel && reconnectPending) reconnect(channel);
+    };
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') recover();
+    };
+    window.addEventListener('online', recover);
+    document.addEventListener('visibilitychange', handleVisibility);
     return () => {
       active = false;
       if (generationRef.current === generation) generationRef.current += 1;
-      if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
+      window.removeEventListener('online', recover);
+      document.removeEventListener('visibilitychange', handleVisibility);
+      if (retryTimerRef.current) {
+        clearTimeout(retryTimerRef.current);
+        retryTimerRef.current = null;
+      }
       if (channel) {
         void channel.untrack();
         void supabase.removeChannel(channel);

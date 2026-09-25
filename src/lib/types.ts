@@ -13,7 +13,7 @@ import type { Tables } from './database.types';
 // ============================================================
 
 /** Rad fra participants-tabellen */
-export type Participant = Omit<Tables<'participants'>, 'user_id'>;
+export type Participant = Omit<Tables<'participants'>, 'user_id' | 'active_room_user_id' | 'removed_at'>;
 
 /** Rad fra votes-tabellen */
 export type Vote = Tables<'votes'>;

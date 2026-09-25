@@ -46,6 +46,8 @@ export function HealthCheckDashboardPage() {
   const terminalRequestStartedRef = useRef(false);
   const mutationInFlightRef = useRef(false);
   const resultHeadingRef = useRef<HTMLHeadingElement>(null);
+  const stateRequestSequenceRef = useRef(0);
+  const progressRequestSequenceRef = useRef(0);
   const sessionId = session?.id ?? null;
   const joinCode = session?.join_code ?? null;
   const participantData = useRealtimeParticipants(healthState?.phase === 'lobby' ? sessionId : null);
@@ -71,7 +73,9 @@ export function HealthCheckDashboardPage() {
 
   const loadState = useCallback(async () => {
     if (!sessionId || result) return;
+    const requestSequence = ++stateRequestSequenceRef.current;
     const stateResult = await sessionServices.health.getState(sessionId);
+    if (requestSequence !== stateRequestSequenceRef.current) return;
     if (!stateResult.ok) {
       setActionError('Kunne ikke hente helsesjekken. Prøv igjen.');
       return;
@@ -81,7 +85,9 @@ export function HealthCheckDashboardPage() {
 
   const loadProgress = useCallback(async () => {
     if (!sessionId || healthState?.phase !== 'collecting' || result) return;
+    const requestSequence = ++progressRequestSequenceRef.current;
     const progressResult = await sessionServices.health.getProgress(sessionId);
+    if (requestSequence !== progressRequestSequenceRef.current) return;
     if (!progressResult.ok) {
       setActionError('Kunne ikke oppdatere deltakerstatus. Prøv igjen.');
       return;
@@ -120,7 +126,9 @@ export function HealthCheckDashboardPage() {
   useEffect(() => {
     if (healthState?.phase !== 'collecting' || result) return;
     queueMicrotask(() => void loadProgress());
-    const timer = window.setInterval(() => void loadProgress(), 2000);
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === 'visible' && navigator.onLine !== false) void loadProgress();
+    }, 2000);
     return () => window.clearInterval(timer);
   }, [healthState?.phase, loadProgress, result]);
 
@@ -279,7 +287,7 @@ export function HealthCheckDashboardPage() {
       .map((participant) => ({
         memberId: participant.id,
         displayName: participant.name,
-        isOnline: presence.presenceReady && presence.presentParticipantIds.has(participant.id),
+        isOnline: presence.presenceReady ? presence.presentParticipantIds.has(participant.id) : undefined,
       }));
     return (
       <HealthCheckLobby

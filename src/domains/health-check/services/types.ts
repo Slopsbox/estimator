@@ -29,6 +29,7 @@ export interface HealthCheckState {
   readonly measurementDate: string;
   readonly respondentState: HealthCheckRespondentState | null;
   readonly role: HealthCheckRole;
+  readonly expiresAt: string;
 }
 
 export interface HealthCheckProgressRow {

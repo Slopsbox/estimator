@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { renderHook } from '@testing-library/react';
+import { act, renderHook } from '@testing-library/react';
 import { useWakeLock } from '../../hooks/useWakeLock';
 
 describe('useWakeLock', () => {
@@ -115,5 +115,51 @@ describe('useWakeLock', () => {
       'visibilitychange',
       expect.any(Function),
     );
+  });
+
+  it('starter ikke flere requests mens en wake-lock request pågår', async () => {
+    let resolveRequest!: (sentinel: WakeLockSentinel) => void;
+    requestSpy.mockImplementation(() => new Promise((resolve) => { resolveRequest = resolve; }));
+    const { unmount } = renderHook(() => useWakeLock());
+
+    act(() => document.dispatchEvent(new Event('visibilitychange')));
+    expect(requestSpy).toHaveBeenCalledTimes(1);
+
+    await act(async () => resolveRequest(mockWakeLockSentinel));
+    unmount();
+  });
+
+  it('releaser en pending sentinel som resolves etter unmount', async () => {
+    let resolveRequest!: (sentinel: WakeLockSentinel) => void;
+    requestSpy.mockImplementation(() => new Promise((resolve) => { resolveRequest = resolve; }));
+    const { unmount } = renderHook(() => useWakeLock());
+    unmount();
+
+    await act(async () => resolveRequest(mockWakeLockSentinel));
+
+    expect(mockWakeLockSentinel.release).toHaveBeenCalledTimes(1);
+  });
+
+  it('lar ikke release-event fra en gammel sentinel nullstille en nyere lock', async () => {
+    let firstRelease: (() => void) | undefined;
+    const first = {
+      release: vi.fn().mockResolvedValue(undefined),
+      addEventListener: vi.fn((_event: string, callback: () => void) => { firstRelease = callback; }),
+    };
+    const second = {
+      release: vi.fn().mockResolvedValue(undefined),
+      addEventListener: vi.fn(),
+    };
+    requestSpy.mockResolvedValueOnce(first).mockResolvedValueOnce(second);
+    const { unmount } = renderHook(() => useWakeLock());
+    await vi.waitFor(() => expect(first.addEventListener).toHaveBeenCalled());
+
+    act(() => firstRelease?.());
+    act(() => document.dispatchEvent(new Event('visibilitychange')));
+    await vi.waitFor(() => expect(second.addEventListener).toHaveBeenCalled());
+    act(() => firstRelease?.());
+    unmount();
+
+    await vi.waitFor(() => expect(second.release).toHaveBeenCalledTimes(1));
   });
 });

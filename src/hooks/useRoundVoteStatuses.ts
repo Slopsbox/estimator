@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { rpcWithAuthRecovery } from '../lib/supabase';
 
+const REQUEST_TIMEOUT_MS = 10_000;
+
 export interface RoundVoteStatus {
   participant_id: string;
   has_voted: boolean;
@@ -37,9 +39,16 @@ export function useRoundVoteStatuses(sessionId: string | null, round: number, en
     if (inFlightRef.current?.scope === requestScope) return inFlightRef.current.promise;
     const requestSequence = ++requestSequenceRef.current;
     const promise = (async () => {
-      const result = await rpcWithAuthRecovery('get_round_vote_statuses', { p_session_id: sessionId, p_round: round });
+      let timeout: ReturnType<typeof setTimeout> | undefined;
+      const result = await Promise.race([
+        rpcWithAuthRecovery('get_round_vote_statuses', { p_session_id: sessionId, p_round: round }),
+        new Promise<null>((resolve) => {
+          timeout = setTimeout(() => resolve(null), REQUEST_TIMEOUT_MS);
+        }),
+      ]);
+      if (timeout) clearTimeout(timeout);
       if (scopeRef.current !== requestScope || requestSequence !== requestSequenceRef.current) return;
-      const parsed = result.error ? null : parseStatuses(result.data);
+      const parsed = !result || result.error ? null : parseStatuses(result.data);
       if (!parsed) {
         setError('Kunne ikke hente stemmestatus. Prøv igjen.');
         setLoading(false);
@@ -67,7 +76,9 @@ export function useRoundVoteStatuses(sessionId: string | null, round: number, en
     requestSequenceRef.current += 1;
     setLoading(true);
     void refetch();
-    const timer = window.setInterval(() => { void refetch(); }, 2000);
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === 'visible' && navigator.onLine !== false) void refetch();
+    }, 2000);
     return () => window.clearInterval(timer);
   }, [enabled, refetch, scope, sessionId]);
 

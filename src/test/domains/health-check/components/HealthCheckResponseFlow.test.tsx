@@ -8,7 +8,10 @@ import {
 } from '../../../../domains/health-check/domain';
 
 describe('HealthCheckResponseFlow', () => {
-  beforeEach(() => sessionStorage.clear());
+  beforeEach(() => {
+    localStorage.clear();
+    sessionStorage.clear();
+  });
 
   afterEach(() => {
     vi.restoreAllMocks();
@@ -177,12 +180,13 @@ describe('HealthCheckResponseFlow', () => {
     expect(screen.queryByRole('button', { name: 'Forlat' })).not.toBeInTheDocument();
   });
 
-  it('gjenoppretter svar og posisjon etter reload for samme deltaker og rom', () => {
+  it('gjenoppretter svar og posisjon etter at fanen eller PWA-en åpnes på nytt', () => {
     const { unmount } = renderFlow({ draftKey: 'room-1:participant-1' });
 
     fireEvent.input(screen.getByRole('slider'), { target: { value: '5' } });
     fireEvent.click(screen.getByRole('button', { name: 'Neste' }));
     unmount();
+    sessionStorage.clear();
 
     renderFlow({ draftKey: 'room-1:participant-1' });
 
@@ -191,6 +195,22 @@ describe('HealthCheckResponseFlow', () => {
     );
     fireEvent.click(screen.getByRole('button', { name: 'Forrige' }));
     expect(screen.getByRole('slider')).toHaveValue('5');
+  });
+
+  it('beholder svar i minnet når localStorage-kvoten er brukt opp', () => {
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new DOMException('Full', 'QuotaExceededError');
+    });
+    renderFlow({ draftKey: 'room-1:participant-1' });
+
+    fireEvent.input(screen.getByRole('slider'), { target: { value: '6' } });
+    expect(screen.getByRole('slider')).toHaveValue('6');
+    fireEvent.click(screen.getByRole('button', { name: 'Neste' }));
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(
+      'Oppgavene mine gir meg mer energi enn de tapper meg for.',
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Forrige' }));
+    expect(screen.getByRole('slider')).toHaveValue('6');
   });
 
   it('bruker ikke console når et utkast lagres', () => {

@@ -14,10 +14,12 @@ export interface VotesPanelProps {
   totalCount: number;
   actionLoading: boolean;
   presentParticipantIds?: ReadonlySet<string>;
+  presenceReady?: boolean;
   reestimatingParticipantIds?: ReadonlySet<string>;
   votedParticipantIds?: ReadonlySet<string>;
   onReveal: () => void;
   onNextRound: () => void;
+  onRemoveParticipant?: (participantId: string) => void;
 }
 
 export function VotesPanel({
@@ -28,10 +30,12 @@ export function VotesPanel({
   totalCount,
   actionLoading,
   presentParticipantIds,
+  presenceReady = false,
   reestimatingParticipantIds,
   votedParticipantIds,
   onReveal,
   onNextRound,
+  onRemoveParticipant,
 }: VotesPanelProps) {
   // Bygg oppslag: participantId → vote (memoisert)
   const voteMap = useMemo(() => new Map(votes.map((v) => [v.participant_id, v])), [votes]);
@@ -128,6 +132,7 @@ export function VotesPanel({
             const vote = voteMap.get(p.id);
             const hasVoted = vote !== undefined || votedParticipantIds?.has(p.id) === true;
             const online = presentParticipantIds?.has(p.id) ?? false;
+            const presenceStatus = presenceReady ? (online ? 'online' : 'offline') : 'status ukjent';
             return (
               <li key={p.id} className="flex items-center gap-3">
                 <div
@@ -142,9 +147,14 @@ export function VotesPanel({
                 >
                   {p.name}
                 </span>
-                <span className="text-xs flex items-center gap-1" style={{ color: online ? 'var(--color-success)' : 'var(--color-neutral-500)' }} aria-label={`${p.name} er ${online ? 'online' : 'offline'}`}>
+                {onRemoveParticipant ? (
+                  <button type="button" className="min-h-11 px-2 text-xs font-semibold" onClick={() => onRemoveParticipant(p.id)} aria-label={`Fjern ${p.name} fra sesjonen`}>
+                    Fjern
+                  </button>
+                ) : null}
+                <span className="text-xs flex items-center gap-1" style={{ color: online ? 'var(--color-success)' : 'var(--color-neutral-500)' }} aria-label={`${p.name} er ${presenceStatus}`}>
                   <span className="w-1.5 h-1.5 rounded-full" style={{ background: online ? 'var(--color-success)' : 'var(--color-neutral-300)' }} aria-hidden="true" />
-                  {online ? 'online' : 'offline'}
+                  {presenceStatus}
                 </span>
                 {/* Stemme-status */}
                 {hasVoted ? (

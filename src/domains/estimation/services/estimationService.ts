@@ -107,6 +107,19 @@ export function createEstimationService({
         ? { ok: true as const }
         : { ok: false as const, reason: 'malformed' as const };
     },
+
+    async deactivateParticipant(session: Session, participantId: string) {
+      if (session.activity_type !== 'estimation') return { ok: false as const, reason: 'malformed' as const };
+      const result = await call('deactivate_estimation_participant', {
+        p_session_id: session.id,
+        p_participant_id: participantId,
+      });
+      if ('reason' in result) return { ok: false as const, reason: result.reason };
+      return isRecord(result.data)
+        && (result.data.status === 'deactivated' || result.data.status === 'already_inactive')
+        ? { ok: true as const }
+        : { ok: false as const, reason: 'malformed' as const };
+    },
   };
 }
 

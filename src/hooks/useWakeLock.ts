@@ -7,40 +7,53 @@ import { useCallback, useEffect, useRef } from 'react';
  */
 export function useWakeLock() {
   const wakeLockRef = useRef<WakeLockSentinel | null>(null);
+  const requestRef = useRef<Promise<void> | null>(null);
+  const mountedRef = useRef(false);
 
-  const requestWakeLock = useCallback(async () => {
-    if (!('wakeLock' in navigator)) return;
+  const requestWakeLock = useCallback(() => {
+    if (!('wakeLock' in navigator) || !navigator.wakeLock || wakeLockRef.current || requestRef.current) return;
 
-    try {
-      wakeLockRef.current = await navigator.wakeLock.request('screen');
-      wakeLockRef.current.addEventListener('release', () => {
-        wakeLockRef.current = null;
-      });
-    } catch {
-      // Wake Lock request feilet (f.eks. lav batteri, browser støtter ikke)
-      // Feiler stille – ikke kritisk funksjonalitet
-    }
+    const request = (async () => {
+      try {
+        const sentinel = await navigator.wakeLock.request('screen');
+        if (!mountedRef.current) {
+          await sentinel.release();
+          return;
+        }
+        wakeLockRef.current = sentinel;
+        sentinel.addEventListener('release', () => {
+          if (wakeLockRef.current === sentinel) wakeLockRef.current = null;
+        });
+      } catch {
+        // Wake Lock er best-effort og kan avvises av nettleseren.
+      }
+    })().finally(() => {
+      if (requestRef.current === request) requestRef.current = null;
+    });
+    requestRef.current = request;
   }, []);
 
-  const releaseWakeLock = useCallback(async () => {
-    if (wakeLockRef.current) {
+  const releaseWakeLock = useCallback(() => {
+    const sentinel = wakeLockRef.current;
+    wakeLockRef.current = null;
+    if (sentinel) {
       try {
-        await wakeLockRef.current.release();
+        void sentinel.release().catch(() => undefined);
       } catch {
-        // Ignorer feil ved release
+        // Ignorer feil ved release.
       }
-      wakeLockRef.current = null;
     }
   }, []);
 
   useEffect(() => {
+    mountedRef.current = true;
     // Request wake lock ved mount
-    void requestWakeLock();
+    requestWakeLock();
 
     // Re-acquire ved tab-bytte (wake lock frigis automatisk når tab er skjult)
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible') {
-        void requestWakeLock();
+        requestWakeLock();
       }
     };
 
@@ -48,8 +61,9 @@ export function useWakeLock() {
 
     // Release ved unmount
     return () => {
+      mountedRef.current = false;
       document.removeEventListener('visibilitychange', handleVisibilityChange);
-      void releaseWakeLock();
+      releaseWakeLock();
     };
   }, [requestWakeLock, releaseWakeLock]);
 }

@@ -101,7 +101,7 @@ describe('session storage', () => {
     expect(localStorage.getItem(LOCAL_PARTICIPANT_STORAGE_KEY)).toBeNull();
   });
 
-  it('sletter pointer som er eldre enn 24 timer', () => {
+  it('beholder en gammel pointer til serveren autoritativt avviser medlemskapet', () => {
     vi.spyOn(Date, 'now').mockReturnValue(new Date('2026-08-25T12:00:00Z').getTime());
     localStorage.setItem(LOCAL_PARTICIPANT_STORAGE_KEY, JSON.stringify({
       version: 2,
@@ -111,6 +111,21 @@ describe('session storage', () => {
       name: 'Kari',
       role: 'participant',
       updatedAt: '2026-08-24T11:59:59Z',
+    }));
+
+    expect(readSessionPointer()).toMatchObject({ sessionId: 'session-1' });
+    expect(localStorage.getItem(LOCAL_PARTICIPANT_STORAGE_KEY)).not.toBeNull();
+  });
+
+  it('sletter pointer med ugyldig tidsstempel', () => {
+    localStorage.setItem(LOCAL_PARTICIPANT_STORAGE_KEY, JSON.stringify({
+      version: 2,
+      activityType: 'estimation',
+      participantId: 'participant-1',
+      sessionId: 'session-1',
+      name: 'Kari',
+      role: 'participant',
+      updatedAt: 'ikke-en-dato',
     }));
 
     expect(readSessionPointer()).toBeNull();

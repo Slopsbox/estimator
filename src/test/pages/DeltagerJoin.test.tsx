@@ -187,11 +187,11 @@ describe('DeltagerJoinPage', () => {
     await user.type(screen.getByLabelText(/sesjonskode/i), 'ZZZZ');
     await user.click(screen.getByRole('button', { name: /bli med/i }));
     await waitFor(() => {
-      expect(screen.getByText(/feil kode/i)).toBeInTheDocument();
+      expect(screen.getByText(/koden er ugyldig/i)).toBeInTheDocument();
       // Feilmeldingen skal ha role="alert" for tilgjengelighet
       const alert = screen.getByRole('alert');
       expect(alert).toBeInTheDocument();
-      expect(alert).toHaveTextContent(/feil kode/i);
+      expect(alert).toHaveTextContent(/koden er ugyldig/i);
     });
   });
 

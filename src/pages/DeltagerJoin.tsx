@@ -62,9 +62,13 @@ export function DeltagerJoinPage() {
 
     if (!result.ok) {
       setCodeError(result.reason === 'session_not_found'
-        ? 'Feil kode — prøv igjen.'
+        ? 'Koden er ugyldig, eller sesjonen er avsluttet og kan ikke lenger åpnes.'
         : result.reason === 'role_conflict'
           ? 'Denne nettleseren er fasilitator for sesjonen.'
+          : result.reason === 'membership_removed'
+            ? 'Fasilitatoren har fjernet denne nettleseren fra sesjonen.'
+            : result.reason === 'active_session_exists'
+              ? 'Du er fortsatt koblet til en annen aktiv sesjon.'
           : 'Kunne ikke koble til. Sjekk nettet og prøv igjen.');
       setShaking(true);
       setTimeout(() => setShaking(false), 500);
