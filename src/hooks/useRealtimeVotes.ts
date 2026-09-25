@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { RealtimeChannel } from '@supabase/supabase-js';
 import { supabase } from '../lib/supabase';
 import type { Vote } from '../lib/types';
@@ -25,6 +25,10 @@ export function useRealtimeVotes(
 ) {
   const [revealed, setRevealed] = useState(initialRevealed);
   const [readyRevealScope, setReadyRevealScope] = useState<string | null>(null);
+  const revealStartedAtRevisionRef = useRef<{
+    scope: string;
+    requestRevision: number;
+  } | null>(null);
   const revealScope = sessionId && initialRevealed ? `${sessionId}:${currentRound}` : null;
 
   useEffect(() => {
@@ -57,22 +61,48 @@ export function useRealtimeVotes(
       });
   }, [sessionId, currentRound]);
 
-  const { items: votes, loading, error, connectionState, refetch } = useSupabaseRealtimeCollection({
+  const {
+    items: votes,
+    loading,
+    error,
+    connectionState,
+    successfulFetchRequestRevision,
+    getFetchRequestRevision,
+    refetch,
+  } = useSupabaseRealtimeCollection({
     sessionId,
     channelName: `votes:${sessionId}:${currentRound}`,
     channelTopic: sessionId ? `session:${sessionId}:votes:${currentRound}` : undefined,
     fetchCollection,
     configureSubscription,
   });
-
   useEffect(() => {
-    if (!revealScope) return;
+    if (!revealScope) {
+      revealStartedAtRevisionRef.current = null;
+      return;
+    }
+    revealStartedAtRevisionRef.current = {
+      scope: revealScope,
+      requestRevision: getFetchRequestRevision(),
+    };
     let active = true;
     void Promise.resolve(refetch()).then((succeeded) => {
-      if (active && succeeded) setReadyRevealScope(revealScope);
+      if (!active) return;
+      if (succeeded) {
+        revealStartedAtRevisionRef.current = null;
+        setReadyRevealScope(revealScope);
+      }
     });
     return () => { active = false; };
-  }, [refetch, revealScope]);
+  }, [getFetchRequestRevision, refetch, revealScope]);
+
+  useEffect(() => {
+    const revealStartedAtRevision = revealStartedAtRevisionRef.current;
+    if (!revealScope || revealStartedAtRevision?.scope !== revealScope
+      || successfulFetchRequestRevision <= revealStartedAtRevision.requestRevision) return;
+    revealStartedAtRevisionRef.current = null;
+    setReadyRevealScope(revealScope);
+  }, [revealScope, successfulFetchRequestRevision]);
 
   const ownVote = participantId
     ? votes.find((vote) => vote.participant_id === participantId) ?? null

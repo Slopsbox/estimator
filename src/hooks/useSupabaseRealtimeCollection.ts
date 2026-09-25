@@ -36,6 +36,7 @@ export function useSupabaseRealtimeCollection<T>({
   const [error, setError] = useState<string | null>(null);
   const [retryCount, setRetryCount] = useState(0);
   const [connectionState, setConnectionState] = useState<RealtimeCollectionConnectionState>('idle');
+  const [successfulFetchRequestRevision, setSuccessfulFetchRequestRevision] = useState(0);
   const retryTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const fetchRetryTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const generationRef = useRef(0);
@@ -44,6 +45,8 @@ export function useSupabaseRealtimeCollection<T>({
   const eventRevisionRef = useRef(0);
   const scopeRef = useRef<string | null>(null);
   const fetchSequenceRef = useRef(0);
+  const fetchRequestRevisionRef = useRef(0);
+  const getFetchRequestRevision = useCallback(() => fetchRequestRevisionRef.current, []);
 
   const refetch = useCallback(function refetchCollection(): Promise<boolean> | undefined {
     if (!sessionId) return;
@@ -61,6 +64,7 @@ export function useSupabaseRealtimeCollection<T>({
       do {
         refetchRequestedRef.current = false;
         const eventRevision = eventRevisionRef.current;
+        const fetchRequestRevision = ++fetchRequestRevisionRef.current;
         let timeout: ReturnType<typeof setTimeout> | undefined;
         const result = await Promise.race([
           fetchCollection()
@@ -88,6 +92,7 @@ export function useSupabaseRealtimeCollection<T>({
           continue;
         }
         if (result.value.data) setItems(result.value.data);
+        setSuccessfulFetchRequestRevision(fetchRequestRevision);
         setError(null);
         setLoading(false);
         if (fetchRetryTimerRef.current) {
@@ -214,5 +219,14 @@ export function useSupabaseRealtimeCollection<T>({
     };
   }, [sessionId, channelName, channelTopic, fetchCollection, configureSubscription, retryCount, refetch]);
 
-  return { items, setItems, loading, error, connectionState, refetch };
+  return {
+    items,
+    setItems,
+    loading,
+    error,
+    connectionState,
+    successfulFetchRequestRevision,
+    getFetchRequestRevision,
+    refetch,
+  };
 }

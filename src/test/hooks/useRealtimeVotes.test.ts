@@ -195,6 +195,70 @@ describe('useRealtimeVotes', () => {
     expect(result.current.resultsReady).toBe(false);
   });
 
+  it('blir klar når en senere manuell resultatrefetch lykkes etter oppstartsfeil', async () => {
+    chainable.then.mockImplementation((resolve: (result: { data: null; error: object }) => void) => {
+      resolve({ data: null, error: { code: 'network' } });
+      return Promise.resolve();
+    });
+
+    const { result } = renderHook(() => useRealtimeVotes(SESSION_ID, CURRENT_ROUND, true));
+    await waitFor(() => expect(result.current.error).not.toBeNull());
+
+    chainable.then.mockImplementation((resolve: (result: { data: Vote[]; error: null }) => void) => {
+      resolve({ data: [makeVote()], error: null });
+      return Promise.resolve();
+    });
+    await act(async () => { await result.current.refetch(); });
+
+    await waitFor(() => expect(result.current.resultsReady).toBe(true));
+    expect(result.current.votes).toEqual([makeVote()]);
+  });
+
+  it('blir klar etter at en skjult PWA åpnes synlig og resultatene hentes', async () => {
+    Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true });
+    chainable.then.mockImplementation((resolve: (result: { data: Vote[]; error: null }) => void) => {
+      resolve({ data: [makeVote()], error: null });
+      return Promise.resolve();
+    });
+
+    const { result } = renderHook(() => useRealtimeVotes(SESSION_ID, CURRENT_ROUND, true));
+    expect(result.current.resultsReady).toBe(false);
+
+    Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
+    await act(async () => {
+      document.dispatchEvent(new Event('visibilitychange'));
+      await Promise.resolve();
+    });
+
+    await waitFor(() => expect(result.current.resultsReady).toBe(true));
+    expect(result.current.votes).toEqual([makeVote()]);
+  });
+
+  it('blir klar når synlighetsrecovery lykkes før den avbrutte reveal-fetchen returnerer', async () => {
+    let resolveStale!: (result: { data: Vote[]; error: null }) => void;
+    chainable.then
+      .mockImplementationOnce((resolve: typeof resolveStale) => {
+        resolveStale = resolve;
+        return Promise.resolve();
+      })
+      .mockImplementation((resolve: (result: { data: Vote[]; error: null }) => void) => {
+        resolve({ data: [makeVote()], error: null });
+        return Promise.resolve();
+      });
+    const { result } = renderHook(() => useRealtimeVotes(SESSION_ID, CURRENT_ROUND, true));
+    await waitFor(() => expect(resolveStale).toBeTypeOf('function'));
+
+    await act(async () => {
+      window.dispatchEvent(new Event('online'));
+      await Promise.resolve();
+    });
+    await waitFor(() => expect(result.current.resultsReady).toBe(true));
+
+    await act(async () => resolveStale({ data: [], error: null }));
+    expect(result.current.resultsReady).toBe(true);
+    expect(result.current.votes).toEqual([makeVote()]);
+  });
+
   it('venter på køet reveal-refetch når en eldre fetch allerede pågår', async () => {
     const resolvers: Array<(result: { data: Vote[]; error: null }) => void> = [];
     chainable.then.mockImplementation((resolve: (result: { data: Vote[]; error: null }) => void) => {
