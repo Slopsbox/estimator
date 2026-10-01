@@ -293,7 +293,10 @@ describe('VoteResults', () => {
     expect(screen.getByText('Din stemme')).toBeInTheDocument();
     const ownVoteRegion = screen.getByRole('region', { name: 'Din stemme' });
     expect(ownVoteRegion).toHaveTextContent('M');
-    expect(ownVoteRegion).toHaveTextContent('🥇 Gull');
+    expect(ownVoteRegion).toHaveTextContent('Gull');
+    expect(ownVoteRegion).toHaveTextContent('Maksimal effekt');
+    expect(ownVoteRegion).toHaveTextContent('Dette flytter OKR-en fremover.');
+    expect(ownVoteRegion).toHaveTextContent('Din vurdering');
     expect(screen.getByRole('region', { name: 'Din stemme' })).toHaveStyle({
       background: 'white',
       borderTopColor: 'var(--color-red-600)',

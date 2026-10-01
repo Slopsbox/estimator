@@ -15,6 +15,18 @@ function formatVote(size: string, value: Value): string {
   return `${size.toUpperCase()} · ${VALUE_MEDAL[value]} ${VALUES.find((item) => item.key === value)?.label}`;
 }
 
+function getVoteHeadline(value: Value): string {
+  if (value === 'gold') return 'Maksimal effekt';
+  if (value === 'silver') return 'God fremdrift';
+  return 'Nyttig steg';
+}
+
+function getVoteSubline(value: Value): string {
+  if (value === 'gold') return 'Dette flytter OKR-en fremover.';
+  if (value === 'silver') return 'En solid leveranse med tydelig kobling.';
+  return 'Verdifullt når kapasiteten er der.';
+}
+
 export function VoteResults({
   name: _name,
   votes,
@@ -57,7 +69,7 @@ export function VoteResults({
 
         {ownVote ? (
           <section
-            className="rounded-xl px-4 pb-5 pt-4 text-center"
+            className="animate-popIn rounded-xl px-4 pb-6 pt-5 text-center"
             style={{
               background: 'white',
               borderWidth: '1px',
@@ -74,13 +86,30 @@ export function VoteResults({
             <h2 id="own-vote-heading" className="text-xs font-bold uppercase tracking-widest" style={{ color: 'var(--color-red-600)' }}>
               Din stemme
             </h2>
-            <p className="mt-2 text-4xl font-extrabold leading-none tracking-tight">
-              {ownVote.size.toUpperCase()}
-            </p>
-            <p className="mt-2 text-base font-bold">
-              {VALUE_MEDAL[ownVote.value as Value]}{' '}
-              {VALUES.find((item) => item.key === ownVote.value)?.label}
-            </p>
+            <div className="mt-3 flex flex-col items-center">
+              <span className="text-6xl leading-none" aria-hidden="true">
+                {VALUE_MEDAL[ownVote.value as Value]}
+              </span>
+              <span className="mt-2 rounded-full px-3 py-1 text-xs font-bold" style={{ background: 'var(--color-neutral-100)', color: 'var(--color-navy-900)' }}>
+                {VALUES.find((item) => item.key === ownVote.value)?.label}
+              </span>
+              <p className="mt-3 text-5xl font-extrabold leading-none tracking-tight">
+                {ownVote.size.toUpperCase()}
+              </p>
+              <p className="mt-3 text-xl font-extrabold tracking-tight">
+                {getVoteHeadline(ownVote.value as Value)}
+              </p>
+              <p className="mt-1 text-sm font-medium" style={{ color: 'var(--color-neutral-500)' }}>
+                {getVoteSubline(ownVote.value as Value)}
+              </p>
+              <div className="mt-5 flex items-center justify-center gap-2" aria-label="Din vurdering">
+                <span className="h-2 w-2 rounded-full" style={{ background: 'var(--color-red-600)' }} aria-hidden="true" />
+                <span className="text-xs font-bold uppercase tracking-widest" style={{ color: 'var(--color-red-600)' }}>
+                  Din vurdering
+                </span>
+                <span className="h-2 w-2 rounded-full" style={{ background: 'var(--color-red-600)' }} aria-hidden="true" />
+              </div>
+            </div>
           </section>
         ) : null}
 

@@ -196,6 +196,10 @@ body {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .animate-popIn {
+    animation: none;
+  }
+
   .health-slider-thumb,
   .health-slider-fill,
   .health-question-slider {
