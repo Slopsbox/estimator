@@ -44,8 +44,11 @@ export function VotePage() {
   useSessionPresence(session?.id ?? null, localParticipant?.participantId ?? null);
 
   const name = localParticipant?.name || readLastUsedName();
-  const [selectedSize, setSelectedSize] = useState<Size | null>(null);
-  const [selectedValue, setSelectedValue] = useState<Value | null>(null);
+  const [selection, setSelection] = useState<{ round: number; size: Size | null; value: Value | null }>({
+    round: session?.current_round ?? 1,
+    size: null,
+    value: null,
+  });
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [claimRetry, setClaimRetry] = useState(0);
@@ -58,21 +61,15 @@ export function VotePage() {
     session?.votes_revealed ?? false,
     localParticipant?.participantId,
   );
-  const [suppressRealtimeVote, setSuppressRealtimeVote] = useState(false);
-  const effectiveOwnVote = ownVote ?? (suppressRealtimeVote ? null : realtimeOwnVote);
+  const [suppressedVoteRound, setSuppressedVoteRound] = useState<number | null>(null);
+  const currentRound = session?.current_round ?? 1;
+  const selectedSize = selection.round === currentRound ? selection.size : null;
+  const selectedValue = selection.round === currentRound ? selection.value : null;
+  const suppressRealtimeVote = suppressedVoteRound === currentRound;
+  const currentRoundOwnVote = ownVote?.round === currentRound ? ownVote : null;
+  const effectiveOwnVote = currentRoundOwnVote ?? (suppressRealtimeVote ? null : realtimeOwnVote);
   const reconnecting = connectionState === 'connecting' || connectionState === 'disconnected'
     || voteConnectionState === 'connecting' || voteConnectionState === 'disconnected';
-
-  const withConnectionStatus = (content: React.ReactNode) => (
-    <>
-      {reconnecting ? (
-        <div role="status" className="fixed inset-x-4 top-4 z-50 mx-auto max-w-md rounded-md bg-white px-4 py-3 text-center text-sm font-semibold shadow-md" style={{ color: 'var(--color-navy-900)' }}>
-          Kobler til sesjonen igjen. Du kan fortsette når tilkoblingen er gjenopprettet.
-        </div>
-      ) : null}
-      {content}
-    </>
-  );
 
   useEffect(() => {
     if (resultsReady && votes.length > 0 && effectiveOwnVote
@@ -145,7 +142,7 @@ export function VotePage() {
     const result = await castVote({ size: selectedSize, value: selectedValue });
     setSubmitting(false);
     if (!result.ok) setSubmitError(result.message);
-    else setSuppressRealtimeVote(false);
+    else setSuppressedVoteRound(null);
   };
 
   const handleAmalie = async () => {
@@ -156,9 +153,8 @@ export function VotePage() {
       setSubmitError(result.message);
       return;
     }
-    setSelectedSize(null);
-    setSelectedValue(null);
-    setSuppressRealtimeVote(true);
+    setSelection({ round: currentRound, size: null, value: null });
+    setSuppressedVoteRound(currentRound);
   };
 
   const handleLeave = async () => {
@@ -181,7 +177,7 @@ export function VotePage() {
     );
   }
 
-  if (session && !session.started) return withConnectionStatus(<VoteWaiting session={session} name={name} onLeave={() => { void handleLeave(); }} />);
+  if (session && !session.started) return <VoteWaiting session={session} name={name} onLeave={() => { void handleLeave(); }} />;
 
   if (revealed && !resultsReady) {
     return (
@@ -202,19 +198,19 @@ export function VotePage() {
   }
 
   if (revealed) {
-    return withConnectionStatus(
+    return (
       <VoteResults
         name={name}
         votes={votes}
         ownVote={effectiveOwnVote}
         currentRound={session?.current_round}
         onLeave={() => { void handleLeave(); }}
-      />,
+      />
     );
   }
 
   if (effectiveOwnVote) {
-    return withConnectionStatus(
+    return (
       <VoteAwaitReveal
         name={name}
         selectedSize={isSize(effectiveOwnVote.size) ? effectiveOwnVote.size : 'm'}
@@ -224,11 +220,11 @@ export function VotePage() {
         onAmalie={handleAmalie}
         error={submitError}
         onLeave={() => { void handleLeave(); }}
-      />,
+      />
     );
   }
 
-  return withConnectionStatus(
+  return (
     <VoteForm
       name={name}
       currentRound={session?.current_round ?? 1}
@@ -237,10 +233,10 @@ export function VotePage() {
       submitting={submitting}
       canSubmit={Boolean(roundParticipant) && !reconnecting}
       submitError={submitError}
-      onSelectSize={setSelectedSize}
-      onSelectValue={setSelectedValue}
+      onSelectSize={(size) => setSelection({ round: currentRound, size, value: selectedValue })}
+      onSelectValue={(value) => setSelection({ round: currentRound, size: selectedSize, value })}
       onVote={handleVote}
       onBack={() => { void handleLeave(); }}
-    />,
+    />
   );
 }

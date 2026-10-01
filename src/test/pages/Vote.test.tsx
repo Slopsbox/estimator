@@ -371,6 +371,17 @@ describe('VotePage – stemmeform (session.started === true)', () => {
     expect(mockClaimRound).not.toHaveBeenCalled();
   });
 
+  it('viser ikke en gammel egen stemme etter at runden har gått videre', () => {
+    mockSession = { ...mockSession, current_round: 2, votes_revealed: false };
+    mockOwnVote = { id: 'v-1', session_id: 'ses-1', participant_id: 'p-1', round: 1, size: 'm', value: 'silver', created_at: '' };
+    mockRoundParticipant = { session_id: 'ses-1', round: 2, participant_id: 'p-1', joined_at: '', reestimate_used: false };
+
+    renderVote();
+
+    expect(screen.getByText('Din stemme')).toBeInTheDocument();
+    expect(screen.queryByText('Stemme registrert!')).not.toBeInTheDocument();
+  });
+
   it('går rett til venteskjerm når restore har en eksisterende stemme', () => {
     mockOwnVote = { id: 'v-1', session_id: 'ses-1', participant_id: 'p-1', round: 1, size: 'l', value: 'silver', created_at: '' };
     mockRoundParticipant = { reestimate_used: false };

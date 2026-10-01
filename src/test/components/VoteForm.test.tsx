@@ -112,7 +112,7 @@ describe('VoteForm', () => {
     });
 
     expect(screen.getByRole('dialog')).toBeInTheDocument();
-    expect(screen.getByText('Høy verdi, treffer OKR direkte.')).toBeInTheDocument();
+    expect(screen.getByText('Høy verdi, treffer og flytter OKR.')).toBeInTheDocument();
     expect(screen.getByText('Prioriteres øverst.')).toBeInTheDocument();
   });
 
@@ -190,5 +190,20 @@ describe('VoteForm', () => {
 
     expect(screen.getByText('Nyttig sak, lav OKR-relevans.')).toBeInTheDocument();
     expect(screen.getByText('Tas når kapasitet tillater.')).toBeInTheDocument();
+  });
+
+  it('sheet inneholder OKR-kobling uten mulig-forbehold for sølv', async () => {
+    render(<VoteForm {...defaultProps} />);
+
+    const btn = screen.getByRole('button', { name: /verdi sølv/i });
+    act(() => {
+      btn.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2000);
+    });
+
+    expect(screen.getByText('God verdi, med OKR-kobling.')).toBeInTheDocument();
+    expect(screen.queryByText(/mulig OKR-kobling/i)).not.toBeInTheDocument();
   });
 });

@@ -203,7 +203,7 @@ describe('VoteAwaitReveal', () => {
         onAmalie={vi.fn()}
       />,
     );
-    expect(screen.getByText(/Endre stemmen din \(1 gang per runde\)/)).toBeInTheDocument();
+    expect(screen.getByText(/Amalieknappen · 1 gang per runde/)).toBeInTheDocument();
   });
 
   it('skjuler hjelpeteksten når hasUsedAmalie=true', () => {

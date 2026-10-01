@@ -44,11 +44,11 @@ export const VALUES: { key: Value; emoji: string; label: string; desc: string }[
 
 export const VALUE_DESCRIPTIONS: Record<Value, { description: string; priority: string }> = {
   gold: {
-    description: 'Høy verdi, treffer OKR direkte.',
+    description: 'Høy verdi, treffer og flytter OKR.',
     priority: 'Prioriteres øverst.',
   },
   silver: {
-    description: 'God verdi, mulig OKR-kobling.',
+    description: 'God verdi, med OKR-kobling.',
     priority: 'Viktig men ikke kritisk.',
   },
   bronze: {

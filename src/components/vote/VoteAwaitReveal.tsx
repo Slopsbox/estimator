@@ -107,36 +107,27 @@ export function VoteAwaitReveal({
               type="button"
               onClick={onAmalie}
               aria-label="Amalieknappen – endre stemmen din (1 gang per runde)"
-              className="min-h-11 focus-visible:ring-2 focus-visible:ring-[var(--color-navy-700)] focus-visible:ring-offset-2"
+              className="flex min-h-12 w-full items-center justify-center gap-2 rounded-xl border font-bold text-sm transition-colors focus-visible:ring-2 focus-visible:ring-[var(--color-navy-700)] focus-visible:ring-offset-2"
               style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: 6,
-                padding: '8px 16px',
-                border: '1.5px solid var(--color-neutral-200, #E2E0DC)',
-                borderRadius: 'var(--radius-md, 8px)',
-                background: 'transparent',
-                color: 'var(--color-neutral-500, #6B7280)',
-                fontSize: 14,
-                fontWeight: 500,
+                borderColor: '#C8002D',
+                background: '#FFF1F3',
+                color: '#C8002D',
                 cursor: 'pointer',
-                transition: 'background 0.15s, border-color 0.15s',
               }}
               onMouseEnter={(e) => {
-                (e.currentTarget as HTMLButtonElement).style.background = '#F5F4F0';
-                (e.currentTarget as HTMLButtonElement).style.borderColor = '#9E9B96';
+                (e.currentTarget as HTMLButtonElement).style.background = '#FFE5EA';
               }}
               onMouseLeave={(e) => {
-                (e.currentTarget as HTMLButtonElement).style.background = 'transparent';
-                (e.currentTarget as HTMLButtonElement).style.borderColor = 'var(--color-neutral-200, #E2E0DC)';
+                (e.currentTarget as HTMLButtonElement).style.background = '#FFF1F3';
               }}
             >
-              ↩️ Amalieknappen
+              <span aria-hidden="true">↩</span>
+              Endre stemmen
             </button>
             <p
               style={{ fontSize: 12, color: '#9E9B96', marginTop: 4 }}
             >
-              Endre stemmen din (1 gang per runde)
+              Amalieknappen · 1 gang per runde
             </p>
           </div>
         )}
