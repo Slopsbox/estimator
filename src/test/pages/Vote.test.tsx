@@ -43,6 +43,7 @@ const mockCastVote = vi.fn();
 const mockRetractVote = vi.fn();
 const mockClaimRound = vi.fn();
 const mockLeaveSession = vi.fn();
+const mockRetryRestore = vi.fn();
 
 vi.mock('../../hooks/useSessionPresence', () => ({
   useSessionPresence: vi.fn(() => ({ presentParticipantIds: new Set(), connectionState: 'connected', presenceReady: true })),
@@ -80,6 +81,8 @@ vi.mock('../../hooks/useSession', () => ({
     claimRound: mockClaimRound,
     castVote: mockCastVote,
     retractVote: mockRetractVote,
+    retryRestore: mockRetryRestore,
+    connectionState: 'connected',
   }),
 }));
 
@@ -117,6 +120,8 @@ describe('VotePage – redirect-logikk', () => {
     mockClaimRound.mockResolvedValue({ ok: true });
     mockLeaveSession.mockReset();
     mockLeaveSession.mockResolvedValue({ ok: true });
+    mockRetryRestore.mockReset();
+    mockRetryRestore.mockResolvedValue(undefined);
     sessionStorage.clear();
   });
 
@@ -326,6 +331,44 @@ describe('VotePage – stemmeform (session.started === true)', () => {
     await act(async () => { await Promise.resolve(); });
 
     expect(mockTriggerConfetti).not.toHaveBeenCalled();
+  });
+
+  it('avstemmer session periodisk mens deltakeren står på resultatsiden', async () => {
+    vi.useFakeTimers();
+    try {
+      mockRetryRestore.mockClear();
+      mockSession = { ...mockSession, votes_revealed: true };
+      renderVote();
+
+      await act(async () => { await Promise.resolve(); });
+      expect(mockRetryRestore).toHaveBeenCalledOnce();
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(5000);
+      });
+      expect(mockRetryRestore).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('går fra resultat i runde én til stemmeform i runde to', async () => {
+    mockSession = { ...mockSession, current_round: 1, votes_revealed: true };
+    mockOwnVote = { id: 'v-1', session_id: 'ses-1', participant_id: 'p-1', round: 1, size: 'm', value: 'silver', created_at: '' };
+    mockVotes = [mockOwnVote];
+    const { rerender } = renderVote();
+    expect(screen.getByRole('heading', { name: /resultater/i })).toBeInTheDocument();
+
+    mockSession = { ...mockSession, current_round: 2, votes_revealed: false };
+    mockOwnVote = null;
+    mockVotes = [];
+    mockRoundParticipant = { session_id: 'ses-1', round: 2, participant_id: 'p-1', joined_at: '', reestimate_used: false };
+    rerender(<MemoryRouter><VotePage /></MemoryRouter>);
+
+    expect(screen.getByText('Din stemme')).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: /resultater/i })).not.toBeInTheDocument();
+    expect(screen.queryByText('Stemme registrert!')).not.toBeInTheDocument();
+    expect(mockClaimRound).not.toHaveBeenCalled();
   });
 
   it('går rett til venteskjerm når restore har en eksisterende stemme', () => {

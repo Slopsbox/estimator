@@ -185,7 +185,7 @@ describe('SessionProvider', () => {
     const { result } = renderHook(() => useSession(), { wrapper });
 
     await waitFor(() => expect(result.current.restoreStatus).toBe('ready'));
-    expect(sessionServices.realtime.channel).toHaveBeenCalledWith('session:session-1:session-watch:0', {
+    expect(sessionServices.realtime.channel).toHaveBeenCalledWith('session:session-1:session-watch:0:0', {
       config: { private: true },
     });
   });
@@ -709,6 +709,66 @@ describe('SessionProvider', () => {
     act(() => channelMock.trigger('SUBSCRIBED'));
 
     await waitFor(() => expect(roomMocks.restore).toHaveBeenCalledTimes(2));
+  });
+
+  it('beholder session-watcher aktiv etter PWA-resume og mottar neste runde', async () => {
+    storePointer();
+    const revealedSnapshot = {
+      ...snapshot(),
+      session: { ...SESSION, current_round: 1, votes_revealed: true },
+    };
+    const nextRoundSnapshot = {
+      ...snapshot(),
+      session: { ...SESSION, current_round: 2, votes_revealed: false },
+      ownVote: null,
+      roundParticipant: { ...ROUND_PARTICIPANT, round: 2 },
+    };
+    roomMocks.restore.mockResolvedValue({ ok: true, snapshot: revealedSnapshot });
+    const { result } = renderHook(() => useSession(), { wrapper });
+    await waitFor(() => expect(result.current.session?.votes_revealed).toBe(true));
+
+    act(() => window.dispatchEvent(new PageTransitionEvent('pageshow')));
+    await waitFor(() => expect(sessionServices.realtime.channel).toHaveBeenCalledTimes(2));
+    roomMocks.restore.mockResolvedValue({ ok: true, snapshot: nextRoundSnapshot });
+    const updateHandlers = channelMock.on.mock.calls
+      .filter((call) => call[1].table === 'sessions' && call[1].event === 'UPDATE');
+
+    act(() => updateHandlers.at(-1)?.[2]());
+
+    await waitFor(() => expect(result.current.session?.current_round).toBe(2));
+    expect(result.current.session?.votes_revealed).toBe(false);
+    expect(result.current.ownVote).toBeNull();
+    expect(result.current.roundParticipant?.round).toBe(2);
+  });
+
+  it('PWA-resume ugyldiggjør ikke en pågående stemme i samme rom', async () => {
+    storePointer();
+    channelMock.subscribe.mockImplementation(() => channelMock);
+    const withoutVote = { ...snapshot(), ownVote: null };
+    roomMocks.restore.mockResolvedValueOnce({ ok: true, snapshot: withoutVote });
+    let resolveResumeRestore!: (value: { ok: true; snapshot: typeof withoutVote }) => void;
+    roomMocks.restore.mockReturnValueOnce(new Promise((resolve) => { resolveResumeRestore = resolve; }));
+    let resolveCast!: (value: { ok: true; vote: typeof VOTE }) => void;
+    estimationMocks.cast.mockReturnValueOnce(new Promise((resolve) => { resolveCast = resolve; }));
+    const { result } = renderHook(() => useSession(), { wrapper });
+    await waitFor(() => expect(result.current.restoreStatus).toBe('ready'));
+    expect(result.current.ownVote).toBeNull();
+
+    let castPromise!: ReturnType<typeof result.current.castVote>;
+    act(() => {
+      castPromise = result.current.castVote({ size: 'm', value: 'gold' });
+      window.dispatchEvent(new PageTransitionEvent('pageshow'));
+    });
+    await waitFor(() => expect(roomMocks.restore).toHaveBeenCalledTimes(2));
+    await act(async () => {
+      resolveCast({ ok: true, vote: VOTE });
+      await castPromise;
+    });
+    expect(result.current.ownVote).toEqual(VOTE);
+
+    await act(async () => resolveResumeRestore({ ok: true, snapshot: withoutVote }));
+
+    expect(result.current.ownVote).toEqual(VOTE);
   });
 
   it.each(['CHANNEL_ERROR', 'TIMED_OUT', 'CLOSED'] as const)(

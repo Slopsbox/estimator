@@ -37,6 +37,7 @@ export function VotePage() {
     claimRound,
     castVote,
     retractVote,
+    retryRestore,
   } = useSession();
   const { triggerConfetti } = useConfetti();
   useWakeLock();
@@ -115,6 +116,27 @@ export function VotePage() {
       navigate(resolveRoomRoute('estimation', 'join'));
     }
   }, [restoreStatus, session, localParticipant, navigate]);
+
+  useEffect(() => {
+    if (!session?.votes_revealed) return;
+    let active = true;
+    let inFlight = false;
+    const reconcile = async () => {
+      if (!active || inFlight || document.visibilityState !== 'visible' || navigator.onLine === false) return;
+      inFlight = true;
+      try {
+        await retryRestore();
+      } finally {
+        inFlight = false;
+      }
+    };
+    queueMicrotask(() => { void reconcile(); });
+    const timer = window.setInterval(() => { void reconcile(); }, 5000);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, [retryRestore, session?.id, session?.current_round, session?.votes_revealed]);
 
   const handleVote = async () => {
     if (!selectedSize || !selectedValue) return;

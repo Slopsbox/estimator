@@ -38,6 +38,7 @@ export function SessionProvider({ children }: PropsWithChildren) {
   const [restoreStatus, setRestoreStatus] = useState<RestoreStatus>(pointer ? 'initializing' : 'ready');
   const [connectionState, setConnectionState] = useState<ConnectionState>(pointer ? 'connecting' : 'idle');
   const [restoreTrigger, setRestoreTrigger] = useState(0);
+  const [sessionWatcherEpoch, setSessionWatcherEpoch] = useState(0);
   const generationRef = useRef(0);
   const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const snapshotSequenceRef = useRef(0);
@@ -173,12 +174,11 @@ export function SessionProvider({ children }: PropsWithChildren) {
 
   useEffect(() => {
     const restartRestore = () => {
-      generationRef.current += 1;
       restoreInFlightRef.current = null;
       restoreRequestedRef.current = false;
       snapshotSequenceRef.current += 1;
+      setSessionWatcherEpoch((epoch) => epoch + 1);
       setRestoreTrigger((current) => current + 1);
-      void restore();
     };
     const handleOnline = () => { if (document.visibilityState === 'visible') restartRestore(); };
     const handleVisibility = () => { if (document.visibilityState === 'visible') restartRestore(); };
@@ -244,7 +244,7 @@ export function SessionProvider({ children }: PropsWithChildren) {
       setConnectionState('connecting');
       let retired = false;
       const currentChannel = realtime
-        .channel(`session:${sessionId}:session-watch:${generation}`, { config: { private: true } })
+        .channel(`session:${sessionId}:session-watch:${generation}:${sessionWatcherEpoch}`, { config: { private: true } })
         .on('postgres_changes', {
           event: 'UPDATE', schema: 'public', table: 'sessions', filter: `id=eq.${sessionId}`,
         }, () => {
@@ -296,7 +296,7 @@ export function SessionProvider({ children }: PropsWithChildren) {
       if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
       if (channel) void realtime.removeChannel(channel);
     };
-  }, [pointer?.participantId, pointer?.sessionId, restore]);
+  }, [pointer?.participantId, pointer?.sessionId, restore, sessionWatcherEpoch]);
 
   const applyMembership = useCallback((snapshot: RoomMembershipSnapshot) => {
     pointerRef.current = snapshot.pointer;
@@ -510,6 +510,7 @@ export function SessionProvider({ children }: PropsWithChildren) {
     if (!result.ok) {
       return { ok: false, message: 'Kunne ikke klargjøre runden. Prøv igjen.' };
     }
+    snapshotSequenceRef.current += 1;
     setRoundParticipant(result.roundParticipant);
     return { ok: true };
   }, [localParticipant, session]);
@@ -523,6 +524,7 @@ export function SessionProvider({ children }: PropsWithChildren) {
       if (result.reason !== 'identity') void restore();
       return { ok: false, message: 'Kunne ikke registrere stemme. Prøv igjen.' };
     }
+    snapshotSequenceRef.current += 1;
     setOwnVote(result.vote);
     return { ok: true };
   }, [localParticipant, restore, roundParticipant, session]);
@@ -535,6 +537,7 @@ export function SessionProvider({ children }: PropsWithChildren) {
     if (!result.ok) {
       return { ok: false, message: 'Kunne ikke endre stemmen. Prøv igjen.' };
     }
+    snapshotSequenceRef.current += 1;
     setOwnVote(null);
     setRoundParticipant({ ...roundParticipant, reestimate_used: true });
     return { ok: true };
