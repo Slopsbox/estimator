@@ -90,7 +90,7 @@ describe('HealthCheckResponseFlow', () => {
     expect(screen.getByText('Går til neste spørsmål')).toBeInTheDocument();
     expect(heading).toHaveFocus();
     expect(screen.queryByRole('button', { name: 'Forrige' })).not.toBeInTheDocument();
-    expect(screen.getByText('Når du trykker «Neste», kan svaret ikke endres.')).toBeVisible();
+    expect(screen.queryByText('Når du trykker «Neste», kan svaret ikke endres.')).not.toBeInTheDocument();
     vi.useRealTimers();
   });
 

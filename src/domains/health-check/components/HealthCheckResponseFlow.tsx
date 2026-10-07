@@ -172,7 +172,6 @@ export function HealthCheckResponseFlow({
       ) : (
         <>
           <AreaContext area={area} areaIndex={areaIndex} areaCount={template.areas.length} />
-          <p className="mt-3 text-sm text-[var(--color-neutral-700)]">Når du trykker «Neste», kan svaret ikke endres.</p>
           <h1
             ref={headingRef}
             tabIndex={-1}
