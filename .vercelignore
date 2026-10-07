@@ -1,0 +1,13 @@
+# Local secrets and design-only preview must never be uploaded.
+.env
+.env.*
+dist
+supabase/.temp
+public/health-check-pixel-office-prototype.html
+
+# Unrelated, unfinished report-worker work is not part of this release.
+api/_lib/health-check-report-snapshot.ts
+api/health-check-report-snapshot.test.ts
+
+# API test files are not serverless endpoints.
+api/**/*.test.ts

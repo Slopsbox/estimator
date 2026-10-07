@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { HealthCheckResponseFlow } from '../../../../domains/health-check/components';
 import {
@@ -18,38 +18,47 @@ describe('HealthCheckResponseFlow', () => {
     vi.useRealTimers();
   });
 
-  function renderFlow(overrides: Partial<React.ComponentProps<typeof HealthCheckResponseFlow>> = {}) {
+  function renderFlow(overrides: Partial<React.ComponentProps<typeof HealthCheckResponseFlow>> = {}, startArea = true) {
     const props: React.ComponentProps<typeof HealthCheckResponseFlow> = {
       submitting: false,
       submitError: null,
       onSubmit: vi.fn(),
       ...overrides,
     };
-    return { ...render(<HealthCheckResponseFlow {...props} />), props };
+    const rendered = render(<HealthCheckResponseFlow {...props} />);
+    if (startArea) fireEvent.click(screen.getByRole('button', { name: 'Start området' }));
+    return { ...rendered, props };
   }
 
-  function answerAll(scoreForIndex: (index: number) => number = () => 4) {
+  async function answerAll(scoreForIndex: (index: number) => number = () => 4, startIndex = 0) {
     const questions = flattenHealthCheckQuestions(SQUAD_HEALTH_TEMPLATE_V1);
 
-    for (let index = 0; index < questions.length; index += 1) {
+    for (let index = startIndex; index < questions.length; index += 1) {
+      expect(screen.queryByRole('button', { name: 'Forrige' })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /Se gjennom svar|Tilbake til gjennomgang|^Endre / })).not.toBeInTheDocument();
       fireEvent.input(screen.getByRole('slider'), {
         target: { value: String(scoreForIndex(index)) },
       });
-      fireEvent.click(screen.getByRole('button', { name: index === 30 ? 'Se gjennom svar' : 'Neste' }));
+      if (index === questions.length - 1) {
+        await act(async () => {
+          fireEvent.click(screen.getByRole('button', { name: 'Send svar' }));
+        });
+      } else {
+        fireEvent.click(screen.getByRole('button', { name: 'Neste' }));
+      }
+      const areaStartButton = screen.queryByRole('button', { name: 'Start området' });
+      if (areaStartButton) fireEvent.click(areaStartButton);
     }
   }
 
-  it('viser åpen spørsmålskomposisjon, identitet og syv områdesegmenter uten spørsmålstall', () => {
-    renderFlow({ participantName: 'Kato' });
+  it('viser tydelig kapittelintro uten deltageridentitet', () => {
+    renderFlow({}, false);
 
-    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(
-      'Jeg gleder meg som regel til arbeidsdagen.',
-    );
+    expect(screen.getByRole('heading', { name: 'Arbeidsglede og energi' })).toBeVisible();
     expect(screen.getByText('Arbeidsglede og energi')).toBeVisible();
     expect(screen.getByText('Er det fortsatt gøy å gå på jobb?')).toBeVisible();
-    expect(screen.queryByText(/Spørsmål \d+ av \d+/)).not.toBeInTheDocument();
-    expect(screen.queryByRole('switch')).not.toBeInTheDocument();
-    expect(screen.queryByText(/Velg hvor enig/)).not.toBeInTheDocument();
+    expect(screen.queryByText('Svar som Kato')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Start området' })).toBeVisible();
 
     const progress = screen.getByRole('progressbar', {
       name: 'Fremdrift gjennom helsesjekken',
@@ -64,8 +73,6 @@ describe('HealthCheckResponseFlow', () => {
     expect(progress.querySelector('[data-state="current"] > span')).toHaveStyle({
       transform: 'scaleX(0.25)',
     });
-    expect(screen.getByRole('group', { name: 'Svar som Kato' })).toBeVisible();
-    expect(screen.getByText('Kato')).toBeVisible();
   });
 
   it('går bare videre manuelt, annonserer overgangen og fokuserer nytt spørsmål', () => {
@@ -82,7 +89,8 @@ describe('HealthCheckResponseFlow', () => {
     expect(heading).toHaveTextContent('Oppgavene mine gir meg mer energi enn de tapper meg for.');
     expect(screen.getByText('Går til neste spørsmål')).toBeInTheDocument();
     expect(heading).toHaveFocus();
-    expect(screen.getByRole('button', { name: 'Forrige' })).toBeVisible();
+    expect(screen.queryByRole('button', { name: 'Forrige' })).not.toBeInTheDocument();
+    expect(screen.getByText('Når du trykker «Neste», kan svaret ikke endres.')).toBeVisible();
     vi.useRealTimers();
   });
 
@@ -92,6 +100,8 @@ describe('HealthCheckResponseFlow', () => {
     for (let index = 0; index < 4; index += 1) {
       fireEvent.input(screen.getByRole('slider'), { target: { value: '4' } });
       fireEvent.click(screen.getByRole('button', { name: 'Neste' }));
+      const areaStartButton = screen.queryByRole('button', { name: 'Start området' });
+      if (areaStartButton) fireEvent.click(areaStartButton);
     }
 
     const progress = screen.getByRole('progressbar', {
@@ -108,47 +118,49 @@ describe('HealthCheckResponseFlow', () => {
     expect(segments[2]).toHaveAttribute('data-state', 'future');
   });
 
-  it('viser alle 31 svar gruppert i syv områder uten numeriske scoreverdier', () => {
-    renderFlow();
-    answerAll((index) => (index % 7) + 1);
+  it('går direkte til låst innsending etter alle 31 svar uten gjennomgang', async () => {
+    const { props } = renderFlow();
+    await answerAll((index) => (index % 7) + 1);
 
-    expect(screen.getByRole('heading', { name: 'Se gjennom svarene dine' })).toBeVisible();
-    expect(screen.getByRole('heading', { name: 'Se gjennom svarene dine' })).toHaveFocus();
-    expect(screen.getAllByRole('heading', { level: 2 })).toHaveLength(7);
-    expect(screen.getAllByRole('button', { name: /^Endre / })).toHaveLength(31);
-    expect(screen.getAllByText('Svært uenig').length).toBeGreaterThan(0);
-    expect(screen.getAllByText('Svært enig').length).toBeGreaterThan(0);
+    expect(props.onSubmit).toHaveBeenCalledOnce();
+    expect(screen.getByRole('heading', { name: 'Svarene er klare til innsending' })).toBeVisible();
+    expect(screen.getByRole('heading', { name: 'Svarene er klare til innsending' })).toHaveFocus();
+    expect(screen.getByText('Svarene er låst. De er registrert når du får bekreftelsen.')).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Prøv innsending igjen' })).toBeEnabled();
+    expect(screen.queryByRole('heading', { name: 'Se gjennom svarene dine' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^Endre / })).not.toBeInTheDocument();
+    expect(screen.queryByRole('slider')).not.toBeInTheDocument();
     expect(screen.queryByText(/^Score /)).not.toBeInTheDocument();
   });
 
-  it('redigerer valgt spørsmål og returnerer til review med oppdatert etikett', () => {
-    renderFlow();
-    answerAll();
+  it('lar låste svar sendes på nytt etter feil uten redigering eller gjennomgang', async () => {
+    const onSubmit = vi.fn<(responses: HealthCheckResponseMap) => Promise<void>>()
+      .mockRejectedValueOnce(new Error('Nettverksfeil'))
+      .mockResolvedValueOnce(undefined);
+    renderFlow({ onSubmit, onLeave: vi.fn() });
+    await answerAll((index) => (index % 7) + 1);
 
-    fireEvent.click(
-      screen.getByRole('button', {
-        name: 'Endre Jeg gleder meg som regel til arbeidsdagen.',
-      }),
-    );
-    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(
-      'Jeg gleder meg som regel til arbeidsdagen.',
-    );
-    fireEvent.input(screen.getByRole('slider'), { target: { value: '7' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Tilbake til gjennomgang' }));
+    expect(onSubmit).toHaveBeenCalledOnce();
+    expect(screen.getByRole('alert')).toHaveTextContent('Svarene kunne ikke sendes. Prøv igjen.');
+    expect(screen.queryByRole('button', { name: /Forrige|^Endre |Tilbake til gjennomgang|Se gjennom svar|Forlat/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('slider')).not.toBeInTheDocument();
+    expect(screen.queryByText('Jeg gleder meg som regel til arbeidsdagen.')).not.toBeInTheDocument();
 
-    const firstAnswer = screen
-      .getByText('Jeg gleder meg som regel til arbeidsdagen.')
-      .closest('li');
-    expect(firstAnswer).not.toBeNull();
-    expect(within(firstAnswer as HTMLElement).getByText('Svært enig')).toBeVisible();
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Prøv innsending igjen' }));
+    });
+
+    expect(onSubmit).toHaveBeenCalledTimes(2);
+    expect(onSubmit.mock.calls[1][0]).toEqual(onSubmit.mock.calls[0][0]);
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(screen.queryByRole('slider')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^Endre / })).not.toBeInTheDocument();
   });
 
-  it('sender en komplett, typet map i malrekkefølge', () => {
+  it('sender en komplett, typet map i malrekkefølge fra siste spørsmål', async () => {
     const onSubmit = vi.fn<(responses: HealthCheckResponseMap) => void>();
     renderFlow({ onSubmit });
-    answerAll((index) => (index % 7) + 1);
-
-    fireEvent.click(screen.getByRole('button', { name: 'Send svar' }));
+    await answerAll((index) => (index % 7) + 1);
 
     expect(onSubmit).toHaveBeenCalledTimes(1);
     const submitted = onSubmit.mock.calls[0][0];
@@ -161,47 +173,56 @@ describe('HealthCheckResponseFlow', () => {
     expect(submitted.learning_use_insight).toBe(3);
   });
 
-  it('deaktiverer innsending og viser feil styrt av parent', () => {
-    const { rerender } = renderFlow({ submitting: false, submitError: 'Kunne ikke sende svarene.' });
-    answerAll();
+  it('deaktiverer innsending og viser feil styrt av parent', async () => {
+    const { rerender, props } = renderFlow({ onLeave: vi.fn() });
+    await answerAll();
 
     rerender(
       <HealthCheckResponseFlow
+        {...props}
         submitting
         submitError="Kunne ikke sende svarene."
-        onSubmit={vi.fn()}
-        onLeave={vi.fn()}
       />,
     );
 
     expect(screen.getByRole('button', { name: 'Sender svar…' })).toBeDisabled();
-    expect(screen.getAllByRole('button', { name: /^Endre / }).every((button) => button.hasAttribute('disabled'))).toBe(true);
+    expect(screen.queryByRole('button', { name: /^Endre / })).not.toBeInTheDocument();
     expect(screen.getByRole('alert')).toHaveTextContent('Kunne ikke sende svarene.');
     expect(screen.queryByRole('button', { name: 'Forlat' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Sender svar…' }));
+    expect(props.onSubmit).toHaveBeenCalledOnce();
   });
 
-  it('gjenoppretter svar og posisjon etter at fanen eller PWA-en åpnes på nytt', () => {
+  it('gjenoppretter svar og posisjon uten intro etter at fanen eller PWA-en åpnes på nytt', async () => {
     const { unmount } = renderFlow({ draftKey: 'room-1:participant-1' });
 
     fireEvent.input(screen.getByRole('slider'), { target: { value: '5' } });
     fireEvent.click(screen.getByRole('button', { name: 'Neste' }));
+    fireEvent.input(screen.getByRole('slider'), { target: { value: '6' } });
     unmount();
     sessionStorage.clear();
 
-    renderFlow({ draftKey: 'room-1:participant-1' });
+    const onSubmit = vi.fn<(responses: HealthCheckResponseMap) => void>();
+    renderFlow({ draftKey: 'room-1:participant-1', onSubmit }, false);
 
+    expect(screen.queryByRole('button', { name: 'Start området' })).not.toBeInTheDocument();
     expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(
       'Oppgavene mine gir meg mer energi enn de tapper meg for.',
     );
-    fireEvent.click(screen.getByRole('button', { name: 'Forrige' }));
-    expect(screen.getByRole('slider')).toHaveValue('5');
+    expect(screen.getByRole('slider')).toHaveValue('6');
+    expect(screen.queryByRole('button', { name: 'Forrige' })).not.toBeInTheDocument();
+    await answerAll((index) => index === 1 ? 6 : 4, 1);
+    expect(onSubmit).toHaveBeenCalledOnce();
+    expect(onSubmit.mock.calls[0][0].joy_look_forward).toBe(5);
+    expect(Object.values(onSubmit.mock.calls[0][0])).toHaveLength(31);
   });
 
-  it('beholder svar i minnet når localStorage-kvoten er brukt opp', () => {
+  it('beholder svar i minnet når localStorage-kvoten er brukt opp', async () => {
     vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
       throw new DOMException('Full', 'QuotaExceededError');
     });
-    renderFlow({ draftKey: 'room-1:participant-1' });
+    const onSubmit = vi.fn<(responses: HealthCheckResponseMap) => void>();
+    renderFlow({ draftKey: 'room-1:participant-1', onSubmit });
 
     fireEvent.input(screen.getByRole('slider'), { target: { value: '6' } });
     expect(screen.getByRole('slider')).toHaveValue('6');
@@ -209,8 +230,11 @@ describe('HealthCheckResponseFlow', () => {
     expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(
       'Oppgavene mine gir meg mer energi enn de tapper meg for.',
     );
-    fireEvent.click(screen.getByRole('button', { name: 'Forrige' }));
-    expect(screen.getByRole('slider')).toHaveValue('6');
+    expect(screen.queryByRole('button', { name: 'Forrige' })).not.toBeInTheDocument();
+    await answerAll(() => 4, 1);
+    expect(onSubmit).toHaveBeenCalledOnce();
+    expect(onSubmit.mock.calls[0][0].joy_look_forward).toBe(6);
+    expect(Object.values(onSubmit.mock.calls[0][0])).toHaveLength(31);
   });
 
   it('bruker ikke console når et utkast lagres', () => {
@@ -227,13 +251,6 @@ describe('HealthCheckResponseFlow', () => {
     consoleSpies.forEach((spy) => expect(spy).not.toHaveBeenCalled());
   });
 
-  it('rendrer potensielt skadelig participantName som tekst, aldri HTML', () => {
-    const participantName = '<img src=x onerror=alert(1)>';
-    const { container } = renderFlow({ participantName });
-
-    expect(screen.getByText(participantName)).toBeVisible();
-    expect(container.querySelector('img')).toBeNull();
-  });
 
   it('videresender valgfri forlat-handling uten navigasjonsantakelser', () => {
     const onLeave = vi.fn();

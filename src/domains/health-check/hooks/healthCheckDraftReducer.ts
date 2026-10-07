@@ -1,28 +1,29 @@
-import type {
-  HealthCheckResponseMap,
-  QuestionKey,
-  SevenPointScore,
+import {
+  flattenHealthCheckQuestions,
+  SQUAD_HEALTH_TEMPLATE_V1,
+  validateHealthCheckResponses,
+  type HealthCheckResponseMap,
+  type QuestionKey,
+  type SevenPointScore,
 } from '../domain';
+
+const questions = flattenHealthCheckQuestions(SQUAD_HEALTH_TEMPLATE_V1);
 
 export interface HealthCheckDraftState {
   readonly responses: Partial<HealthCheckResponseMap>;
   readonly currentQuestionIndex: number;
-  readonly view: 'question' | 'review';
-  readonly returnToReview: boolean;
+  readonly view: 'question' | 'submit';
 }
 
 export type HealthCheckDraftAction =
   | { readonly type: 'answer'; readonly questionKey: QuestionKey; readonly score: SevenPointScore }
-  | { readonly type: 'previous' }
-  | { readonly type: 'next'; readonly questionCount: number; readonly canReview?: boolean }
-  | { readonly type: 'edit'; readonly questionIndex: number };
+  | { readonly type: 'next'; readonly questionCount: number };
 
 export function createHealthCheckDraftState(): HealthCheckDraftState {
   return {
     responses: {},
     currentQuestionIndex: 0,
     view: 'question',
-    returnToReview: false,
   };
 }
 
@@ -30,31 +31,25 @@ export function healthCheckDraftReducer(
   state: HealthCheckDraftState,
   action: HealthCheckDraftAction,
 ): HealthCheckDraftState {
+  const currentQuestion = questions[state.currentQuestionIndex];
+  if (state.view !== 'question' || !currentQuestion) return state;
+
   switch (action.type) {
     case 'answer':
+      if (action.questionKey !== currentQuestion.key
+        || !Number.isInteger(action.score) || action.score < 1 || action.score > 7) return state;
       return {
         ...state,
         responses: { ...state.responses, [action.questionKey]: action.score },
       };
-    case 'previous':
-      return {
-        ...state,
-        currentQuestionIndex: Math.max(0, state.currentQuestionIndex - 1),
-      };
     case 'next':
-      if (state.returnToReview) {
-        return { ...state, view: 'review', returnToReview: false };
-      }
+      if (action.questionCount !== questions.length
+        || state.responses[currentQuestion.key] === undefined) return state;
       if (state.currentQuestionIndex >= action.questionCount - 1) {
-        return action.canReview === false ? state : { ...state, view: 'review' };
+        return validateHealthCheckResponses(state.responses).valid
+          ? { ...state, currentQuestionIndex: action.questionCount - 1, view: 'submit' }
+          : state;
       }
       return { ...state, currentQuestionIndex: state.currentQuestionIndex + 1 };
-    case 'edit':
-      return {
-        ...state,
-        view: 'question',
-        currentQuestionIndex: action.questionIndex,
-        returnToReview: true,
-      };
   }
 }

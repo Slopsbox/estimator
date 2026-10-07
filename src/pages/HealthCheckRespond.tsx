@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { NavyPageLayout } from '../components/NavyPageLayout';
 import { HealthCheckResponseFlow } from '../domains/health-check/components';
+import { HealthCheckCompletion } from '../domains/health-check/components/HealthCheckCompletion';
 import type { HealthCheckResponseMap, HealthCheckState } from '../domains/health-check/services';
 import { useSession } from '../hooks/useSession';
 import { useSessionPresence } from '../hooks/useSessionPresence';
@@ -12,39 +13,112 @@ import { clearHealthCheckDraft } from '../domains/health-check/storage/healthChe
 
 export function HealthCheckRespondPage() {
   const navigate = useNavigate();
+  const { session, clearLocalSession } = useSession();
+  const [completion, setCompletion] = useState<{ sessionId: string; ended: boolean } | null>(null);
+  const currentSessionIdRef = useRef(session?.id ?? null);
+  useEffect(() => {
+    currentSessionIdRef.current = session?.id ?? null;
+  }, [session?.id]);
+
+  const refreshCompletion = useCallback(async () => {
+    if (!completion || completion.ended) return;
+    const result = await sessionServices.health.getState(completion.sessionId);
+    if (!result.ok && result.reason === 'forbidden') {
+      if (currentSessionIdRef.current === completion.sessionId) clearLocalSession();
+      setCompletion((current) => current?.sessionId === completion.sessionId
+        ? { ...current, ended: true }
+        : current);
+    }
+  }, [clearLocalSession, completion]);
+
+  useEffect(() => {
+    if (!completion || completion.ended) return;
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === 'visible' && navigator.onLine !== false) {
+        void refreshCompletion();
+      }
+    }, 2000);
+    return () => window.clearInterval(timer);
+  }, [completion, refreshCompletion]);
+
+  useVisibilityRefetch(() => void refreshCompletion());
+
+  const handleCompleted = useCallback((sessionId: string) => {
+    setCompletion({ sessionId, ended: false });
+  }, []);
+
+  if (completion) {
+    return <HealthCheckCompletion ended={completion.ended} onExit={() => {
+      clearLocalSession();
+      navigate('/', { replace: true });
+    }} />;
+  }
+
+  return (
+    <HealthCheckRespondSession
+      key={session?.id ?? 'no-session'}
+      onCompleted={handleCompleted}
+    />
+  );
+}
+
+function HealthCheckRespondSession({ onCompleted }: {
+  readonly onCompleted: (sessionId: string) => void;
+}) {
+  const navigate = useNavigate();
   const { session, localParticipant, activityType, restoreStatus, leaveSession, clearLocalSession } = useSession();
   const [healthState, setHealthState] = useState<HealthCheckState | null>(null);
   const [stateError, setStateError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [sessionEnded, setSessionEnded] = useState(false);
+  const activeRef = useRef(true);
   const submitInFlightRef = useRef(false);
+  const stateRequestSessionRef = useRef<string | null>(null);
   const stateRequestSequenceRef = useRef(0);
+  const completedRef = useRef(false);
   const sessionId = session?.id ?? null;
   const draftKey = sessionId && localParticipant
     ? `${sessionId}:${localParticipant.participantId}`
     : undefined;
   useSessionPresence(sessionId, localParticipant?.participantId ?? null);
 
+  useEffect(() => () => {
+    activeRef.current = false;
+    stateRequestSequenceRef.current += 1;
+  }, []);
+
   const loadState = useCallback(async () => {
-    if (!sessionId) return;
+    if (!sessionId || stateRequestSessionRef.current === sessionId) return;
+    stateRequestSessionRef.current = sessionId;
+    const requestedSessionId = sessionId;
     const requestSequence = ++stateRequestSequenceRef.current;
-    const result = await sessionServices.health.getState(sessionId);
-    if (requestSequence !== stateRequestSequenceRef.current) return;
-    if (!result.ok) {
-      if (result.reason === 'forbidden') {
-        if (draftKey) clearHealthCheckDraft(draftKey);
-        clearLocalSession();
-        setSessionEnded(true);
-        setStateError(null);
+    try {
+      const result = await sessionServices.health.getState(requestedSessionId);
+      if (!activeRef.current || requestSequence !== stateRequestSequenceRef.current) return;
+      if (!result.ok) {
+        if (result.reason === 'forbidden') {
+          if (draftKey) clearHealthCheckDraft(draftKey);
+          clearLocalSession();
+          setSessionEnded(true);
+          setStateError(null);
+          return;
+        }
+        setStateError('Kunne ikke hente helsesjekken. Prøv igjen.');
         return;
       }
-      setStateError('Kunne ikke hente helsesjekken. Prøv igjen.');
-      return;
+      setStateError(null);
+      if (result.value.respondentState === 'completed') {
+        completedRef.current = true;
+        onCompleted(requestedSessionId);
+      }
+      if (!completedRef.current || result.value.respondentState === 'completed') setHealthState(result.value);
+    } finally {
+      if (stateRequestSessionRef.current === requestedSessionId) {
+        stateRequestSessionRef.current = null;
+      }
     }
-    setStateError(null);
-    setHealthState(result.value);
-  }, [clearLocalSession, draftKey, sessionId]);
+  }, [clearLocalSession, draftKey, onCompleted, sessionId]);
 
   useEffect(() => {
     if (sessionId && activityType === 'health_check') queueMicrotask(() => void loadState());
@@ -57,7 +131,7 @@ export function HealthCheckRespondPage() {
   }, [draftKey, healthState?.respondentState]);
 
   useEffect(() => {
-    if (!sessionId || sessionEnded) return;
+    if (!sessionId || sessionEnded || completedRef.current) return;
     const timer = window.setInterval(() => {
       if (document.visibilityState === 'visible' && navigator.onLine !== false) void loadState();
     }, 2000);
@@ -76,7 +150,7 @@ export function HealthCheckRespondPage() {
   }, [activityType, localParticipant, navigate]);
 
   useEffect(() => {
-    if (sessionEnded) return;
+    if (sessionEnded || completedRef.current) return;
     if ((restoreStatus === 'ready' || restoreStatus === 'invalid') && !session && !localParticipant) {
       navigate(resolveRoomRoute('health_check', 'join'), { replace: true });
     }
@@ -92,19 +166,32 @@ export function HealthCheckRespondPage() {
   };
 
   const handleSubmit = async (responses: HealthCheckResponseMap) => {
-    if (!sessionId || submitInFlightRef.current) return;
+    if (!sessionId || submitInFlightRef.current || completedRef.current) return;
+    const submittedSessionId = sessionId;
     submitInFlightRef.current = true;
     setSubmitting(true);
     setSubmitError(null);
-    const result = await sessionServices.health.submit(sessionId, responses);
-    setSubmitting(false);
-    submitInFlightRef.current = false;
-    if (!result.ok) {
+    try {
+      const result = await sessionServices.health.submit(submittedSessionId, responses);
+      if (!activeRef.current) return;
+      if (!result.ok) {
+        setSubmitError('Svarene kunne ikke sendes. Prøv igjen.');
+        return;
+      }
+      // The submit acknowledgement is authoritative, even if subsequent polling
+      // fails or the facilitator finalizes the room immediately afterwards.
+      completedRef.current = true;
+      onCompleted(submittedSessionId);
+      if (draftKey) clearHealthCheckDraft(draftKey);
+    } catch {
+      if (!activeRef.current) return;
       setSubmitError('Svarene kunne ikke sendes. Prøv igjen.');
-      return;
+    } finally {
+      if (activeRef.current) {
+        setSubmitting(false);
+        submitInFlightRef.current = false;
+      }
     }
-    if (draftKey) clearHealthCheckDraft(draftKey);
-    await loadState();
   };
 
   if (sessionEnded) {
@@ -145,32 +232,16 @@ export function HealthCheckRespondPage() {
     );
   }
 
-  if (healthState.respondentState === 'completed') {
-    return (
-      <WaitingScreen
-        title="Svarene er registrert"
-        message="Vent mens resten av squaden svarer. Du kan lukke fanen."
-        error={stateError}
-        actionLabel="Til forsiden"
-        onAction={() => {
-          clearLocalSession();
-          navigate('/');
-        }}
-      />
-    );
-  }
-
   return (
     <div className="min-h-screen" style={{ background: 'var(--color-neutral-100)' }}>
-      <HealthCheckResponseFlow
-        key={draftKey}
-        participantName={localParticipant.name}
-        draftKey={draftKey}
-        draftExpiresAt={healthState.expiresAt}
-        submitting={submitting}
-        submitError={submitError}
-        onSubmit={handleSubmit}
-      />
+        <HealthCheckResponseFlow
+          key={draftKey}
+          draftKey={draftKey}
+          draftExpiresAt={healthState.expiresAt}
+          submitting={submitting}
+          submitError={submitError}
+          onSubmit={handleSubmit}
+        />
     </div>
   );
 }

@@ -4,7 +4,7 @@ import {
   createHealthCheckDownloadHandler,
   parseHealthReportKey,
   type StoredHealthReportPackage,
-} from './_lib/health-check-download';
+} from './_lib/health-check-download.js';
 
 const KEY_ENV_PATTERN = /^HEALTH_REPORT_AES_KEY_V([1-9][0-9]*)$/;
 

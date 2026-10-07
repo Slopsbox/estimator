@@ -93,6 +93,14 @@ npm run test         # Kjør tester
 npm run test:watch   # Tester i watch-modus
 ```
 
+API-koden sjekkes både med `tsconfig.api.json` (inkludert API-tester/lokal
+worker-prototype) og `api/tsconfig.json` (deployede entrypoints, NodeNext/ES2022).
+Vercels Node-bygger finner nærmeste **`tsconfig.json`** fra API-entrypointet;
+derfor må wrapperen under `api/` beholdes. Relative runtime-importer i deployet
+API-kode skal ha `.js`-endelse, også når kildefilen er TypeScript.
+`src/test/apiTypeScriptConfig.test.ts` kontrollerer dette oppslaget og kompilerer
+begge deployede entrypoints. Denne konfigurasjonen aktiverer ikke rapportnedlasting.
+
 ---
 
 ## Appflyt

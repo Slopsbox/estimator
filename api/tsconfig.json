@@ -1,0 +1,9 @@
+{
+  "extends": "../tsconfig.api.json",
+  "compilerOptions": {
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext"
+  },
+  "include": ["health-check-download.ts", "verify-turnstile.ts"],
+  "exclude": ["**/*.test.ts"]
+}
